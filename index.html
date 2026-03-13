@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WB Brands — Finance OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<div id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark">WB</div>
+      <div class="brand-text">
+        <span class="brand-name">WB Brands</span>
+        <span class="brand-sub">Finance OS</span>
+      </div>
+    </div>
+
+    <div class="entity-switcher">
+      <label>Entity view</label>
+      <select id="entityFilter" onchange="app.setEntity(this.value)">
+        <option value="all">All entities (Consolidated)</option>
+        <option value="LP">Lanyard Promo LLC</option>
+        <option value="KP">Koolers Promo LLC</option>
+        <option value="BP">Band Promo LLC</option>
+        <option value="WBP">WB Promo LLC</option>
+        <option value="ONEOPS">One Operations Mgmt</option>
+      </select>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Overview</div>
+      <a class="nav-item active" onclick="app.navigate('dashboard')" data-page="dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Dashboard
+      </a>
+
+      <div class="nav-group-label">Accounting</div>
+      <a class="nav-item" onclick="app.navigate('transactions')" data-page="transactions">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        Transactions
+        <span class="nav-badge" id="reviewBadge">14</span>
+      </a>
+      <a class="nav-item" onclick="app.navigate('journals')" data-page="journals">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        Journal Entries
+      </a>
+      <a class="nav-item" onclick="app.navigate('reconcile')" data-page="reconcile">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        Reconciliation
+      </a>
+
+      <div class="nav-group-label">Payables</div>
+      <a class="nav-item" onclick="app.navigate('vendors')" data-page="vendors">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Vendors
+        <span class="nav-badge danger" id="overdueVendorBadge">3</span>
+      </a>
+      <a class="nav-item" onclick="app.navigate('invoices')" data-page="invoices">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Invoices
+      </a>
+
+      <div class="nav-group-label">Reports</div>
+      <a class="nav-item" onclick="app.navigate('pnl')" data-page="pnl">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Profit & Loss
+      </a>
+      <a class="nav-item" onclick="app.navigate('balance')" data-page="balance">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        Balance Sheet
+      </a>
+      <a class="nav-item" onclick="app.navigate('cashflow')" data-page="cashflow">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Cash Flow
+      </a>
+
+      <div class="nav-group-label">Settings</div>
+      <a class="nav-item" onclick="app.navigate('coa')" data-page="coa">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M5.34 17.66l-1.41 1.41M20 12h-2M6 12H4M19.07 19.07l-1.41-1.41M5.34 6.34L3.93 4.93"/></svg>
+        Chart of Accounts
+      </a>
+      <a class="nav-item" onclick="app.navigate('banks')" data-page="banks">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        Bank Connections
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sync-status">
+        <div class="sync-dot"></div>
+        <span>Live sync · 2 min ago</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+    <div class="topbar">
+      <div class="topbar-left">
+        <div class="page-title" id="pageTitle">Dashboard</div>
+        <div class="page-sub" id="pageSub">March 2025 · Consolidated view</div>
+      </div>
+      <div class="topbar-right">
+        <div class="period-picker">
+          <select id="periodPicker" onchange="app.setPeriod(this.value)">
+            <option value="2025-03">March 2025</option>
+            <option value="2025-02">February 2025</option>
+            <option value="2025-01">January 2025</option>
+            <option value="2024-12">December 2024</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="app.openModal('addTransaction')">+ New Transaction</button>
+        <button class="btn-icon" id="themeToggle" onclick="app.toggleDarkMode()" title="Toggle dark mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <div class="avatar">ZT</div>
+      </div>
+    </div>
+
+    <!-- PAGES -->
+    <div id="page-dashboard" class="page active">
+      <!-- Metrics row — 6 KPIs -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-label">Gross Revenue</div>
+          <div class="metric-value" id="m-revenue">$3,000,350</div>
+          <div class="metric-delta pos">↑ 8.4% vs Feb</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Total Income</div>
+          <div class="metric-value" id="m-income">$2,957,550</div>
+          <div class="metric-delta pos">Returns: $42,800</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Gross Profit</div>
+          <div class="metric-value" id="m-gp">$1,844,150</div>
+          <div class="metric-delta pos">62.3% margin</div>
+        </div>
+        <div class="metric-card highlight">
+          <div class="metric-label">Net Profit</div>
+          <div class="metric-value" id="m-np">$455,040</div>
+          <div class="metric-delta pos">15.4% margin</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Total Cash</div>
+          <div class="metric-value" id="m-cash">$1,030,200</div>
+          <div class="metric-delta">Across 5 accounts</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Ad Spend</div>
+          <div class="metric-value" id="m-adspend">$455,000</div>
+          <div class="metric-delta neg">↑ 12.1% vs Feb</div>
+        </div>
+      </div>
+
+      <!-- Insights -->
+      <div class="insights-section">
+        <div class="insight-card danger">
+          <strong>3 invoices overdue</strong>
+          <span>UPS · FedEx · Meta Ads — $75,600 past due</span>
+        </div>
+        <div class="insight-card warning">
+          <strong>14 transactions need review</strong>
+          <span>Uncategorized or unverified entries</span>
+        </div>
+        <div class="insight-card warning">
+          <strong>Commission transfer not recorded</strong>
+          <span>March commission entry pending</span>
+        </div>
+        <div class="insight-card success">
+          <strong>March P&amp;L ready</strong>
+          <span>All entries reconciled · Ready for review</span>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <!-- Revenue chart — full width -->
+        <div class="card span-3">
+          <div class="card-header">
+            <span class="card-title">Daily Revenue — March 2025</span>
+            <div class="card-legend">
+              <span><em style="background:#3B82F6"></em>Stripe</span>
+              <span><em style="background:#10B981"></em>PayPal</span>
+              <span><em style="background:#F59E0B"></em>Wire/Check</span>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:200px"><canvas id="revenueChart"></canvas></div>
+        </div>
+
+        <!-- Revenue by entity -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Revenue by Entity</span></div>
+          <div class="chart-wrap" style="height:200px"><canvas id="entityChart"></canvas></div>
+        </div>
+
+        <!-- Expense breakdown -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Expense Breakdown</span></div>
+          <div class="chart-wrap" style="height:160px"><canvas id="expenseDonut"></canvas></div>
+          <div class="donut-legend" id="donutLegend"></div>
+        </div>
+
+        <!-- Net profit trend -->
+        <div class="card span-2">
+          <div class="card-header">
+            <span class="card-title">Net Profit Trend — 6 Months</span>
+            <div class="card-legend">
+              <span><em style="background:#10B981"></em>Net profit</span>
+              <span><em style="background:#6366F1"></em>Ad spend</span>
+            </div>
+          </div>
+          <div class="chart-wrap" style="height:180px"><canvas id="trendChart"></canvas></div>
+        </div>
+
+        <!-- Cash balances -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Cash Balances</span></div>
+          <div class="cash-bars" id="cashBars"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TRANSACTIONS PAGE -->
+    <div id="page-transactions" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="filter-select" id="txnEntityFilter">
+            <option value="">All entities</option>
+            <option value="LP">LP</option>
+            <option value="KP">KP</option>
+            <option value="BP">BP</option>
+            <option value="WBP">WBP</option>
+            <option value="ONEOPS">One Ops</option>
+          </select>
+          <select class="filter-select" id="txnTypeFilter">
+            <option value="">All types</option>
+            <option value="income">Income</option>
+            <option value="expense">Expense</option>
+            <option value="transfer">Transfer</option>
+            <option value="payroll">Payroll</option>
+            <option value="cogs">COGS</option>
+          </select>
+          <select class="filter-select" id="txnStatusFilter">
+            <option value="">All statuses</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="review">Needs review</option>
+          </select>
+          <div class="autocomplete-wrap">
+            <input class="filter-input" type="text" placeholder="Search vendor or description…" id="txnSearch" oninput="app.onTxnSearchInput()" autocomplete="off"/>
+            <div class="autocomplete-dropdown" id="txnSuggest"></div>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-outline" onclick="app.openModal('importCSV')">Import Transactions</button>
+          <button class="btn-outline" onclick="app.exportCSV()">↓ Export CSV</button>
+          <button class="btn-primary" onclick="app.openModal('addTransaction')">+ Add transaction</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table" id="txnTable">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="selectAll" onchange="app.selectAll(this)"/></th>
+              <th class="sortable" onclick="app.sortTable('date')">Acct. Date <span class="sort-icon">↕</span></th>
+              <th class="sortable" onclick="app.sortTable('txnDate')">Txn Date</th>
+              <th>Entity</th>
+              <th>Description / Vendor</th>
+              <th>Type</th>
+              <th>Category</th>
+              <th class="sortable" onclick="app.sortTable('amount')">Amount <span class="sort-icon">↕</span></th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="txnBody"></tbody>
+        </table>
+      </div>
+      <div class="table-footer">
+        <span id="txnCount">Showing 0 transactions</span>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </div>
+
+    <!-- JOURNAL ENTRIES PAGE -->
+    <div id="page-journals" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <input class="filter-input" type="text" placeholder="Search journal…" style="width:280px"/>
+          <select class="filter-select"><option>All entries</option><option>Eliminations only</option><option>Manual only</option></select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-primary" onclick="app.openModal('addJournal')">+ Manual journal entry</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Journal ID</th><th>Acct. Date</th><th>Memo</th><th>Account</th><th>Debit</th><th>Credit</th><th>Entity</th><th>Type</th></tr></thead>
+          <tbody id="journalBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RECONCILIATION PAGE -->
+    <div id="page-reconcile" class="page">
+      <div class="reconcile-header">
+        <div class="recon-stats" id="reconStats"></div>
+      </div>
+      <div class="reconcile-grid">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Bank statement items</span></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Match</th></tr></thead>
+              <tbody id="bankBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Book transactions</span></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Match</th></tr></thead>
+              <tbody id="bookBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VENDORS PAGE -->
+    <div id="page-vendors" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <input class="filter-input" placeholder="Search vendors…" type="text" oninput="app.filterVendors(this.value)"/>
+          <select class="filter-select" id="vendorTypeFilter" onchange="app.filterVendors()">
+            <option value="">All types</option>
+            <option value="cogs">COGS</option>
+            <option value="shipping">Shipping</option>
+            <option value="ad_agency">Ad Agency</option>
+            <option value="software">Software</option>
+            <option value="utility">Utility</option>
+          </select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-primary" onclick="app.openModal('addVendor')">+ Add vendor</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Vendor name</th><th>Type</th><th>YTD spend</th><th>Open invoices</th><th>Overdue</th><th>Last payment</th><th>Status</th></tr></thead>
+          <tbody id="vendorBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- INVOICES PAGE -->
+    <div id="page-invoices" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="filter-select" id="invoiceStatusFilter" onchange="app.renderInvoices()">
+            <option value="">All statuses</option>
+            <option value="open">Open</option>
+            <option value="partial">Partial</option>
+            <option value="overdue">Overdue</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-primary" onclick="app.openModal('addInvoice')">+ Add invoice</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Invoice #</th><th>Vendor</th><th>Invoice date</th><th>Due date</th><th>Amount</th><th>Paid</th><th>Remaining</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="invoiceBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- P&L PAGE -->
+    <div id="page-pnl" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="filter-select" onchange="app.setPnlEntity(this.value)">
+            <option value="all">Consolidated (WB Brands LLC)</option>
+            <option value="LP">Lanyard Promo LLC</option>
+            <option value="KP">Koolers Promo LLC</option>
+            <option value="BP">Band Promo LLC</option>
+            <option value="WBP">WB Promo LLC</option>
+          </select>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-outline" onclick="app.printReport()">⬜ Print / PDF</button>
+          <button class="btn-outline" onclick="app.exportCSV()">↓ Export</button>
+        </div>
+      </div>
+      <div class="report-container" id="pnlReport"></div>
+    </div>
+
+    <!-- BALANCE SHEET PAGE -->
+    <div id="page-balance" class="page">
+      <div class="toolbar">
+        <div class="toolbar-right">
+          <button class="btn-outline" onclick="app.printReport()">⬜ Print / PDF</button>
+          <button class="btn-outline" onclick="app.exportCSV()">↓ Export</button>
+        </div>
+      </div>
+      <div class="report-container" id="balanceReport"></div>
+    </div>
+
+    <!-- CASH FLOW PAGE -->
+    <div id="page-cashflow" class="page">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">Cash Flow Statement — March 2025</span></div>
+        <div class="chart-wrap" style="height:280px"><canvas id="cashflowChart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Cash Flow Waterfall</span></div>
+        <div class="chart-wrap" style="height:260px"><canvas id="waterfallChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- CHART OF ACCOUNTS -->
+    <div id="page-coa" class="page">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="filter-select" id="coaTypeFilter" onchange="app.renderCOA()">
+            <option value="">All types</option>
+            <option value="asset">Assets</option>
+            <option value="liability">Liabilities</option>
+            <option value="equity">Equity</option>
+            <option value="revenue">Revenue</option>
+            <option value="expense">Expenses</option>
+          </select>
+          <input class="filter-input" placeholder="Search accounts…" oninput="app.renderCOA(this.value)"/>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn-primary">+ New account</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Code</th><th>Account name</th><th>Type</th><th>Subtype</th><th>P&L / BS line</th><th>Balance</th><th>Elimination</th></tr></thead>
+          <tbody id="coaBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BANK CONNECTIONS PAGE -->
+    <div id="page-banks" class="page">
+      <div class="banks-grid" id="banksGrid"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="app.closeModal()">
+  <div class="modal" onclick="event.stopPropagation()" id="modalContainer">
+    <div class="modal-header">
+      <span class="modal-title" id="modalTitle">Add Transaction</span>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
