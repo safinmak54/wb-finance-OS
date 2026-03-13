@@ -339,7 +339,7 @@
     <div id="page-vendors" class="page">
       <div class="toolbar">
         <div class="toolbar-left">
-          <input class="filter-input" placeholder="Search vendors…" type="text" oninput="app.filterVendors(this.value)"/>
+          <input class="filter-input" placeholder="Search vendors…" type="text" id="vendorSearch" oninput="app.filterVendors(this.value)"/>
           <select class="filter-select" id="vendorTypeFilter" onchange="app.filterVendors()">
             <option value="">All types</option>
             <option value="cogs">COGS</option>
@@ -443,7 +443,7 @@
           <input class="filter-input" placeholder="Search accounts…" oninput="app.renderCOA(this.value)"/>
         </div>
         <div class="toolbar-right">
-          <button class="btn-primary">+ New account</button>
+          <button class="btn-primary" onclick="app.openModal('addAccount')">+ New account</button>
         </div>
       </div>
       <div class="table-wrap">

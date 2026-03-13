@@ -299,22 +299,29 @@ const app = {
 
     // Render page-specific content
     setTimeout(() => {
+      if (page === 'dashboard')    this.updateDashboardKPIs();
       if (page === 'transactions') this.renderTransactions();
-      if (page === 'vendors') this.renderVendors();
-      if (page === 'invoices') this.renderInvoices();
-      if (page === 'pnl') this.renderPnL();
-      if (page === 'balance') this.renderBalance();
-      if (page === 'journals') this.renderJournals();
-      if (page === 'coa') this.renderCOA();
-      if (page === 'banks') this.renderBanks();
-      if (page === 'reconcile') this.renderReconcile();
-      if (page === 'cashflow') this.renderCashflow();
+      if (page === 'vendors')      this.renderVendors();
+      if (page === 'invoices')     this.renderInvoices();
+      if (page === 'pnl')          this.renderPnL();
+      if (page === 'balance')      this.renderBalance();
+      if (page === 'journals')     this.renderJournals();
+      if (page === 'coa')          this.renderCOA();
+      if (page === 'banks')        this.renderBanks();
+      if (page === 'reconcile')    this.renderReconcile();
+      if (page === 'cashflow')     this.renderCashflow();
     }, 10);
   },
 
   setEntity(val) {
     state.currentEntity = val;
-    if (state.currentPage === 'transactions') this.renderTransactions();
+    const pg = state.currentPage;
+    if (pg === 'transactions') this.renderTransactions();
+    else if (pg === 'vendors')  this.renderVendors();
+    else if (pg === 'invoices') this.renderInvoices();
+    else if (pg === 'pnl')      this.renderPnL();
+    else if (pg === 'balance')  this.renderBalance();
+    else if (pg === 'dashboard') this.updateDashboardKPIs();
   },
 
   setPeriod(val) {
@@ -478,7 +485,8 @@ const app = {
   },
 
   // ---- P&L REPORT ----
-  renderPnL(entity = 'all') {
+  renderPnL(entity) {
+    if (entity === undefined) entity = state.currentEntity;
     const el = document.getElementById('pnlReport');
     const scale = entity === 'all' ? 1 : { LP: 0.37, KP: 0.26, BP: 0.18, WBP: 0.19 }[entity] || 1;
     const s = v => (v * scale);
@@ -504,7 +512,7 @@ const app = {
     el.innerHTML = `
       <div class="report-header">
         <h2>Profit & Loss Statement</h2>
-        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · March 2025 · Accrual basis</p>
+        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · ${this.getPeriodLabel(state.currentPeriod)} · Accrual basis</p>
       </div>
       ${pnlSection('Gross Revenue')}
       ${pnlLine('Stripe payouts', stripe, 1)}
@@ -553,42 +561,58 @@ const app = {
 
   // ---- BALANCE SHEET ----
   renderBalance() {
+    const entity = state.currentEntity;
+    const sc = entity === 'all' ? 1 : ({LP:0.37,KP:0.26,BP:0.18,WBP:0.19}[entity] || 0.25);
+    const s = v => Math.round(v * sc);
+    const period = this.getPeriodLabel(state.currentPeriod);
+
+    // Cash: show only relevant entity accounts
+    const cashRows = entity === 'all'
+      ? [['LP checking',284100],['KP checking',196400],['BP checking',88200],['WBP checking',142600],['One Ops checking',318900]]
+      : {LP:[['LP checking',284100]],KP:[['KP checking',196400]],BP:[['BP checking',88200]],WBP:[['WBP checking',142600]],ONEOPS:[['One Ops checking',318900]]}[entity] || [];
+    const totalCash = cashRows.reduce((sum,[,v]) => sum + v, 0);
+    const creditCards = entity === 'all'
+      ? [[' — LP',18400],[' — KP',12600],[' — BP',9100]]
+      : {LP:[[' — LP',18400]],KP:[[' — KP',12600]],BP:[[' — BP',9100]]}[entity] || [];
+
+    const ar = s(124300), inv = s(248600), prepaid = s(36800);
+    const totalAssets = totalCash + ar + inv + prepaid;
+    const ap = s(312400), payrollLib = s(48200), accrued = s(62800);
+    const ccTotal = creditCards.reduce((sum,[,v]) => sum + v, 0);
+    const totalLiab = ap + payrollLib + accrued + ccTotal;
+    const equity = s(520860), netProfit = s(455040), distrib = s(120000);
+    const totalEquity = equity + netProfit - distrib;
+
     const el = document.getElementById('balanceReport');
     el.innerHTML = `
       <div class="report-header">
         <h2>Balance Sheet</h2>
-        <p>WB Brands LLC — Consolidated · As of March 31, 2025</p>
+        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · As of ${period}</p>
       </div>
       ${pnlSection('Assets')}
       ${pnlLine('Current assets', null, 1, 'group')}
-      ${pnlLine('Cash — LP checking', 284100, 2)}
-      ${pnlLine('Cash — KP checking', 196400, 2)}
-      ${pnlLine('Cash — BP checking', 88200, 2)}
-      ${pnlLine('Cash — WBP checking', 142600, 2)}
-      ${pnlLine('Cash — One Ops checking', 318900, 2)}
-      ${pnlLine('Total cash', 1030200, 1, 'subtotal')}
-      ${pnlLine('Accounts receivable', 124300, 2)}
-      ${pnlLine('Inventory', 248600, 2)}
-      ${pnlLine('Prepaid expenses', 36800, 2)}
-      ${pnlTotal('Total Assets', 1439900, 'pos')}
+      ${cashRows.map(([name,val]) => pnlLine('Cash — '+name, val, 2)).join('')}
+      ${pnlLine('Total cash', totalCash, 1, 'subtotal')}
+      ${pnlLine('Accounts receivable', ar, 2)}
+      ${pnlLine('Inventory', inv, 2)}
+      ${pnlLine('Prepaid expenses', prepaid, 2)}
+      ${pnlTotal('Total Assets', totalAssets, 'pos')}
 
       ${pnlSection('Liabilities')}
-      ${pnlLine('Accounts payable', 312400, 1)}
-      ${pnlLine('Payroll liabilities', 48200, 1)}
-      ${pnlLine('Accrued expenses', 62800, 1)}
-      ${pnlLine('Credit card payable — LP', 18400, 1)}
-      ${pnlLine('Credit card payable — KP', 12600, 1)}
-      ${pnlLine('Credit card payable — BP', 9100, 1)}
-      ${pnlTotal('Total Liabilities', 463500)}
+      ${pnlLine('Accounts payable', ap, 1)}
+      ${pnlLine('Payroll liabilities', payrollLib, 1)}
+      ${pnlLine('Accrued expenses', accrued, 1)}
+      ${creditCards.map(([name,val]) => pnlLine('Credit card payable'+name, val, 1)).join('')}
+      ${pnlTotal('Total Liabilities', totalLiab)}
 
       ${pnlSection('Equity')}
-      ${pnlLine('Owner equity', 520860, 1)}
+      ${pnlLine('Owner equity', equity, 1)}
       ${pnlLine('Retained earnings', 0, 1)}
-      ${pnlLine('Net profit — current period', 455040, 1, 'pos')}
-      ${pnlLine('Partner distributions', -120000, 1, 'neg')}
-      ${pnlTotal('Total Equity', 855900, 'pos')}
+      ${pnlLine('Net profit — current period', netProfit, 1, 'pos')}
+      ${pnlLine('Partner distributions', -distrib, 1, 'neg')}
+      ${pnlTotal('Total Equity', totalEquity, 'pos')}
 
-      ${pnlGrand('Total Liabilities + Equity', 1319400, 'pos')}
+      ${pnlGrand('Total Liabilities + Equity', totalLiab + totalEquity, 'pos')}
     `;
   },
 
@@ -629,7 +653,8 @@ const app = {
       </tr>`).join('');
   },
 
-  filterVendors(search = '') {
+  filterVendors(search) {
+    if (search === undefined) search = document.getElementById('vendorSearch')?.value || '';
     this.renderVendors(search);
   },
 
@@ -653,7 +678,7 @@ const app = {
         <td>
           <div style="display:flex;gap:4px">
             ${i.status !== 'paid' ? `<button class="action-btn primary btn-sm" onclick="app.payInvoice('${i.id}')">Pay</button>` : ''}
-            <button class="action-btn btn-sm">View</button>
+            <button class="action-btn btn-sm" onclick="app.viewInvoice('${i.id}')">View</button>
           </div>
         </td>
       </tr>`;
@@ -719,8 +744,8 @@ const app = {
         </div>
         <div class="bank-sync">Last sync: ${b.synced}</div>
         <div style="margin-top:10px;display:flex;gap:6px">
-          <button class="btn-outline btn-sm" style="font-size:11px">↻ Sync now</button>
-          <button class="btn-outline btn-sm" style="font-size:11px">View transactions</button>
+          <button class="btn-outline btn-sm" style="font-size:11px" onclick="app.syncBank('${b.entity}','${b.last4}')">↻ Sync now</button>
+          <button class="btn-outline btn-sm" style="font-size:11px" onclick="app.viewBankTxns('${b.entity}')">View transactions</button>
         </div>
       </div>`).join('');
   },
@@ -988,6 +1013,69 @@ const app = {
         </div>`;
     }
 
+    if (type === 'viewInvoice') {
+      const inv = data;
+      const remaining = inv.amount - inv.paid;
+      const daysOverdue = inv.status === 'overdue' ? Math.round((new Date() - new Date(inv.due)) / 86400000) : 0;
+      title.textContent = `Invoice ${inv.invoiceNum}`;
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div class="form-group"><label>Vendor</label><div style="font-weight:500;padding:6px 0">${inv.vendor}</div></div>
+          <div class="form-group"><label>Status</label><div style="padding:6px 0"><span class="badge badge-${inv.status}">${inv.status}</span></div></div>
+          <div class="form-group"><label>Invoice date</label><div style="padding:6px 0">${inv.date}</div></div>
+          <div class="form-group"><label>Due date</label><div style="padding:6px 0;${inv.status==='overdue'?'color:var(--red)':''}">${inv.due}${daysOverdue>0?` <span style="font-size:10px">(${daysOverdue}d overdue)</span>`:''}</div></div>
+          <div class="form-group"><label>Invoice amount</label><div style="font-weight:600;font-family:var(--mono);padding:6px 0">${fmt(inv.amount)}</div></div>
+          <div class="form-group"><label>Amount paid</label><div style="font-weight:600;font-family:var(--mono);padding:6px 0;color:var(--green)">${inv.paid ? fmt(inv.paid) : '—'}</div></div>
+        </div>
+        <div style="background:var(--surface2);border-radius:var(--radius);padding:12px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <span style="font-size:12px;font-weight:500">Remaining balance</span>
+          <span style="font-size:16px;font-weight:600;font-family:var(--mono);color:${remaining>0?'var(--red)':'var(--green)'}">${fmt(remaining)}</span>
+        </div>
+        <div class="form-actions">
+          <button class="btn-outline" onclick="app.closeModal()">Close</button>
+          ${inv.status !== 'paid' ? `<button class="btn-primary" onclick="app.payInvoice('${inv.id}');app.closeModal()">Mark as paid</button>` : ''}
+        </div>`;
+    }
+
+    if (type === 'addAccount') {
+      title.textContent = 'New Account';
+      body.innerHTML = `
+        <div class="form-row">
+          <div class="form-group">
+            <label>Account code</label>
+            <input type="text" id="fCoaCode" placeholder="e.g. 6650"/>
+          </div>
+          <div class="form-group">
+            <label>Account type</label>
+            <select id="fCoaType">
+              <option value="asset">Asset</option>
+              <option value="liability">Liability</option>
+              <option value="equity">Equity</option>
+              <option value="revenue">Revenue</option>
+              <option value="expense" selected>Expense</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Account name</label>
+          <input type="text" id="fCoaName" placeholder="e.g. Travel & Entertainment"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Subtype</label>
+            <input type="text" id="fCoaSubtype" placeholder="e.g. opex"/>
+          </div>
+          <div class="form-group">
+            <label>P&L / BS line</label>
+            <input type="text" id="fCoaLine" placeholder="e.g. Other opex"/>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="app.saveAccount()">Add account</button>
+        </div>`;
+    }
+
     if (type === 'importCSV') {
       title.textContent = 'Import Transactions';
       body.innerHTML = `
@@ -1160,6 +1248,11 @@ const app = {
     const entryType = document.getElementById('fJeType')?.value;
 
     if (!memo) { this.toast('Memo is required'); return; }
+    const totalDeb = debit1 + debit2, totalCred = credit1 + credit2;
+    if (totalDeb > 0 && Math.abs(totalDeb - totalCred) > 0.01) {
+      this.toast(`Debits (${fmt(totalDeb)}) must equal credits (${fmt(totalCred)})`);
+      return;
+    }
     const entityCode = entity === 'WB (consolidated)' ? 'WB' : entity;
 
     if (supabaseClient) {
@@ -1386,6 +1479,86 @@ const app = {
 
   printReport() { window.print(); },
 
+  // ---- DASHBOARD KPIs ----
+  updateDashboardKPIs() {
+    const entity = state.currentEntity;
+    const sc = entity === 'all' ? 1 : ({LP:0.37,KP:0.26,BP:0.18,WBP:0.19}[entity] || 0.25);
+    const s = v => Math.round(v * sc);
+
+    const revenue = s(1842300) + s(620150) + s(537900);
+    const returns = s(42800);
+    const income  = revenue - returns;
+    const cogs    = s(985000) + s(128400);
+    const gp      = income - cogs;
+    const adSpend = s(218400) + s(174600) + s(62000);
+    const payroll = s(298000) + s(44500) + s(28600);
+    const opex    = adSpend + payroll + s(18200) + s(24000) + s(3200) + s(55270) + s(18600) + s(2800) + s(4100) + s(3600) + s(1840) + s(8400);
+    const np      = gp - opex - s(120000);
+
+    const totalCash = entity === 'all'
+      ? DATA.banks.filter(b => b.type === 'checking' && b.balance > 0).reduce((sum,b) => sum + b.balance, 0)
+      : (DATA.banks.find(b => b.entity === entity && b.type === 'checking')?.balance || 0);
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = fmt(val); };
+    set('m-revenue', revenue);
+    set('m-income',  income);
+    set('m-gp',      gp);
+    set('m-np',      np);
+    set('m-cash',    totalCash);
+    set('m-adspend', adSpend);
+
+    // Update margin delta on net profit card
+    const npEl = document.getElementById('m-np');
+    if (npEl) {
+      const delta = npEl.parentElement?.querySelector('.metric-delta');
+      if (delta && income > 0) delta.textContent = ((np / income) * 100).toFixed(1) + '% margin';
+    }
+    const gpEl = document.getElementById('m-gp');
+    if (gpEl) {
+      const delta = gpEl.parentElement?.querySelector('.metric-delta');
+      if (delta && income > 0) delta.textContent = ((gp / income) * 100).toFixed(1) + '% margin';
+    }
+  },
+
+  // ---- INVOICE DETAIL ----
+  viewInvoice(id) {
+    const inv = DATA.invoices.find(i => i.id === id);
+    if (inv) this.openModal('viewInvoice', inv);
+  },
+
+  // ---- ACCOUNT ----
+  saveAccount() {
+    const code    = document.getElementById('fCoaCode')?.value?.trim();
+    const name    = document.getElementById('fCoaName')?.value?.trim();
+    const type    = document.getElementById('fCoaType')?.value;
+    const subtype = document.getElementById('fCoaSubtype')?.value?.trim();
+    const line    = document.getElementById('fCoaLine')?.value?.trim();
+    if (!code || !name) { this.toast('Code and name are required'); return; }
+    if (DATA.coa.find(a => a.code === code)) { this.toast('Account code already exists'); return; }
+    DATA.coa.push({ code, name, type, subtype: subtype || type, line: line || name, balance: 0, elimination: false });
+    this.renderCOA();
+    this.toast('Account added');
+    this.closeModal();
+  },
+
+  // ---- BANK ACTIONS ----
+  syncBank(entity, last4) {
+    const label = entity === 'ALL' ? 'processor' : `${entity} ••••${last4}`;
+    this.toast(`Syncing ${label}…`);
+    setTimeout(() => {
+      const b = DATA.banks.find(x => x.entity === entity && x.last4 === last4);
+      if (b) b.synced = 'Just now';
+      this.renderBanks();
+      this.toast(`${label} sync complete`);
+    }, 1400);
+  },
+
+  viewBankTxns(entity) {
+    const filter = document.getElementById('txnEntityFilter');
+    if (filter) filter.value = entity === 'ALL' ? '' : entity;
+    this.navigate('transactions');
+  },
+
   toggleDarkMode() {
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const next = isDark ? 'light' : 'dark';
@@ -1539,6 +1712,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.info('WB Finance OS: Running in offline/demo mode. Add Supabase credentials to app.js to enable live data.');
   }
   initDashboardCharts();
+  app.updateDashboardKPIs();
   ['txnEntityFilter','txnTypeFilter','txnStatusFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => app.filterTransactions());
