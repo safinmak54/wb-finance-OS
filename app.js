@@ -297,6 +297,9 @@ const app = {
     document.getElementById('pageTitle').textContent = title;
     document.getElementById('pageSub').textContent = sub;
 
+    // Close sidebar on mobile after navigation
+    if (window.innerWidth <= 768) this.closeSidebar();
+
     // Render page-specific content
     setTimeout(() => {
       if (page === 'dashboard')    this.updateDashboardKPIs();
@@ -1478,6 +1481,16 @@ const app = {
   },
 
   printReport() { window.print(); },
+
+  // ---- SIDEBAR (mobile) ----
+  toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebarBackdrop').classList.toggle('open');
+  },
+  closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarBackdrop').classList.remove('open');
+  },
 
   // ---- DASHBOARD KPIs ----
   updateDashboardKPIs() {

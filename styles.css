@@ -99,7 +99,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .main-content { display: flex; flex-direction: column; overflow: hidden; }
 
 .topbar { height: var(--topbar-h); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: var(--surface); flex-shrink: 0; }
-.topbar-left { display: flex; flex-direction: column; }
+.topbar-left { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .page-title { font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: -0.1px; }
 .page-sub { font-size: 11px; color: var(--text3); margin-top: 1px; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
@@ -313,3 +313,109 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .action-btn:hover { background: var(--surface2); }
 .action-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .action-btn.danger { color: var(--red); border-color: var(--red-light); }
+
+/* ---- SIDEBAR BACKDROP ---- */
+.sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 79; }
+.sidebar-backdrop.open { display: block; }
+
+/* ---- HAMBURGER (hidden on desktop) ---- */
+.hamburger { display: none; }
+
+/* ================================================================
+   RESPONSIVE — TABLET  (769 – 1100 px)
+   ================================================================ */
+@media (max-width: 1100px) {
+  .metrics-row { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .dashboard-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .card.span-3 { grid-column: span 2; }
+  .banks-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+
+/* ================================================================
+   RESPONSIVE — MOBILE  (≤ 768 px)
+   ================================================================ */
+@media (max-width: 768px) {
+
+  /* --- App shell --- */
+  #app { grid-template-columns: 1fr; height: 100dvh; }
+
+  /* --- Sidebar off-canvas drawer --- */
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(280px, 82vw);
+    z-index: 80;
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(.4,0,.2,1);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* --- Topbar --- */
+  .topbar { padding: 0 14px; gap: 8px; }
+  .topbar-left { flex-direction: row; align-items: center; gap: 10px; }
+  .hamburger { display: flex; flex-shrink: 0; }
+  .topbar-hide-mobile { display: none !important; }
+  .page-sub { display: none; }
+
+  /* --- Pages --- */
+  .page { padding: 12px 14px; }
+
+  /* --- Metrics row --- */
+  .metrics-row { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+  .metric-value { font-size: 18px; }
+
+  /* --- Dashboard grid — all cards full width --- */
+  .dashboard-grid { grid-template-columns: 1fr; gap: 10px; }
+  .card.span-2,
+  .card.span-3 { grid-column: span 1; }
+
+  /* --- Insights --- */
+  .insights-section { flex-direction: column; gap: 8px; }
+  .insight-card { min-width: 0; }
+
+  /* --- Toolbar --- */
+  .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .toolbar-left  { flex-wrap: wrap; }
+  .toolbar-right { flex-wrap: wrap; }
+  .filter-select,
+  .filter-input  { flex: 1; min-width: 120px; }
+  .autocomplete-wrap { flex: 1; min-width: 120px; }
+  .autocomplete-wrap .filter-input { width: 100%; }
+
+  /* --- Tables --- */
+  .table-wrap { border-radius: var(--radius); }
+  .data-table th,
+  .data-table td { padding: 8px 10px; }
+
+  /* --- Table footer --- */
+  .table-footer { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+  /* --- Banks grid --- */
+  .banks-grid { grid-template-columns: 1fr; }
+
+  /* --- Reconcile grid --- */
+  .reconcile-grid { grid-template-columns: 1fr; }
+
+  /* --- Reports --- */
+  .report-container { padding: 18px 16px; max-width: 100%; }
+  .report-section-title { margin: 0 -16px; }
+
+  /* --- Modal — bottom sheet --- */
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 92dvh;
+  }
+
+  /* --- Forms --- */
+  .form-row { grid-template-columns: 1fr; gap: 0; }
+
+  /* --- Toast --- */
+  .toast { left: 14px; right: 14px; bottom: 14px; text-align: center; }
+
+  /* --- Recon stats --- */
+  .recon-stat { flex: 1; min-width: 120px; }
+}
