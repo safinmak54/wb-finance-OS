@@ -222,7 +222,7 @@ const app = {
       if (page === 'invoices')     this.renderInvoices();
       if (page === 'pnl')          await this.renderPnL();
       if (page === 'balance')      await this.renderBalance();
-      if (page === 'journals')     this.renderJournals();
+      if (page === 'journals')     await this.renderJournals();
       if (page === 'coa')          this.renderCOA();
       if (page === 'banks')        this.renderBanks();
       if (page === 'reconcile')    this.renderReconcile();
@@ -445,8 +445,12 @@ const app = {
     const el = document.getElementById('pnlReport');
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
 
-    const data = await this.fetchReportData(entity, period);
+    const [data, closedRow] = await Promise.all([
+      this.fetchReportData(entity, period),
+      supabaseClient.from('closed_periods').select('closed_at').eq('period', period).maybeSingle()
+    ]);
     if (!data) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load report</div>'; return; }
+    const isClosed = !!(closedRow?.data);
 
     const groups = this.groupByAccount(data.txns);
     const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
@@ -509,6 +513,17 @@ const app = {
       ` : ''}
       ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
       ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
+      ${isClosed && totalAdj !== 0 ? `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px">
+          <p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px">Period Comparison</p>
+          <table style="width:100%;font-size:13px">
+            <tr><td>Cash basis net income</td><td style="text-align:right">${fmt(noi)}</td></tr>
+            <tr><td>Adjusting entries</td><td style="text-align:right">${totalAdj >= 0 ? fmt(totalAdj) : '(' + fmt(Math.abs(totalAdj)) + ')'}</td></tr>
+            <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Accrual basis net income</td><td style="text-align:right">${fmt(netProfit)}</td></tr>
+          </table>
+        </div>
+      ` : ''}
+      ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
       ${totalIncome === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
     `;
   },
@@ -586,19 +601,75 @@ const app = {
   },
 
   // ---- JOURNALS ----
-  renderJournals() {
-    const tbody = document.getElementById('journalBody');
-    tbody.innerHTML = DATA.journals.map(j => `
-      <tr>
-        <td style="font-family:var(--mono);font-size:11px">${j.id}</td>
-        <td>${j.date}</td>
-        <td>${j.memo}</td>
-        <td style="font-size:11px">${j.account}</td>
-        <td class="amount">${j.debit ? fmt(j.debit) : '—'}</td>
-        <td class="amount">${j.credit ? fmt(j.credit) : '—'}</td>
-        <td><span class="badge badge-transfer" style="font-size:10px">${j.entity}</span></td>
-        <td><span class="badge ${j.type === 'elimination' ? 'badge-transfer' : j.type === 'distribution' ? 'badge-expense' : 'badge-review'}">${j.type}</span></td>
-      </tr>`).join('');
+  async renderJournals() {
+    const el = document.getElementById('page-journals');
+    if (!el) return;
+    const period = state.currentPeriod;
+    const periodLabel = this.getPeriodLabel(period);
+
+    const { data: closedCheck } = await supabaseClient
+      .from('closed_periods').select('id, closed_at').eq('period', period).maybeSingle();
+    const isClosed = !!closedCheck;
+
+    const { data: journals, error } = await supabaseClient
+      .from('journal_entries')
+      .select('id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name))')
+      .eq('period', period)
+      .order('accounting_date', { ascending: false });
+    if (error) console.error('Journal load error:', error);
+
+    const displayRows = [];
+    (journals || []).forEach(je => {
+      const shortId = 'JE-' + je.id.slice(0,8).toUpperCase();
+      (je.ledger_entries || []).forEach(line => {
+        displayRows.push({
+          id: shortId,
+          date: je.accounting_date,
+          memo: line.memo || je.description,
+          account: line.accounts ? line.accounts.account_code + ' — ' + line.accounts.account_name : '',
+          debit:  Number(line.debit_amount)  || 0,
+          credit: Number(line.credit_amount) || 0,
+          type: je.entry_type || 'manual'
+        });
+      });
+    });
+
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span style="font-size:13px;color:var(--text3)">${displayRows.length} entries</span>
+        </div>
+        <div class="toolbar-right">
+          ${isClosed
+            ? `<span style="font-size:12px;font-weight:600;color:var(--green);background:var(--green-soft,#e6f9f0);padding:4px 10px;border-radius:6px;border:1px solid var(--green)">✓ ${periodLabel} Closed</span>`
+            : `<button class="btn-primary" onclick="app.openCloseMonth()">Close Month: ${periodLabel}</button>`}
+        </div>
+      </div>
+      ${displayRows.length === 0 ? `
+        <div style="padding:64px;text-align:center;color:var(--text3)">
+          <p style="font-size:15px;margin-bottom:8px">No journal entries for ${periodLabel}</p>
+          <p style="font-size:13px">Journal entries will appear here after closing a month.</p>
+        </div>
+      ` : `
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Date</th><th>Memo</th><th>Account</th><th>Debit</th><th>Credit</th><th>Type</th></tr></thead>
+            <tbody>
+              ${displayRows.map(r => `
+                <tr>
+                  <td style="font-family:var(--mono);font-size:12px">${r.id}</td>
+                  <td>${r.date}</td>
+                  <td>${r.memo}</td>
+                  <td>${r.account}</td>
+                  <td>${r.debit > 0 ? fmt(r.debit) : ''}</td>
+                  <td>${r.credit > 0 ? fmt(r.credit) : ''}</td>
+                  <td><span class="badge">${r.type}</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+    `;
   },
 
   // ---- VENDORS ----
@@ -1888,6 +1959,184 @@ const app = {
   },
 
   printReport() { window.print(); },
+
+  // ---- CLOSE MONTH WORKFLOW ----
+  async openCloseMonth() {
+    const period = state.currentPeriod;
+    const periodLabel = this.getPeriodLabel(period);
+    const { data: txns, error } = await supabaseClient
+      .from('transactions')
+      .select('amount, accounts(account_type, account_subtype)')
+      .gte('acc_date', period + '-01')
+      .lte('acc_date', period + '-31');
+    if (error) { this.toast('Failed to load period data'); return; }
+
+    const rows = txns || [];
+    const sum = (fn) => rows.filter(fn).reduce((s, t) => s + Number(t.amount), 0);
+    const cashRevenue  = sum(t => t.accounts?.account_type === 'revenue');
+    const cashCogs     = Math.abs(sum(t => t.accounts?.account_subtype === 'cogs'));
+    const cashExpenses = Math.abs(sum(t => t.accounts?.account_type === 'expense'));
+
+    this._closeMonthData = { period, periodLabel, cashRevenue, cashCogs, cashExpenses };
+
+    const overlay = document.getElementById('modalOverlay');
+    document.getElementById('modalTitle').textContent = `Close Month: ${periodLabel}`;
+    document.getElementById('modalBody').innerHTML = `
+      <h4 style="margin:0 0 4px">Step 1 of 3 — Cash Basis Summary</h4>
+      <p style="color:var(--text3);font-size:13px;margin-bottom:16px">These amounts come from your classified transactions and are fixed.</p>
+      <table class="data-table" style="margin-bottom:16px">
+        <tr><td>Cash Revenue received</td><td style="text-align:right">${fmt(cashRevenue)}</td></tr>
+        <tr><td>Cash COGS paid</td><td style="text-align:right">(${fmt(cashCogs)})</td></tr>
+        <tr><td>Cash Expenses paid</td><td style="text-align:right">(${fmt(cashExpenses)})</td></tr>
+        <tr style="font-weight:600"><td>Cash Net Income</td><td style="text-align:right">${fmt(cashRevenue - cashCogs - cashExpenses)}</td></tr>
+      </table>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.closeMonthStep2()">Next: Accrual Entry →</button>
+      </div>
+    `;
+    overlay.classList.add('open');
+  },
+
+  async closeMonthStep2() {
+    const { period, periodLabel, cashRevenue, cashCogs } = this._closeMonthData;
+    const { data: accrualJEs } = await supabaseClient
+      .from('journal_entries')
+      .select('ledger_entries(debit_amount, credit_amount, accounts(account_type, account_subtype))')
+      .eq('period', period).eq('entry_type', 'accrual');
+
+    let existingRev = 0, existingCogs = 0;
+    (accrualJEs || []).forEach(je => {
+      (je.ledger_entries || []).forEach(l => {
+        const net = Number(l.credit_amount || 0) - Number(l.debit_amount || 0);
+        if (l.accounts?.account_type === 'revenue') existingRev += net;
+        if (l.accounts?.account_subtype === 'cogs')  existingCogs += Math.abs(net);
+      });
+    });
+    const prefillRev  = existingRev  > 0 ? existingRev  : cashRevenue;
+    const prefillCogs = existingCogs > 0 ? existingCogs : cashCogs;
+
+    document.getElementById('modalTitle').textContent = `Close Month: ${periodLabel}`;
+    document.getElementById('modalBody').innerHTML = `
+      <h4 style="margin:0 0 4px">Step 2 of 3 — Accrual Amounts</h4>
+      <p style="color:var(--text3);font-size:13px;margin-bottom:16px">Enter what was earned/owed this period, not just what was paid.${existingRev > 0 ? ' <strong>Pre-filled from existing accrual entries.</strong>' : ''}</p>
+      <div style="display:grid;gap:12px;margin-bottom:16px">
+        <div class="form-group">
+          <label>Accrual Revenue (earned this period)</label>
+          <input type="number" id="fAccrualRevenue" value="${prefillRev.toFixed(2)}" step="0.01" style="width:100%">
+          <small style="color:var(--text3)">Cash received: ${fmt(cashRevenue)}</small>
+        </div>
+        <div class="form-group">
+          <label>Accrual COGS (cost of goods for period)</label>
+          <input type="number" id="fAccrualCogs" value="${prefillCogs.toFixed(2)}" step="0.01" style="width:100%">
+          <small style="color:var(--text3)">Cash paid: ${fmt(cashCogs)}</small>
+        </div>
+        <div class="form-group">
+          <label>Memo / notes</label>
+          <input type="text" id="fAccrualMemo" placeholder="e.g. Accrual close ${periodLabel}" style="width:100%">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.openCloseMonth()">← Back</button>
+        <button class="btn-primary" onclick="app.closeMonthStep3()">Next: Review →</button>
+      </div>
+    `;
+  },
+
+  closeMonthStep3() {
+    const accrualRevenue = parseFloat(document.getElementById('fAccrualRevenue')?.value) || 0;
+    const accrualCogs    = parseFloat(document.getElementById('fAccrualCogs')?.value)    || 0;
+    const memo           = document.getElementById('fAccrualMemo')?.value?.trim() || '';
+    const { cashRevenue, cashCogs, cashExpenses, periodLabel } = this._closeMonthData;
+
+    const revenueAdj = accrualRevenue - cashRevenue;
+    const cogsAdj    = accrualCogs    - cashCogs;
+    const netAdj     = revenueAdj - cogsAdj;
+    this._adjustingEntry = { accrualRevenue, accrualCogs, revenueAdj, cogsAdj, netAdj, memo };
+
+    const adjRow = (label, val) => `
+      <tr><td>${label}</td>
+      <td style="text-align:right;color:${val >= 0 ? 'var(--green,#16a34a)' : 'var(--red)'};font-weight:500">
+        ${val >= 0 ? fmt(val) : '(' + fmt(Math.abs(val)) + ')'}
+      </td></tr>`;
+    const cashNet  = cashRevenue - cashCogs - cashExpenses;
+    const accrualNet = cashNet + netAdj;
+
+    document.getElementById('modalTitle').textContent = `Close Month: ${periodLabel}`;
+    document.getElementById('modalBody').innerHTML = `
+      <h4 style="margin:0 0 4px">Step 3 of 3 — Confirm Adjusting Entry</h4>
+      <p style="color:var(--text3);font-size:13px;margin-bottom:12px">This adjusting entry will be posted and the period will be locked.</p>
+      <table class="data-table" style="margin-bottom:12px">
+        <thead><tr><th>Line</th><th style="text-align:right">Adjustment</th></tr></thead>
+        <tbody>
+          ${adjRow('Revenue adjustment (accrual − cash)', revenueAdj)}
+          ${adjRow('COGS adjustment (accrual − cash)', -cogsAdj)}
+          ${adjRow('Net adjusting entry', netAdj)}
+        </tbody>
+      </table>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+        <table style="width:100%">
+          <tr><td style="color:var(--text3)">Cash net income</td><td style="text-align:right">${fmt(cashNet)}</td></tr>
+          <tr><td style="color:var(--text3)">Adjusting entry</td><td style="text-align:right">${netAdj >= 0 ? fmt(netAdj) : '(' + fmt(Math.abs(netAdj)) + ')'}</td></tr>
+          <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Accrual net income</td><td style="text-align:right">${fmt(accrualNet)}</td></tr>
+        </table>
+      </div>
+      ${memo ? `<p style="color:var(--text3);font-size:13px;margin-bottom:10px">Memo: ${memo}</p>` : ''}
+      <p style="font-size:13px;color:var(--red);margin-bottom:14px">⚠ This will lock ${periodLabel}. No new transactions can be classified into this period after close.</p>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeMonthStep2()">← Back</button>
+        <button class="btn-primary" onclick="app.confirmMonthClose()">Confirm & Close Month</button>
+      </div>
+    `;
+  },
+
+  async confirmMonthClose() {
+    const { period, periodLabel } = this._closeMonthData;
+    const { revenueAdj, cogsAdj, netAdj, memo } = this._adjustingEntry;
+
+    if (Math.abs(revenueAdj) < 0.01 && Math.abs(cogsAdj) < 0.01) {
+      await supabaseClient.from('closed_periods').insert({ period, entity: state.currentEntity, closed_by: 'user' });
+      this.toast(`${periodLabel} closed (no adjustments needed) ✓`);
+      this.closeModal();
+      await this.renderJournals();
+      return;
+    }
+
+    const [{ data: revAccts }, { data: cogsAccts }] = await Promise.all([
+      supabaseClient.from('accounts').select('id').eq('account_type', 'revenue').limit(1),
+      supabaseClient.from('accounts').select('id').eq('account_subtype', 'cogs').limit(1)
+    ]);
+    const revenueAcct = (revAccts || [])[0];
+    const cogsAcct    = (cogsAccts || [])[0];
+    if (!revenueAcct || !cogsAcct) { this.toast('Could not find revenue or COGS accounts — check Chart of Accounts'); return; }
+
+    const [yr, mo] = period.split('-').map(Number);
+    const lastDay    = new Date(yr, mo, 0).getDate();
+    const closingDate = `${period}-${String(lastDay).padStart(2, '0')}`;
+    const entityId    = state.currentEntity !== 'all' ? window._entityByCode?.[state.currentEntity] : null;
+
+    const { data: je, error: jeErr } = await supabaseClient
+      .from('journal_entries')
+      .insert({ description: memo || `Adjusting entry — ${periodLabel}`, accounting_date: closingDate, entry_type: 'adjusting', period, entity_id: entityId })
+      .select('id').single();
+    if (jeErr) { this.toast('Failed to post journal entry'); console.error(jeErr); return; }
+
+    const lines = [];
+    if (Math.abs(revenueAdj) > 0.01) lines.push({ journal_entry_id: je.id, account_id: revenueAcct.id, debit_amount: revenueAdj < 0 ? Math.abs(revenueAdj) : 0, credit_amount: revenueAdj > 0 ? revenueAdj : 0, memo: 'Revenue adjustment' });
+    if (Math.abs(cogsAdj)    > 0.01) lines.push({ journal_entry_id: je.id, account_id: cogsAcct.id,    debit_amount: cogsAdj    > 0 ? cogsAdj    : 0, credit_amount: cogsAdj    < 0 ? Math.abs(cogsAdj)    : 0, memo: 'COGS adjustment' });
+
+    if (lines.length > 0) {
+      const { error: lineErr } = await supabaseClient.from('ledger_entries').insert(lines);
+      if (lineErr) { this.toast('Failed to post ledger lines'); console.error(lineErr); return; }
+    }
+
+    const { error: lockErr } = await supabaseClient.from('closed_periods').insert({ period, entity: state.currentEntity, closed_by: 'user' });
+    if (lockErr && lockErr.code !== '23505') { this.toast('Failed to lock period'); console.error(lockErr); return; }
+
+    this.toast(`${periodLabel} closed ✓`);
+    this.closeModal();
+    await this.renderJournals();
+  },
 
   // ---- SIDEBAR (mobile) ----
   toggleSidebar() {
