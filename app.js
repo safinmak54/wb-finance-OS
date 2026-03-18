@@ -1189,8 +1189,8 @@ const app = {
               ${txns.map(t => `
                 <tr data-id="${t.id}">
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
-                  <td>${t.transaction_date || ''}</td>
-                  <td>${t.description || ''}</td>
+                  <td style="white-space:nowrap">${t.transaction_date || ''}</td>
+                  <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
                       ${['WB','LP','KP','BP','WBP','ONEOPS'].map(e =>
@@ -1345,6 +1345,15 @@ const app = {
       countEl.textContent = n + ' to classify';
     }
     this.toast('Deleted');
+  },
+
+  // ---- INLINE DESCRIPTION EDIT ----
+  async saveDescEdit(input) {
+    const rawId = input.dataset.id;
+    const newDesc = input.value.trim();
+    if (!newDesc || !rawId) return;
+    const { error } = await supabaseClient.from('raw_transactions').update({ description: newDesc }).eq('id', rawId);
+    if (error) { this.toast('Failed to save'); console.error(error); }
   },
 
   // ---- BULK DELETE ----
