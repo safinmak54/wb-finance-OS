@@ -1543,8 +1543,15 @@ const app = {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
         if (raw.length < 2) { this.toast('File appears empty or has no data rows'); return; }
-        const headers = raw[0].map(String);
-        const rows = raw.slice(1)
+        // Auto-detect header row: scan first 5 rows, pick the one with the most column-keyword matches
+        const headerKws = ['date','amount','debit','credit','description','desc','memo','account','balance','status','type','check','payee','vendor','category','reference'];
+        const scoreRow = r => r.filter(c => { const k = String(c).toLowerCase().replace(/[^a-z]/g,''); return headerKws.some(kw => k.includes(kw)); }).length;
+        let headerRowIdx = 0;
+        for (let i = 1; i < Math.min(5, raw.length); i++) {
+          if (scoreRow(raw[i]) > scoreRow(raw[headerRowIdx])) headerRowIdx = i;
+        }
+        const headers = raw[headerRowIdx].map(String);
+        const rows = raw.slice(headerRowIdx + 1)
           .filter(r => r.some(c => String(c).trim() !== ''))
           .map(r => r.map(v => String(v ?? '')));
         callback(headers, rows);
@@ -1569,6 +1576,8 @@ const app = {
       if (['type','transactiontype','txntype','kind'].includes(k)) map.type = i;
       if (['category','categories','cat'].includes(k)) map.category = i;
       if (['amount','value','sum','total'].includes(k)) map.amount = i;
+      if (['debit','dr','debits','debitamount'].includes(k)) map.debit = i;
+      if (['credit','cr','credits','creditamount'].includes(k)) map.credit = i;
       if (['status','state'].includes(k)) map.status = i;
     });
     return map;
@@ -1582,7 +1591,9 @@ const app = {
       { key: 'vendor',   label: 'Vendor',       required: false },
       { key: 'type',     label: 'Type',         required: false },
       { key: 'category', label: 'Category',     required: false },
-      { key: 'amount',   label: 'Amount',       required: true  },
+      { key: 'amount',   label: 'Amount',       required: false },
+      { key: 'debit',    label: 'Debit',        required: false },
+      { key: 'credit',   label: 'Credit',       required: false },
       { key: 'status',   label: 'Status',       required: false },
     ];
     const autoMap = this.autoDetectCSVColumns(headers);
@@ -1606,7 +1617,8 @@ const app = {
         <button class="btn-outline btn-sm" onclick="app.openModal('importCSV')" style="font-size:11px">← Change file</button>
       </div>
       <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:10px">Column mapping</div>
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:6px">Column mapping</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Map <b>Amount</b> for a single column, or <b>Debit + Credit</b> for two-column bank statements.</div>
         ${mappingHTML}
       </div>
       <div style="margin-bottom:20px">
@@ -1631,7 +1643,9 @@ const app = {
 
     if (mapping.accDate < 0)  { this.toast('Date column is required');        return; }
     if (mapping.desc < 0)     { this.toast('Description column is required'); return; }
-    if (mapping.amount < 0)   { this.toast('Amount column is required');      return; }
+    if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
+      this.toast('Map either the Amount column or the Debit/Credit columns'); return;
+    }
 
     const { rows } = this._csvImportData;
     const inserts = [];
@@ -1640,15 +1654,27 @@ const app = {
     rows.forEach(row => {
       const accDate = row[mapping.accDate]?.replace(/"/g, '').trim();
       const desc    = row[mapping.desc]?.replace(/"/g, '').trim();
-      const raw     = row[mapping.amount]?.replace(/["$,\s]/g, '');
-      const amount  = parseFloat(raw);
 
-      if (!accDate || !desc || isNaN(amount)) { skipped++; return; }
+      let amount, direction;
+      if (mapping.amount >= 0) {
+        const raw = row[mapping.amount]?.replace(/["$,\s]/g, '');
+        const val = parseFloat(raw);
+        amount    = Math.abs(val);
+        direction = val >= 0 ? 'CREDIT' : 'DEBIT';
+      } else {
+        const debitVal  = parseFloat(mapping.debit  >= 0 ? row[mapping.debit]?.replace(/["$,\s]/g,'')  || '0' : '0') || 0;
+        const creditVal = parseFloat(mapping.credit >= 0 ? row[mapping.credit]?.replace(/["$,\s]/g,'') || '0' : '0') || 0;
+        if (creditVal > 0)      { amount = creditVal; direction = 'CREDIT'; }
+        else if (debitVal > 0)  { amount = debitVal;  direction = 'DEBIT';  }
+        else                    { skipped++; return; }
+      }
+
+      if (!accDate || !desc || isNaN(amount) || amount === 0) { skipped++; return; }
 
       inserts.push({
         description:      desc,
-        amount:           Math.abs(amount),
-        direction:        amount >= 0 ? 'CREDIT' : 'DEBIT',
+        amount,
+        direction,
         transaction_date: accDate,
         accounting_date:  accDate,
         source:           'csv',
