@@ -1471,16 +1471,16 @@ function initDashboardCharts() {
   };
 
   const days = Array.from({length:31},(_,i)=>i+1+'');
-  const stripe = days.map(()=>Math.round(40000+Math.random()*35000));
-  const paypal = days.map(()=>Math.round(12000+Math.random()*14000));
-  const wire = days.map(()=>Math.round(8000+Math.random()*18000));
+  const revenue  = days.map(() => 0);
+  const expenses = days.map(() => 0);
+  const net      = days.map(() => 0);
 
   new Chart(document.getElementById('revenueChart'), {
     type:'bar',
     data:{ labels:days, datasets:[
-      {label:'Stripe', data:stripe, backgroundColor:rgba(C.navy,0.85), stack:'s', borderRadius:2},
-      {label:'PayPal', data:paypal, backgroundColor:rgba(C.teal,0.85), stack:'s', borderRadius:2},
-      {label:'Wire',   data:wire,   backgroundColor:rgba(C.green,0.85), stack:'s', borderRadius:2}
+      {label:'Revenue',  data:revenue,  backgroundColor:rgba(C.navy,0.85), stack:'s', borderRadius:2},
+      {label:'Expenses', data:expenses, backgroundColor:rgba(C.teal,0.85), stack:'s', borderRadius:2},
+      {label:'Net',      data:net,      backgroundColor:rgba(C.green,0.85), stack:'s', borderRadius:2}
     ]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{stacked:true, ticks:{maxTicksLimit:10,font:{size:10}}, grid:{display:false}},
@@ -1521,19 +1521,8 @@ function initDashboardCharts() {
     }}
   });
 
-  const cashData = [
-    {entity:'LP',      balance:284100, max:330000, color:C.navy},
-    {entity:'KP',      balance:196400, max:330000, color:C.teal},
-    {entity:'BP',      balance:88200,  max:330000, color:C.green},
-    {entity:'WBP',     balance:142600, max:330000, color:C.amber},
-    {entity:'One Ops', balance:318900, max:330000, color:C.red},
-  ];
-  document.getElementById('cashBars').innerHTML = cashData.map(c=>`
-    <div class="cash-row">
-      <span class="cash-entity">${c.entity}</span>
-      <div class="cash-track"><div class="cash-fill" style="width:${Math.round((c.balance/c.max)*100)}%;background:${c.color}"></div></div>
-      <span class="cash-amount">${fmt(c.balance)}</span>
-    </div>`).join('');
+  document.getElementById('cashBars').innerHTML =
+    '<p style="color:var(--text3);font-size:13px;padding:12px">No bank data yet</p>';
 }
 
 // ---- BOOT ----
