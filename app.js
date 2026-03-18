@@ -1203,11 +1203,11 @@ const app = {
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
                   <td>
-                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
+                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px" onchange="if(this.value==='__new__'){this.value='';app.openNewAccountModal();}">
                       <option value="">— select account —</option>
                       ${acctOptions}
+                      <option value="__new__">+ New account</option>
                     </select>
-                    <div style="font-size:11px;margin-top:2px"><a href="#" onclick="app.openNewAccountModal();return false" style="color:var(--accent)">+ New account</a></div>
                   </td>
                   <td style="white-space:nowrap">
                     <button class="btn-primary" style="font-size:12px;padding:4px 10px" onclick="app.classifyRow('${t.id}')">Classify</button>
