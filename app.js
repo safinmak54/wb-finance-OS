@@ -186,6 +186,13 @@ const app = {
     state.currentPage = page;
 
     const period = this.getPeriodLabel(state.currentPeriod);
+
+    // Update dynamic chart titles
+    const rcTitle = document.getElementById('revenueChartTitle');
+    if (rcTitle) rcTitle.textContent = `Daily Revenue — ${period}`;
+    const cfTitle = document.getElementById('cashflowTitle');
+    if (cfTitle) cfTitle.textContent = `Cash Flow Statement — ${period}`;
+
     const titles = {
       dashboard: ['Dashboard', `${period} · Consolidated view`],
       transactions: ['Transactions', `All entities · ${period}`],
@@ -1324,6 +1331,16 @@ const app = {
 
     // Cash: placeholder until bank sync
     set('m-cash', 0);
+
+    // Update insights section
+    const insights = document.getElementById('insightsSection');
+    if (insights) {
+      if (rows.length === 0) {
+        insights.innerHTML = '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>';
+      } else {
+        insights.innerHTML = '';
+      }
+    }
 
     // Update margin deltas
     const npEl = document.getElementById('m-np');

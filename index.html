@@ -112,7 +112,7 @@
         </button>
         <div>
           <div class="page-title" id="pageTitle">Dashboard</div>
-          <div class="page-sub" id="pageSub">March 2025 · Consolidated view</div>
+          <div class="page-sub" id="pageSub">Loading…</div>
         </div>
       </div>
       <div class="topbar-right">
@@ -134,65 +134,48 @@
       <div class="metrics-row">
         <div class="metric-card">
           <div class="metric-label">Gross Revenue</div>
-          <div class="metric-value" id="m-revenue">$3,000,350</div>
-          <div class="metric-delta pos">↑ 8.4% vs Feb</div>
+          <div class="metric-value" id="m-revenue">$0</div>
+          <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Total Income</div>
-          <div class="metric-value" id="m-income">$2,957,550</div>
-          <div class="metric-delta pos">Returns: $42,800</div>
+          <div class="metric-value" id="m-income">$0</div>
+          <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Gross Profit</div>
-          <div class="metric-value" id="m-gp">$1,844,150</div>
-          <div class="metric-delta pos">62.3% margin</div>
+          <div class="metric-value" id="m-gp">$0</div>
+          <div class="metric-delta"></div>
         </div>
         <div class="metric-card highlight">
           <div class="metric-label">Net Profit</div>
-          <div class="metric-value" id="m-np">$455,040</div>
-          <div class="metric-delta pos">15.4% margin</div>
+          <div class="metric-value" id="m-np">$0</div>
+          <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Total Cash</div>
-          <div class="metric-value" id="m-cash">$1,030,200</div>
-          <div class="metric-delta">Across 5 accounts</div>
+          <div class="metric-value" id="m-cash">$0</div>
+          <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
           <div class="metric-label">Ad Spend</div>
-          <div class="metric-value" id="m-adspend">$455,000</div>
-          <div class="metric-delta neg">↑ 12.1% vs Feb</div>
+          <div class="metric-value" id="m-adspend">$0</div>
+          <div class="metric-delta"></div>
         </div>
       </div>
 
-      <!-- Insights -->
-      <div class="insights-section">
-        <div class="insight-card danger">
-          <strong>3 invoices overdue</strong>
-          <span>UPS · FedEx · Meta Ads — $75,600 past due</span>
-        </div>
-        <div class="insight-card warning">
-          <strong>14 transactions need review</strong>
-          <span>Uncategorized or unverified entries</span>
-        </div>
-        <div class="insight-card warning">
-          <strong>Commission transfer not recorded</strong>
-          <span>March commission entry pending</span>
-        </div>
-        <div class="insight-card success">
-          <strong>March P&amp;L ready</strong>
-          <span>All entries reconciled · Ready for review</span>
-        </div>
-      </div>
+      <!-- Insights (populated dynamically) -->
+      <div class="insights-section" id="insightsSection"></div>
 
       <div class="dashboard-grid">
         <!-- Revenue chart — full width -->
         <div class="card span-3">
           <div class="card-header">
-            <span class="card-title">Daily Revenue — March 2025</span>
+            <span class="card-title" id="revenueChartTitle">Daily Revenue</span>
             <div class="card-legend">
-              <span><em style="background:#3B82F6"></em>Stripe</span>
-              <span><em style="background:#10B981"></em>PayPal</span>
-              <span><em style="background:#F59E0B"></em>Wire/Check</span>
+              <span><em style="background:#1B3A6B"></em>Revenue</span>
+              <span><em style="background:#0D6B74"></em>Expenses</span>
+              <span><em style="background:#1A7A4A"></em>Net</span>
             </div>
           </div>
           <div class="chart-wrap" style="height:200px"><canvas id="revenueChart"></canvas></div>
@@ -423,7 +406,7 @@
     <!-- CASH FLOW PAGE -->
     <div id="page-cashflow" class="page">
       <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><span class="card-title">Cash Flow Statement — March 2025</span></div>
+        <div class="card-header"><span class="card-title" id="cashflowTitle">Cash Flow Statement</span></div>
         <div class="chart-wrap" style="height:280px"><canvas id="cashflowChart"></canvas></div>
       </div>
       <div class="card">
