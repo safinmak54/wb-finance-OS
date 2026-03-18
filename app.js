@@ -3,10 +3,10 @@
 // ============================================================
 
 // ---- SUPABASE CONFIG ----
-// 1. Go to https://supabaseClient.com → your wb-finance-os project → Settings → API
+// 1. Go to https://supabase.com → your wb-finance-os project → Settings → API
 // 2. Copy "Project URL" and "anon public" key
 // 3. Paste them below, then refresh the page
-const SUPABASE_URL = 'https://fxwjadkbvlvxtxxkjqkw.supabaseClient.co';
+const SUPABASE_URL = 'https://fxwjadkbvlvxtxxkjqkw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410';
 
 let supabaseClient = null;
