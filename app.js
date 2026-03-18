@@ -165,7 +165,7 @@ async function loadDataFromSupabase() {
 const state = {
   currentPage: 'dashboard',
   currentEntity: 'all',
-  currentPeriod: '2025-03',
+  currentPeriod: new Date().toISOString().slice(0, 7),
   txnPage: 1,
   txnPageSize: 15,
   txnSort: { field: 'accDate', dir: 'desc' },
