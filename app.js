@@ -1203,7 +1203,7 @@ const app = {
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
                   <td>
-                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;width:100%">
+                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
                       <option value="">— select account —</option>
                       ${acctOptions}
                     </select>
