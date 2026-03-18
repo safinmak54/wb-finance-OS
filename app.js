@@ -82,10 +82,9 @@ async function loadDataFromSupabase() {
         source: t.source || 'manual'
       }));
       state.filteredTxns = [...DATA.transactions];
-      // Always update sidebar review badge (clears hardcoded value when DB is empty)
-      const reviewCount = DATA.transactions.filter(t => t.status === 'review').length;
+      // Always update sidebar inbox badge with unclassified count
       const badge = document.getElementById('reviewBadge');
-      if (badge) badge.textContent = reviewCount || '';
+      if (badge) badge.textContent = (txns || []).filter(t => !t.classified).length || '';
     }
 
     // Load vendors
@@ -195,7 +194,8 @@ const app = {
 
     const titles = {
       dashboard: ['Dashboard', `${period} · Consolidated view`],
-      transactions: ['Transactions', `All entities · ${period}`],
+      inbox:  ['Inbox', 'Unclassified transactions'],
+      ledger: ['Ledger', `Classified transactions · ${period}`],
       journals: ['Journal Entries', 'Double-entry ledger'],
       reconcile: ['Reconciliation', `Bank vs book · ${period}`],
       vendors: ['Vendors', 'Payables management'],
@@ -216,7 +216,8 @@ const app = {
     // Render page-specific content
     setTimeout(async () => {
       if (page === 'dashboard')    await this.updateDashboardKPIs();
-      if (page === 'transactions') this.renderTransactions();
+      if (page === 'inbox')        await this.renderInbox();
+      if (page === 'ledger')       await this.renderLedger();
       if (page === 'vendors')      this.renderVendors();
       if (page === 'invoices')     this.renderInvoices();
       if (page === 'pnl')          this.renderPnL();
@@ -232,7 +233,8 @@ const app = {
   async setEntity(val) {
     state.currentEntity = val;
     const pg = state.currentPage;
-    if (pg === 'transactions') this.renderTransactions();
+    if (pg === 'inbox')        await this.renderInbox();
+    else if (pg === 'ledger') await this.renderLedger();
     else if (pg === 'vendors')  this.renderVendors();
     else if (pg === 'invoices') this.renderInvoices();
     else if (pg === 'pnl')      this.renderPnL();
@@ -622,6 +624,7 @@ const app = {
 
   // ---- MODALS ----
   openModal(type, data = {}) {
+    if (type === 'newRawTxn') { this.openModal_newRawTxn(); return; }
     const overlay = document.getElementById('modalOverlay');
     const title = document.getElementById('modalTitle');
     const body = document.getElementById('modalBody');
@@ -911,6 +914,408 @@ const app = {
 
   closeModal() { document.getElementById('modalOverlay').classList.remove('open'); },
 
+  // ---- INBOX ----
+  async renderInbox() {
+    const el = document.getElementById('inboxContent');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    const { data: accounts } = await supabaseClient
+      .from('accounts').select('id, account_code, account_name, account_type')
+      .order('account_code');
+
+    const { data: rawTxns, error } = await supabaseClient
+      .from('raw_transactions').select('*').eq('classified', false)
+      .order('transaction_date', { ascending: false });
+
+    if (error) { this.toast('Failed to load inbox'); console.error(error); return; }
+
+    const txns = rawTxns || [];
+    const acctOptions = (accounts || []).map(a =>
+      `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
+    ).join('');
+
+    // Update sidebar badge
+    const badge = document.getElementById('reviewBadge');
+    if (badge) badge.textContent = txns.length || '';
+
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <button class="btn-primary" onclick="app.openModal('importCSV')">↑ Upload CSV</button>
+          <button class="btn-outline" onclick="app.openModal('newRawTxn')">+ Manual Entry</button>
+        </div>
+        <div class="toolbar-right">
+          <span style="font-size:13px;color:var(--text3)">${txns.length} to classify</span>
+          <button class="btn-outline" id="bulkClassifyBtn" style="display:none" onclick="app.bulkClassify()">Classify Selected</button>
+        </div>
+      </div>
+      ${txns.length === 0 ? `
+        <div style="padding:64px;text-align:center;color:var(--text3)">
+          <p style="font-size:15px;margin-bottom:8px">Inbox is empty</p>
+          <p style="font-size:13px">Upload a CSV or add a manual transaction to get started.</p>
+        </div>
+      ` : `
+        <div class="table-wrap">
+          <table class="data-table" id="inboxTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="inboxSelectAll" onchange="app.toggleSelectAll(this)"></th>
+                <th>Date</th><th>Description</th><th>Entity</th><th>Amount</th><th>Source</th>
+                <th style="min-width:260px">Category (COA)</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${txns.map(t => `
+                <tr data-id="${t.id}">
+                  <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
+                  <td>${t.transaction_date || ''}</td>
+                  <td>${t.description || ''}</td>
+                  <td>
+                    <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
+                      ${['WB','LP','KP','BP','WBP','ONEOPS'].map(e =>
+                        `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
+                      ).join('')}
+                    </select>
+                  </td>
+                  <td class="${Number(t.amount) >= 0 ? 'pos' : 'neg'}" style="font-variant-numeric:tabular-nums">
+                    ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
+                  </td>
+                  <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
+                  <td>
+                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;width:100%">
+                      <option value="">— select account —</option>
+                      ${acctOptions}
+                    </select>
+                    <div style="font-size:11px;margin-top:2px"><a href="#" onclick="app.openNewAccountModal();return false" style="color:var(--accent)">+ New account</a></div>
+                  </td>
+                  <td><button class="btn-primary" style="font-size:12px;padding:4px 10px" onclick="app.classifyRow('${t.id}')">Classify</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `}
+    `;
+  },
+
+  toggleSelectAll(checkbox) {
+    document.querySelectorAll('.row-check').forEach(c => c.checked = checkbox.checked);
+    this.onRowCheck();
+  },
+
+  onRowCheck() {
+    const anyChecked = [...document.querySelectorAll('.row-check')].some(c => c.checked);
+    const btn = document.getElementById('bulkClassifyBtn');
+    if (btn) btn.style.display = anyChecked ? 'inline-block' : 'none';
+  },
+
+  // ---- CLASSIFY SINGLE ROW ----
+  async classifyRow(rawId) {
+    const row = document.querySelector(`tr[data-id="${rawId}"]`);
+    if (!row) return;
+    const accountId  = row.querySelector('.acct-sel')?.value;
+    const entityCode = row.querySelector('.entity-sel')?.value;
+    if (!accountId)  { this.toast('Select a category first'); return; }
+    if (!entityCode) { this.toast('Select an entity'); return; }
+
+    const { data: t, error: loadErr } = await supabaseClient
+      .from('raw_transactions').select('*').eq('id', rawId).single();
+    if (loadErr) { this.toast('Could not load transaction'); return; }
+
+    const accPeriod = (t.accounting_date || t.transaction_date || '').slice(0, 7);
+    const { data: closedCheck } = await supabaseClient
+      .from('closed_periods').select('id').eq('period', accPeriod).eq('entity', entityCode).maybeSingle();
+    if (closedCheck) { this.toast(`Period ${accPeriod} is closed`); return; }
+
+    const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
+
+    const { error: insErr } = await supabaseClient.from('transactions').insert({
+      raw_transaction_id: rawId,
+      entity: entityCode,
+      account_id: accountId,
+      amount,
+      txn_date: t.transaction_date,
+      acc_date: t.accounting_date || t.transaction_date,
+      description: t.description || '',
+      memo: ''
+    });
+
+    if (insErr) {
+      if (insErr.code === '23505') this.toast('Already classified');
+      else { this.toast('Error saving — see console'); console.error(insErr); }
+      return;
+    }
+
+    await supabaseClient.from('raw_transactions').update({
+      classified: true, classified_at: new Date().toISOString()
+    }).eq('id', rawId);
+
+    this.toast('Classified ✓');
+    row.remove();
+    const badge = document.getElementById('reviewBadge');
+    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - 1) || '';
+    const countEl = document.querySelector('#inboxContent .toolbar-right span');
+    if (countEl) {
+      const n = Math.max(0, parseInt(countEl.textContent) - 1);
+      countEl.textContent = n + ' to classify';
+    }
+  },
+
+  // ---- BULK CLASSIFY ----
+  async bulkClassify() {
+    const checkedRows = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
+    if (!checkedRows.length) { this.toast('No rows selected'); return; }
+
+    const accountIds = [...new Set(checkedRows.map(r => r.querySelector('.acct-sel')?.value).filter(Boolean))];
+    if (accountIds.length === 0) { this.toast('Select a category for all checked rows'); return; }
+    if (accountIds.length > 1)   { this.toast('All selected rows must use the same category for bulk classify'); return; }
+
+    const accountId = accountIds[0];
+    let success = 0, failed = 0;
+
+    for (const row of checkedRows) {
+      const rawId = row.dataset.id;
+      const entityCode = row.querySelector('.entity-sel')?.value;
+      if (!entityCode) { failed++; continue; }
+
+      const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
+      if (error) { failed++; continue; }
+
+      const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
+      const { error: insErr } = await supabaseClient.from('transactions').insert({
+        raw_transaction_id: rawId, entity: entityCode, account_id: accountId, amount,
+        txn_date: t.transaction_date, acc_date: t.accounting_date || t.transaction_date,
+        description: t.description || '', memo: ''
+      });
+
+      if (insErr && insErr.code !== '23505') { failed++; continue; }
+
+      await supabaseClient.from('raw_transactions').update({
+        classified: true, classified_at: new Date().toISOString()
+      }).eq('id', rawId);
+
+      row.remove();
+      success++;
+    }
+
+    this.toast(`${success} classified${failed ? `, ${failed} failed` : ''}`);
+    document.getElementById('bulkClassifyBtn').style.display = 'none';
+    const badge = document.getElementById('reviewBadge');
+    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
+  },
+
+  // ---- MANUAL RAW TXN ENTRY ----
+  openModal_newRawTxn() {
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = 'Add Transaction';
+    if (body) body.innerHTML = `
+      <div class="form-group"><label>Date</label>
+        <input type="date" id="fRawDate" value="${today()}"/></div>
+      <div class="form-group"><label>Description</label>
+        <input type="text" id="fRawDesc" placeholder="e.g. Google Ads charge"/></div>
+      <div class="form-group"><label>Amount</label>
+        <input type="number" id="fRawAmount" placeholder="e.g. -1200.00" step="0.01"/>
+        <div class="date-note">Negative = expense/payment out, Positive = income/deposit</div></div>
+      <div class="form-row">
+        <div class="form-group"><label>Entity</label>
+          <select id="fRawEntity">
+            <option>WB</option><option>LP</option><option>KP</option>
+            <option>BP</option><option>WBP</option><option>ONEOPS</option>
+          </select></div>
+        <div class="form-group"><label>Source</label>
+          <select id="fRawSource">
+            <option value="manual">Manual</option><option value="bank">Bank</option><option value="csv">CSV</option>
+          </select></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveRawTxn()">Add to Inbox</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async saveRawTxn() {
+    const date   = document.getElementById('fRawDate')?.value;
+    const desc   = document.getElementById('fRawDesc')?.value?.trim();
+    const amount = parseFloat(document.getElementById('fRawAmount')?.value);
+    const entity = document.getElementById('fRawEntity')?.value;
+    const source = document.getElementById('fRawSource')?.value || 'manual';
+    if (!date || !desc || isNaN(amount)) { this.toast('Date, description, and amount are required'); return; }
+
+    const entityId = window._entityByCode[entity];
+    const { error } = await supabaseClient.from('raw_transactions').insert({
+      entity_id: entityId || null,
+      description: desc,
+      amount: Math.abs(amount),
+      direction: amount >= 0 ? 'CREDIT' : 'DEBIT',
+      transaction_date: date,
+      accounting_date: date,
+      source,
+      classified: false
+    });
+    if (error) { this.toast('Failed to save — see console'); console.error(error); return; }
+    this.toast('Added to Inbox');
+    this.closeModal();
+    await this.renderInbox();
+  },
+
+  // ---- NEW ACCOUNT FROM INBOX ----
+  openNewAccountModal() {
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = 'New COA Account';
+    if (body) body.innerHTML = `
+      <div class="form-row">
+        <div class="form-group"><label>Account Code</label>
+          <input type="text" id="fNewAccCode" placeholder="e.g. 6650"/></div>
+        <div class="form-group"><label>Type</label>
+          <select id="fNewAccType">
+            <option value="revenue">Revenue</option>
+            <option value="expense" selected>Expense</option>
+            <option value="asset">Asset</option>
+            <option value="liability">Liability</option>
+            <option value="equity">Equity</option>
+          </select></div>
+      </div>
+      <div class="form-group"><label>Account Name</label>
+        <input type="text" id="fNewAccName" placeholder="e.g. Warehouse supplies"/></div>
+      <div class="form-group"><label>Subtype</label>
+        <input type="text" id="fNewAccSubtype" placeholder="e.g. opex, cogs, advertising"/></div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveAccountFromInbox()">Create Account</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async saveAccountFromInbox() {
+    const code    = document.getElementById('fNewAccCode')?.value?.trim();
+    const name    = document.getElementById('fNewAccName')?.value?.trim();
+    const type    = document.getElementById('fNewAccType')?.value;
+    const subtype = document.getElementById('fNewAccSubtype')?.value?.trim();
+    if (!code || !name) { this.toast('Code and name are required'); return; }
+
+    const { error } = await supabaseClient.from('accounts').insert({
+      account_code: code, account_name: name, account_type: type,
+      account_subtype: subtype || type,
+      normal_balance: (type === 'asset' || type === 'expense') ? 'DEBIT' : 'CREDIT',
+      is_active: true
+    });
+    if (error) {
+      if (error.code === '23505') this.toast('Account code already exists');
+      else { this.toast('Failed — see console'); console.error(error); }
+      return;
+    }
+    this.toast(`Account ${code} created`);
+    this.closeModal();
+    await this.renderInbox();
+  },
+
+  // ---- LEDGER ----
+  async renderLedger() {
+    const el = document.getElementById('ledgerContent');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    const entity = state.currentEntity;
+    const period = state.currentPeriod;
+
+    let query = supabaseClient
+      .from('transactions')
+      .select('*, accounts(account_code, account_name, account_type)')
+      .order('acc_date', { ascending: false });
+
+    if (entity !== 'all') query = query.eq('entity', entity);
+    if (period) query = query.gte('acc_date', period + '-01').lte('acc_date', period + '-31');
+
+    const { data: txns, error } = await query;
+    if (error) { this.toast('Failed to load ledger'); console.error(error); return; }
+
+    const rows = txns || [];
+    el.innerHTML = rows.length === 0 ? `
+      <div style="padding:64px;text-align:center;color:var(--text3)">
+        <p style="font-size:15px;margin-bottom:8px">No classified transactions</p>
+        <p style="font-size:13px">Classify transactions in the Inbox to see them here.</p>
+      </div>
+    ` : `
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Acc. Date</th><th>Description</th><th>Entity</th>
+              <th>Category</th><th>Amount</th><th>Memo</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(t => `
+              <tr>
+                <td>${t.acc_date || ''}</td>
+                <td>${t.description || ''}</td>
+                <td>${t.entity || ''}</td>
+                <td>${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
+                <td class="${Number(t.amount) >= 0 ? 'pos' : 'neg'}" style="font-variant-numeric:tabular-nums">
+                  ${Number(t.amount) < 0 ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
+                </td>
+                <td style="color:var(--text3);font-size:12px">${t.memo || ''}</td>
+                <td><button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  async editLedgerRow(txnId) {
+    const { data: t, error } = await supabaseClient
+      .from('transactions').select('*, accounts(id, account_code, account_name)').eq('id', txnId).single();
+    if (error) { this.toast('Could not load transaction'); return; }
+
+    const { data: accounts } = await supabaseClient
+      .from('accounts').select('id, account_code, account_name').order('account_code');
+
+    const acctOptions = (accounts || []).map(a =>
+      `<option value="${a.id}" ${a.id === t.account_id ? 'selected' : ''}>${a.account_code} — ${a.account_name}</option>`
+    ).join('');
+
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = 'Edit Transaction';
+    if (body) body.innerHTML = `
+      <div class="form-group"><label>Category (COA)</label>
+        <select id="fEditAcct">${acctOptions}</select></div>
+      <div class="form-group"><label>Accounting Date</label>
+        <input type="date" id="fEditAccDate" value="${t.acc_date || ''}"/></div>
+      <div class="form-group"><label>Memo</label>
+        <input type="text" id="fEditMemo" value="${t.memo || ''}"/></div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveLedgerEdit('${txnId}')">Save</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async saveLedgerEdit(txnId) {
+    const accountId = document.getElementById('fEditAcct')?.value;
+    const accDate   = document.getElementById('fEditAccDate')?.value;
+    const memo      = document.getElementById('fEditMemo')?.value?.trim();
+    if (!accountId || !accDate) { this.toast('Category and date are required'); return; }
+
+    const { error } = await supabaseClient.from('transactions').update({
+      account_id: accountId, acc_date: accDate, memo: memo || null
+    }).eq('id', txnId);
+    if (error) { this.toast('Save failed — see console'); console.error(error); return; }
+
+    this.toast('Updated ✓');
+    this.closeModal();
+    await this.renderLedger();
+  },
+
   // ---- SAVE HANDLERS ----
   async saveTransaction() {
     const txnDate  = document.getElementById('fTxnDate')?.value;
@@ -946,7 +1351,7 @@ const app = {
       });
       if (!error) {
         await loadDataFromSupabase();
-        if (state.currentPage === 'transactions') this.renderTransactions();
+        if (state.currentPage === 'inbox') await this.renderInbox();
         this.toast('Transaction saved');
         this.closeModal();
       } else {
@@ -1219,7 +1624,7 @@ const app = {
       </div>`;
   },
 
-  executeCSVImport() {
+  async executeCSVImport() {
     const selects = document.querySelectorAll('.csv-map-select');
     const mapping = {};
     selects.forEach(s => { mapping[s.dataset.field] = parseInt(s.value); });
@@ -1229,11 +1634,10 @@ const app = {
     if (mapping.amount < 0)   { this.toast('Amount column is required');      return; }
 
     const { rows } = this._csvImportData;
-    const validTypes = ['income','expense','transfer','payroll','cogs'];
-    const now = Date.now();
-    let imported = 0, skipped = 0;
+    const inserts = [];
+    let skipped = 0;
 
-    rows.forEach((row, idx) => {
+    rows.forEach(row => {
       const accDate = row[mapping.accDate]?.replace(/"/g, '').trim();
       const desc    = row[mapping.desc]?.replace(/"/g, '').trim();
       const raw     = row[mapping.amount]?.replace(/["$,\s]/g, '');
@@ -1241,35 +1645,25 @@ const app = {
 
       if (!accDate || !desc || isNaN(amount)) { skipped++; return; }
 
-      const typeRaw = (mapping.type >= 0 ? row[mapping.type]?.trim().toLowerCase() : '') || '';
-      const type = validTypes.includes(typeRaw) ? typeRaw : (amount >= 0 ? 'income' : 'expense');
-
-      DATA.transactions.unshift({
-        id:       `IMP-${now}-${idx}`,
-        entity:   (mapping.entity   >= 0 ? row[mapping.entity]?.replace(/"/g,'').trim()   : '') || 'WB',
-        desc,
-        vendor:   (mapping.vendor   >= 0 ? row[mapping.vendor]?.replace(/"/g,'').trim()   : '') || '',
-        type,
-        category: (mapping.category >= 0 ? row[mapping.category]?.replace(/"/g,'').trim() : '') || 'Unclassified',
-        amount,
-        txnDate:  accDate,
-        accDate,
-        status:   (mapping.status   >= 0 ? row[mapping.status]?.trim().toLowerCase()      : '') || 'review',
-        source:   'csv'
+      inserts.push({
+        description:      desc,
+        amount:           Math.abs(amount),
+        direction:        amount >= 0 ? 'CREDIT' : 'DEBIT',
+        transaction_date: accDate,
+        accounting_date:  accDate,
+        source:           'csv',
+        classified:       false
       });
-      imported++;
     });
 
-    // Refresh state
-    state.filteredTxns = this.getActiveTxns();
-    const reviewCount = DATA.transactions.filter(t => t.status === 'review').length;
-    const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = reviewCount || '';
+    if (!inserts.length) { this.toast('No valid rows to import'); return; }
+
+    const { error } = await supabaseClient.from('raw_transactions').insert(inserts);
+    if (error) { this.toast('Import failed — see console'); console.error(error); return; }
 
     this.closeModal();
-    this.toast(`${imported} transaction${imported !== 1 ? 's' : ''} imported${skipped ? `, ${skipped} skipped` : ''}`);
-    if (state.currentPage !== 'transactions') this.navigate('transactions');
-    else this.renderTransactions();
+    this.toast(`${inserts.length} transaction${inserts.length !== 1 ? 's' : ''} imported to Inbox${skipped ? `, ${skipped} skipped` : ''}`);
+    await this.navigate('inbox');
   },
 
   printReport() { window.print(); },
