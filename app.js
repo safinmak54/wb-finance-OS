@@ -226,7 +226,7 @@ const app = {
       if (page === 'coa')          this.renderCOA();
       if (page === 'banks')        this.renderBanks();
       if (page === 'reconcile')    this.renderReconcile();
-      if (page === 'cashflow')     this.renderCashflow();
+      if (page === 'cashflow')     await this.renderCashflow();
     }, 10);
   },
 
@@ -251,6 +251,18 @@ const app = {
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const [year, month] = val.split('-');
     return `${months[parseInt(month, 10) - 1]} ${year}`;
+  },
+
+  normalizeDate(str) {
+    if (!str) return str;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // MM/DD/YYYY
+    const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+    // DD-MM-YYYY
+    const m2 = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (m2) return `${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`;
+    return str;
   },
 
   getActiveTxns() {
@@ -767,78 +779,119 @@ const app = {
   // ---- BANKS ----
   renderBanks() {
     const grid = document.getElementById('banksGrid');
-    const colors = { LP:'#3B82F6', KP:'#10B981', BP:'#8B5CF6', WBP:'#F59E0B', ONEOPS:'#EF4444', ALL:'#6B7280' };
-    grid.innerHTML = DATA.banks.map(b => `
-      <div class="bank-card">
-        <div class="bank-card-header">
-          <span class="bank-entity" style="color:${colors[b.entity]}">${b.entity === 'ALL' ? 'PROCESSOR' : b.entity}</span>
-          <div class="bank-status">
-            <div class="bank-dot" style="background:${b.connected ? 'var(--green)' : 'var(--red)'}"></div>
-            <span style="font-size:11px;color:var(--text3)">${b.connected ? 'Connected' : 'Disconnected'}</span>
-          </div>
-        </div>
-        <div class="bank-name">${b.bank}</div>
-        <div class="bank-acct">${b.name} · ••••${b.last4} · ${b.type}</div>
-        <div class="bank-balance" style="color:${b.balance < 0 ? 'var(--red)' : 'var(--text)'}">
-          ${b.type === 'processor' ? 'Webhook live' : fmt(Math.abs(b.balance))}${b.balance < 0 ? ' CR' : ''}
-        </div>
-        <div class="bank-sync">Last sync: ${b.synced}</div>
-        <div style="margin-top:10px;display:flex;gap:6px">
-          <button class="btn-outline btn-sm" style="font-size:11px" onclick="app.syncBank('${b.entity}','${b.last4}')">↻ Sync now</button>
-          <button class="btn-outline btn-sm" style="font-size:11px" onclick="app.viewBankTxns('${b.entity}')">View transactions</button>
-        </div>
-      </div>`).join('');
+    if (!grid) return;
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;padding:64px;text-align:center;color:var(--text3)">
+        <div style="font-size:32px;margin-bottom:16px">🏦</div>
+        <p style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--text2)">Bank Connections — Coming Soon</p>
+        <p style="font-size:13px">Direct bank feeds and real-time balance sync will be available in a future update.<br>Use CSV import in the Inbox to load transactions in the meantime.</p>
+      </div>
+    `;
   },
 
   // ---- RECONCILE ----
   renderReconcile() {
-    const txns = this.getActiveTxns();
-    const matched = txns.filter(t => t.status === 'confirmed').length;
-    const unmatched = txns.filter(t => t.status === 'review').length;
-    const bankBal = txns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
-    const bookBal = bankBal;
-    const diff = bankBal - bookBal;
     const reconStats = document.getElementById('reconStats');
-    if (reconStats) {
-      reconStats.innerHTML = `
-        <div class="recon-stat"><div class="rs-val">${fmt(bankBal)}</div><div class="rs-label">Bank balance</div></div>
-        <div class="recon-stat"><div class="rs-val">${fmt(bookBal)}</div><div class="rs-label">Book balance</div></div>
-        <div class="recon-stat success"><div class="rs-val">${fmt(diff)}</div><div class="rs-label">Difference</div></div>
-        <div class="recon-stat"><div class="rs-val">${matched}</div><div class="rs-label">Matched txns</div></div>
-        <div class="recon-stat warning"><div class="rs-val">${unmatched}</div><div class="rs-label">Unmatched</div></div>
-      `;
-    }
-    const bankItems = [
-      { date:'Mar 31', desc:'Stripe payout', amount:62400 },
-      { date:'Mar 31', desc:'UPS ACH debit', amount:-18200 },
-      { date:'Mar 30', desc:'ADP payroll', amount:-74500 },
-      { date:'Mar 30', desc:'Intercompany transfer in', amount:140000 },
-      { date:'Mar 29', desc:'PayPal sweep', amount:21800 },
-    ];
-    const bookItems = [
-      { date:'Mar 31', desc:'Stripe payout — consolidated', amount:62400 },
-      { date:'Mar 31', desc:'UPS bulk shipment', amount:-18200 },
-      { date:'Mar 30', desc:'ADP payroll run', amount:-74500 },
-      { date:'Mar 30', desc:'LP → One Ops transfer', amount:140000 },
-      { date:'Mar 29', desc:'PayPal payout batch', amount:21800 },
-    ];
-    const matchRow = (item, matched) => `
-      <tr>
-        <td style="font-size:11px">${item.date}</td>
-        <td style="font-size:12px">${item.desc}</td>
-        <td class="${item.amount > 0 ? 'amount-pos' : 'amount-neg'}">${fmt(item.amount)}</td>
-        <td>${matched ? '<span class="badge badge-confirmed">Matched</span>' : '<span class="badge badge-review">Unmatched</span>'}</td>
-      </tr>`;
-    document.getElementById('bankBody').innerHTML = bankItems.map(i => matchRow(i, true)).join('');
-    document.getElementById('bookBody').innerHTML = bookItems.map(i => matchRow(i, true)).join('');
+    if (reconStats) reconStats.innerHTML = '';
+    const bankBody = document.getElementById('bankBody');
+    const bookBody = document.getElementById('bookBody');
+    const placeholder = `<tr><td colspan="4" style="padding:48px;text-align:center;color:var(--text3);font-size:13px">Reconciliation requires bank connections — coming in a future update.</td></tr>`;
+    if (bankBody) bankBody.innerHTML = placeholder;
+    if (bookBody) bookBody.innerHTML = '';
   },
 
   // ---- CASH FLOW ----
-  renderCashflow() {
-    const cfEl = document.getElementById('cashflowChart')?.parentElement;
-    if (cfEl) cfEl.innerHTML = '<p style="padding:48px;text-align:center;color:var(--text3);font-size:13px">No transaction data yet — cash flow will populate once transactions are classified.</p>';
-    const wfEl = document.getElementById('waterfallChart')?.parentElement;
-    if (wfEl) wfEl.innerHTML = '';
+  async renderCashflow() {
+    const entity = state.currentEntity;
+    const period = state.currentPeriod;
+
+    // Destroy existing charts if re-rendering
+    if (state.charts?.cashflow) { state.charts.cashflow.destroy(); delete state.charts.cashflow; }
+    if (state.charts?.waterfall) { state.charts.waterfall.destroy(); delete state.charts.waterfall; }
+
+    const cfCanvas = document.getElementById('cashflowChart');
+    const wfCanvas = document.getElementById('waterfallChart');
+
+    if (!supabaseClient) return;
+
+    let q = supabaseClient
+      .from('transactions')
+      .select('amount, acc_date, accounts(account_type)')
+      .gte('acc_date', period + '-01')
+      .lte('acc_date', period + '-31')
+      .order('acc_date', { ascending: true });
+    if (entity !== 'all') q = q.eq('entity', entity);
+
+    const { data: txns, error } = await q;
+    if (error) { console.error('Cashflow load error:', error); return; }
+
+    const rows = txns || [];
+    const daysInMonth = new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]), 0).getDate();
+    const labels    = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
+    const inflows   = Array(daysInMonth).fill(0);
+    const outflows  = Array(daysInMonth).fill(0);
+
+    for (const t of rows) {
+      const day = parseInt((t.acc_date || '').split('-')[2] || '0') - 1;
+      if (day < 0 || day >= daysInMonth) continue;
+      const amt = Number(t.amount);
+      if (amt > 0) inflows[day]  += amt;
+      else         outflows[day] += Math.abs(amt);
+    }
+
+    const totalIn  = inflows.reduce((s, v) => s + v, 0);
+    const totalOut = outflows.reduce((s, v) => s + v, 0);
+    const netFlow  = totalIn - totalOut;
+
+    // Update card title with summary
+    const titleEl = document.getElementById('cashflowTitle');
+    if (titleEl) titleEl.textContent = rows.length === 0
+      ? 'Cash Flow Statement'
+      : `Cash Flow — In: ${fmt(totalIn)}  Out: (${fmt(totalOut)})  Net: ${netFlow >= 0 ? fmt(netFlow) : '(' + fmt(Math.abs(netFlow)) + ')'}`;
+
+    if (rows.length === 0) {
+      if (cfCanvas) cfCanvas.parentElement.innerHTML = '<canvas id="cashflowChart"></canvas><p style="padding:32px;text-align:center;color:var(--text3);font-size:13px">No classified transactions yet — inflow/outflow will appear here once transactions are classified.</p>';
+      if (wfCanvas) wfCanvas.parentElement.innerHTML = '';
+      return;
+    }
+
+    // Inflow / outflow bar chart
+    if (cfCanvas) {
+      state.charts = state.charts || {};
+      state.charts.cashflow = new Chart(cfCanvas, {
+        type:'bar',
+        data:{ labels, datasets:[
+          { label:'Inflows',  data:inflows,  backgroundColor:'rgba(22,163,74,0.75)',  borderRadius:2 },
+          { label:'Outflows', data:outflows, backgroundColor:'rgba(220,38,38,0.75)', borderRadius:2 }
+        ]},
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top',labels:{font:{size:11}}}}, scales:{
+          x:{ ticks:{maxTicksLimit:16,font:{size:10}}, grid:{display:false} },
+          y:{ ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'} }
+        }}
+      });
+    }
+
+    // Waterfall: running net cumulative
+    if (wfCanvas) {
+      const cumulative = [];
+      let running = 0;
+      for (let i = 0; i < daysInMonth; i++) {
+        running += inflows[i] - outflows[i];
+        cumulative.push(Math.round(running));
+      }
+      state.charts.waterfall = new Chart(wfCanvas, {
+        type:'line',
+        data:{ labels, datasets:[{
+          label:'Cumulative Net', data:cumulative,
+          borderColor:'#1B3A6B', backgroundColor:'rgba(27,58,107,0.07)',
+          fill:true, tension:0.4, pointRadius:2, pointBackgroundColor:'#1B3A6B'
+        }]},
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
+          x:{ ticks:{maxTicksLimit:16,font:{size:10}}, grid:{display:false} },
+          y:{ ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'} }
+        }}
+      });
+    }
   },
 
   // ---- MODALS ----
@@ -1260,8 +1313,8 @@ const app = {
       entity: entityCode,
       account_id: accountId,
       amount,
-      txn_date: t.transaction_date,
-      acc_date: t.accounting_date || t.transaction_date,
+      txn_date: this.normalizeDate(t.transaction_date),
+      acc_date: this.normalizeDate(t.accounting_date || t.transaction_date),
       description: t.description || '',
       memo: ''
     });
@@ -1309,7 +1362,7 @@ const app = {
       const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
       const { error: insErr } = await supabaseClient.from('transactions').insert({
         raw_transaction_id: rawId, entity: entityCode, account_id: accountId, amount,
-        txn_date: t.transaction_date, acc_date: t.accounting_date || t.transaction_date,
+        txn_date: this.normalizeDate(t.transaction_date), acc_date: this.normalizeDate(t.accounting_date || t.transaction_date),
         description: t.description || '', memo: ''
       });
 
@@ -1510,12 +1563,21 @@ const app = {
     if (error) { this.toast('Failed to load ledger'); console.error(error); return; }
 
     const rows = txns || [];
-    el.innerHTML = rows.length === 0 ? `
+    const entityLabel = entity === 'all' ? 'All Entities' : entity;
+    const periodLabel = this.getPeriodLabel(period);
+    const toolbar = `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg2)">
+        <span style="font-size:12px;font-weight:600;background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px">${entityLabel}</span>
+        <span style="font-size:13px;color:var(--text2)">${periodLabel}</span>
+        <span style="font-size:12px;color:var(--text3);margin-left:auto">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
+      </div>
+    `;
+    el.innerHTML = rows.length === 0 ? toolbar + `
       <div style="padding:64px;text-align:center;color:var(--text3)">
         <p style="font-size:15px;margin-bottom:8px">No classified transactions</p>
         <p style="font-size:13px">Classify transactions in the Inbox to see them here.</p>
       </div>
-    ` : `
+    ` : toolbar + `
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -1525,19 +1587,21 @@ const app = {
             </tr>
           </thead>
           <tbody>
-            ${rows.map(t => `
+            ${rows.map(t => {
+              const amt = Number(t.amount);
+              const amtColor = amt >= 0 ? 'var(--green,#16a34a)' : 'var(--red,#dc2626)';
+              const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
+              return `
               <tr>
                 <td>${t.acc_date || ''}</td>
                 <td>${t.description || ''}</td>
-                <td>${t.entity || ''}</td>
+                <td><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
                 <td>${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
-                <td class="${Number(t.amount) >= 0 ? 'pos' : 'neg'}" style="font-variant-numeric:tabular-nums">
-                  ${Number(t.amount) < 0 ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
-                </td>
+                <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums">${amtDisplay}</td>
                 <td style="color:var(--text3);font-size:12px">${t.memo || ''}</td>
                 <td><button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button></td>
               </tr>
-            `).join('')}
+            `}).join('')}
           </tbody>
         </table>
       </div>
@@ -1935,7 +1999,7 @@ const app = {
     let skipped = 0;
 
     rows.forEach(row => {
-      const accDate = row[mapping.accDate]?.replace(/"/g, '').trim();
+      const accDate = this.normalizeDate(row[mapping.accDate]?.replace(/"/g, '').trim());
       const desc    = row[mapping.desc]?.replace(/"/g, '').trim();
 
       let amount, direction;
@@ -2218,6 +2282,102 @@ const app = {
       const delta = gpEl.parentElement?.querySelector('.metric-delta');
       if (delta) delta.textContent = ((gp / revenue) * 100).toFixed(1) + '% margin';
     }
+
+    await this.updateDashboardCharts(data, entity, period);
+  },
+
+  async updateDashboardCharts(data, entity, period) {
+    if (!state.charts || !data) return;
+    const txns = data.txns || [];
+
+    // --- Revenue bar chart: daily revenue vs expenses for current month ---
+    const daysInMonth = new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]), 0).getDate();
+    const dailyRevenue  = Array(daysInMonth).fill(0);
+    const dailyExpenses = Array(daysInMonth).fill(0);
+    for (const t of txns) {
+      const day = parseInt((t.acc_date || '').split('-')[2] || '0') - 1;
+      if (day < 0 || day >= daysInMonth) continue;
+      const type = t.accounts?.account_type;
+      const amt  = Number(t.amount);
+      if (type === 'revenue') dailyRevenue[day]  += amt;
+      else if (type === 'expense') dailyExpenses[day] += Math.abs(amt);
+    }
+    const dailyNet = dailyRevenue.map((r, i) => r - dailyExpenses[i]);
+    if (state.charts.revenue) {
+      const labels = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
+      state.charts.revenue.data.labels = labels;
+      state.charts.revenue.data.datasets[0].data = dailyRevenue;
+      state.charts.revenue.data.datasets[1].data = dailyExpenses;
+      state.charts.revenue.data.datasets[2].data = dailyNet;
+      state.charts.revenue.update();
+    }
+
+    // --- Expense donut: by subtype ---
+    const subtypeMap = { cogs:0, payroll:1, advertising:2, shipping:3, platform:4 };
+    const expBySubtype = [0,0,0,0,0,0];
+    for (const t of txns) {
+      const type = t.accounts?.account_type;
+      const sub  = t.accounts?.account_subtype || '';
+      if (type !== 'expense') continue;
+      const idx  = subtypeMap[sub] !== undefined ? subtypeMap[sub] : 5;
+      expBySubtype[idx] += Math.abs(Number(t.amount));
+    }
+    if (state.charts.expenseDonut) {
+      state.charts.expenseDonut.data.datasets[0].data = expBySubtype;
+      state.charts.expenseDonut.update();
+    }
+
+    // --- Entity bar: revenue per entity for current period ---
+    const entityCodes = ['LP','KP','BP','WBP','ONEOPS'];
+    const entityRevenue = [0,0,0,0,0];
+    if (entity === 'all' && supabaseClient) {
+      const { data: entityTxns } = await supabaseClient
+        .from('transactions')
+        .select('entity, amount, accounts(account_type)')
+        .gte('acc_date', period + '-01')
+        .lte('acc_date', period + '-31');
+      for (const t of (entityTxns || [])) {
+        const idx = entityCodes.indexOf(t.entity);
+        if (idx >= 0 && t.accounts?.account_type === 'revenue') entityRevenue[idx] += Number(t.amount);
+      }
+    } else {
+      const idx = entityCodes.indexOf(entity);
+      if (idx >= 0) entityRevenue[idx] = txns.filter(t => t.accounts?.account_type === 'revenue').reduce((s, t) => s + Number(t.amount), 0);
+    }
+    if (state.charts.entity) {
+      state.charts.entity.data.datasets[0].data = entityRevenue;
+      state.charts.entity.update();
+    }
+
+    // --- Trend chart: last 6 months net profit + ad spend ---
+    if (supabaseClient) {
+      const monthLabels = [];
+      const trendNP     = [];
+      const trendAd     = [];
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const d   = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const mo  = d.toISOString().slice(0, 7);
+        monthLabels.push(i === 0 ? 'This month' : (i === 1 ? 'Last month' : mo));
+        let q = supabaseClient.from('transactions')
+          .select('amount, accounts(account_type, account_subtype)')
+          .gte('acc_date', mo + '-01').lte('acc_date', mo + '-31');
+        if (entity !== 'all') q = q.eq('entity', entity);
+        const { data: mTxns } = await q;
+        const mRows = mTxns || [];
+        const mRev  = mRows.filter(t => t.accounts?.account_type === 'revenue').reduce((s,t) => s + Number(t.amount), 0);
+        const mExp  = mRows.filter(t => t.accounts?.account_type === 'expense').reduce((s,t) => s + Math.abs(Number(t.amount)), 0);
+        const mAd   = mRows.filter(t => t.accounts?.account_subtype === 'advertising').reduce((s,t) => s + Math.abs(Number(t.amount)), 0);
+        trendNP.push(Math.round((mRev - mExp) / 1000 * 10) / 10);
+        trendAd.push(Math.round(mAd / 1000 * 10) / 10);
+      }
+      if (state.charts.trend) {
+        state.charts.trend.data.labels = monthLabels;
+        state.charts.trend.data.datasets[0].data = trendNP;
+        state.charts.trend.data.datasets[1].data = trendAd;
+        state.charts.trend.update();
+      }
+    }
   },
 
   // ---- INVOICE DETAIL ----
@@ -2327,18 +2487,19 @@ function initDashboardCharts() {
     const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
     return `rgba(${r},${g},${b},${a})`;
   };
+  state._chartColors = { C, rgba };
 
   const days = Array.from({length:31},(_,i)=>i+1+'');
-  const revenue  = days.map(() => 0);
-  const expenses = days.map(() => 0);
-  const net      = days.map(() => 0);
+  const zeros31 = days.map(() => 0);
 
-  new Chart(document.getElementById('revenueChart'), {
+  state.charts = state.charts || {};
+
+  state.charts.revenue = new Chart(document.getElementById('revenueChart'), {
     type:'bar',
     data:{ labels:days, datasets:[
-      {label:'Revenue',  data:revenue,  backgroundColor:rgba(C.navy,0.85), stack:'s', borderRadius:2},
-      {label:'Expenses', data:expenses, backgroundColor:rgba(C.teal,0.85), stack:'s', borderRadius:2},
-      {label:'Net',      data:net,      backgroundColor:rgba(C.green,0.85), stack:'s', borderRadius:2}
+      {label:'Revenue',  data:[...zeros31],  backgroundColor:rgba(C.navy,0.85), stack:'s', borderRadius:2},
+      {label:'Expenses', data:[...zeros31], backgroundColor:rgba(C.teal,0.85), stack:'s', borderRadius:2},
+      {label:'Net',      data:[...zeros31],      backgroundColor:rgba(C.green,0.85), stack:'s', borderRadius:2}
     ]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{stacked:true, ticks:{maxTicksLimit:10,font:{size:10}}, grid:{display:false}},
@@ -2347,27 +2508,26 @@ function initDashboardCharts() {
   });
 
   const expLabels = ['COGS','Payroll','Ad spend','Shipping','Platform','Other'];
-  const expData = [0, 0, 0, 0, 0, 0];
   const expColors = [C.navy, C.teal, C.red, C.amber, C.green, C.slate];
-  new Chart(document.getElementById('expenseDonut'), {
+  state.charts.expenseDonut = new Chart(document.getElementById('expenseDonut'), {
     type:'doughnut',
-    data:{ labels:expLabels, datasets:[{data:expData, backgroundColor:expColors, borderWidth:2, borderColor:'#fff'}] },
+    data:{ labels:expLabels, datasets:[{data:[0,0,0,0,0,0], backgroundColor:expColors, borderWidth:2, borderColor:'#fff'}] },
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, cutout:'68%' }
   });
 
   document.getElementById('donutLegend').innerHTML = expLabels.map((l,i)=>
     `<span><em style="background:${expColors[i]}"></em>${l}</span>`).join('');
 
-  new Chart(document.getElementById('entityChart'), {
+  state.charts.entity = new Chart(document.getElementById('entityChart'), {
     type:'bar',
-    data:{ labels:['LP','KP','BP','WBP'], datasets:[{data:[0,0,0,0], backgroundColor:[rgba(C.navy,0.85),rgba(C.teal,0.85),rgba(C.green,0.85),rgba(C.amber,0.85)], borderRadius:4, borderWidth:0}] },
+    data:{ labels:['LP','KP','BP','WBP','ONEOPS'], datasets:[{data:[0,0,0,0,0], backgroundColor:[rgba(C.navy,0.85),rgba(C.teal,0.85),rgba(C.green,0.85),rgba(C.amber,0.85),rgba(C.purple,0.85)], borderRadius:4, borderWidth:0}] },
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{ticks:{font:{size:11}}, grid:{display:false}},
       y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}
     }}
   });
 
-  new Chart(document.getElementById('trendChart'), {
+  state.charts.trend = new Chart(document.getElementById('trendChart'), {
     type:'line',
     data:{ labels:['6mo ago','5mo ago','4mo ago','3mo ago','2mo ago','This month'], datasets:[
       {label:'Net profit', data:[0,0,0,0,0,0], borderColor:C.green, backgroundColor:rgba(C.green,0.07), fill:true, tension:0.4, pointRadius:4, pointBackgroundColor:C.green},
@@ -2375,7 +2535,7 @@ function initDashboardCharts() {
     ]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{ticks:{font:{size:10}}, grid:{display:false}},
-      y:{ticks:{callback:v=>'$'+v+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}
+      y:{ticks:{callback:v=>'$'+(v>=0?'':'-')+(Math.abs(v)/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}
     }}
   });
 
