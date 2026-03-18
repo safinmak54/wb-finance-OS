@@ -207,8 +207,8 @@ const app = {
     if (window.innerWidth <= 768) this.closeSidebar();
 
     // Render page-specific content
-    setTimeout(() => {
-      if (page === 'dashboard')    this.updateDashboardKPIs();
+    setTimeout(async () => {
+      if (page === 'dashboard')    await this.updateDashboardKPIs();
       if (page === 'transactions') this.renderTransactions();
       if (page === 'vendors')      this.renderVendors();
       if (page === 'invoices')     this.renderInvoices();
@@ -222,7 +222,7 @@ const app = {
     }, 10);
   },
 
-  setEntity(val) {
+  async setEntity(val) {
     state.currentEntity = val;
     const pg = state.currentPage;
     if (pg === 'transactions') this.renderTransactions();
@@ -230,7 +230,7 @@ const app = {
     else if (pg === 'invoices') this.renderInvoices();
     else if (pg === 'pnl')      this.renderPnL();
     else if (pg === 'balance')  this.renderBalance();
-    else if (pg === 'dashboard') this.updateDashboardKPIs();
+    else if (pg === 'dashboard') await this.updateDashboardKPIs();
   },
 
   setPeriod(val) {
@@ -1399,43 +1399,63 @@ const app = {
   },
 
   // ---- DASHBOARD KPIs ----
-  updateDashboardKPIs() {
+  async updateDashboardKPIs() {
     const entity = state.currentEntity;
-    const sc = entity === 'all' ? 1 : ({LP:0.37,KP:0.26,BP:0.18,WBP:0.19}[entity] || 0.25);
-    const s = v => Math.round(v * sc);
+    const period = state.currentPeriod;
 
-    const revenue = s(1842300) + s(620150) + s(537900);
-    const returns = s(42800);
-    const income  = revenue - returns;
-    const cogs    = s(985000) + s(128400);
-    const gp      = income - cogs;
-    const adSpend = s(218400) + s(174600) + s(62000);
-    const payroll = s(298000) + s(44500) + s(28600);
-    const opex    = adSpend + payroll + s(18200) + s(24000) + s(3200) + s(55270) + s(18600) + s(2800) + s(4100) + s(3600) + s(1840) + s(8400);
-    const np      = gp - opex - s(120000);
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val !== null ? fmt(val) : '—';
+    };
 
-    const totalCash = entity === 'all'
-      ? DATA.banks.filter(b => b.type === 'checking' && b.balance > 0).reduce((sum,b) => sum + b.balance, 0)
-      : (DATA.banks.find(b => b.entity === entity && b.type === 'checking')?.balance || 0);
+    // Zero out while loading
+    ['m-revenue','m-income','m-gp','m-np','m-cash','m-adspend'].forEach(id => set(id, 0));
 
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = fmt(val); };
+    if (!supabaseClient) return;
+
+    // Build entity filter
+    let txnQuery = supabaseClient
+      .from('transactions')
+      .select('amount, account_id, accounts(account_type, account_subtype)')
+      .gte('acc_date', period + '-01')
+      .lte('acc_date', period + '-31');
+
+    if (entity !== 'all') txnQuery = txnQuery.eq('entity', entity);
+
+    const { data: txns, error } = await txnQuery;
+    if (error) { console.error('KPI load error:', error); return; }
+
+    const rows = txns || [];
+
+    const sumWhere = (fn) => rows.filter(fn).reduce((s, t) => s + Number(t.amount), 0);
+
+    const revenue  = sumWhere(t => t.accounts?.account_type === 'revenue');
+    const cogs     = Math.abs(sumWhere(t => t.accounts?.account_subtype === 'cogs'));
+    const adSpend  = Math.abs(sumWhere(t => t.accounts?.account_subtype === 'advertising'));
+    const expenses = Math.abs(sumWhere(t => t.accounts?.account_type === 'expense'));
+    const income   = revenue;
+    const gp       = revenue - cogs;
+    const np       = revenue - expenses;
+
     set('m-revenue', revenue);
     set('m-income',  income);
     set('m-gp',      gp);
     set('m-np',      np);
-    set('m-cash',    totalCash);
     set('m-adspend', adSpend);
 
-    // Update margin delta on net profit card
+    // Cash: placeholder until bank sync
+    set('m-cash', 0);
+
+    // Update margin deltas
     const npEl = document.getElementById('m-np');
-    if (npEl) {
+    if (npEl && income > 0) {
       const delta = npEl.parentElement?.querySelector('.metric-delta');
-      if (delta && income > 0) delta.textContent = ((np / income) * 100).toFixed(1) + '% margin';
+      if (delta) delta.textContent = ((np / income) * 100).toFixed(1) + '% margin';
     }
     const gpEl = document.getElementById('m-gp');
-    if (gpEl) {
+    if (gpEl && income > 0) {
       const delta = gpEl.parentElement?.querySelector('.metric-delta');
-      if (delta && income > 0) delta.textContent = ((gp / income) * 100).toFixed(1) + '% margin';
+      if (delta) delta.textContent = ((gp / income) * 100).toFixed(1) + '% margin';
     }
   },
 
@@ -1627,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   await loadDataFromSupabase();
   initDashboardCharts();
-  app.updateDashboardKPIs();
+  await app.updateDashboardKPIs();
   ['txnEntityFilter','txnTypeFilter','txnStatusFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => app.filterTransactions());
