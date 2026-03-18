@@ -1198,7 +1198,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td class="${t.direction === 'DEBIT' ? 'neg' : 'pos'}" style="font-variant-numeric:tabular-nums">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'}">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
