@@ -67,8 +67,8 @@ async function loadDataFromSupabase() {
       .from('raw_transactions')
       .select('*')
       .order('accounting_date', { ascending: false });
-    if (!txnErr && txns && txns.length > 0) {
-      DATA.transactions = txns.map(t => ({
+    if (!txnErr) {
+      DATA.transactions = (txns || []).map(t => ({
         id: t.id,
         entity: window._entityById[t.entity_id] || '',
         desc: t.description || '',
@@ -82,7 +82,7 @@ async function loadDataFromSupabase() {
         source: t.source || 'manual'
       }));
       state.filteredTxns = [...DATA.transactions];
-      // Update sidebar review badge
+      // Always update sidebar review badge (clears hardcoded value when DB is empty)
       const reviewCount = DATA.transactions.filter(t => t.status === 'review').length;
       const badge = document.getElementById('reviewBadge');
       if (badge) badge.textContent = reviewCount || '';
@@ -607,34 +607,10 @@ const app = {
 
   // ---- CASH FLOW ----
   renderCashflow() {
-    if (!state.charts.cashflow) {
-      const ctx = document.getElementById('cashflowChart');
-      if (!ctx) return;
-      state.charts.cashflow = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: Array.from({length:31},(_,i)=>`Mar ${i+1}`),
-          datasets: [
-            { label:'Operating',  data: Array.from({length:31},()=>Math.round(50000+Math.random()*80000)), borderColor:'#1B3A6B', fill:false, tension:0.4, pointRadius:2 },
-            { label:'Cumulative', data: Array.from({length:31},(_,i)=>Math.round((i+1)*33000+Math.random()*20000)), borderColor:'#1A7A4A', fill:true, backgroundColor:'rgba(26,122,74,0.06)', tension:0.4, pointRadius:0 }
-          ]
-        },
-        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:10,font:{size:11}}}}, scales:{x:{ticks:{maxTicksLimit:8,font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}},grid:{color:'rgba(0,0,0,0.05)'}}} }
-      });
-    }
-
-    if (!state.charts.waterfall) {
-      const ctx2 = document.getElementById('waterfallChart');
-      if (!ctx2) return;
-      const labels = ['Revenue','Returns','COGS','Shipping','Payroll','Ad spend','Platform fees','Other opex','Net profit'];
-      const data = [2957550,-42800,-985000,-128400,-371100,-393000,-73870,-20740,455040];
-      const colors = data.map((v,i) => i===0||i===data.length-1 ? '#1A7A4A' : v<0 ? '#C0392B' : '#0D6B74');
-      state.charts.waterfall = new Chart(ctx2, {
-        type:'bar',
-        data: { labels, datasets:[{ data: data.map(Math.abs), backgroundColor:colors, borderRadius:4, borderWidth:0 }] },
-        options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmt(data[c.dataIndex])}}}, scales:{x:{ticks:{font:{size:10}},grid:{display:false}},y:{ticks:{callback:v=>'$'+(v/1000000).toFixed(1)+'M',font:{size:10}},grid:{color:'rgba(0,0,0,0.05)'}}} }
-      });
-    }
+    const cfEl = document.getElementById('cashflowChart')?.parentElement;
+    if (cfEl) cfEl.innerHTML = '<p style="padding:48px;text-align:center;color:var(--text3);font-size:13px">No transaction data yet — cash flow will populate once transactions are classified.</p>';
+    const wfEl = document.getElementById('waterfallChart')?.parentElement;
+    if (wfEl) wfEl.innerHTML = '';
   },
 
   // ---- MODALS ----
@@ -1489,7 +1465,7 @@ function initDashboardCharts() {
   });
 
   const expLabels = ['COGS','Payroll','Ad spend','Shipping','Platform','Other'];
-  const expData = [985, 371, 393, 128, 74, 21];
+  const expData = [0, 0, 0, 0, 0, 0];
   const expColors = [C.navy, C.teal, C.red, C.amber, C.green, C.slate];
   new Chart(document.getElementById('expenseDonut'), {
     type:'doughnut',
@@ -1498,11 +1474,11 @@ function initDashboardCharts() {
   });
 
   document.getElementById('donutLegend').innerHTML = expLabels.map((l,i)=>
-    `<span><em style="background:${expColors[i]}"></em>${l}: $${expData[i]}k</span>`).join('');
+    `<span><em style="background:${expColors[i]}"></em>${l}</span>`).join('');
 
   new Chart(document.getElementById('entityChart'), {
     type:'bar',
-    data:{ labels:['LP','KP','BP','WBP'], datasets:[{data:[1100,780,520,558], backgroundColor:[rgba(C.navy,0.85),rgba(C.teal,0.85),rgba(C.green,0.85),rgba(C.amber,0.85)], borderRadius:4, borderWidth:0}] },
+    data:{ labels:['LP','KP','BP','WBP'], datasets:[{data:[0,0,0,0], backgroundColor:[rgba(C.navy,0.85),rgba(C.teal,0.85),rgba(C.green,0.85),rgba(C.amber,0.85)], borderRadius:4, borderWidth:0}] },
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{ticks:{font:{size:11}}, grid:{display:false}},
       y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'}}
@@ -1511,9 +1487,9 @@ function initDashboardCharts() {
 
   new Chart(document.getElementById('trendChart'), {
     type:'line',
-    data:{ labels:['Oct','Nov','Dec','Jan','Feb','Mar'], datasets:[
-      {label:'Net profit', data:[280,315,422,388,430,455], borderColor:C.green, backgroundColor:rgba(C.green,0.07), fill:true, tension:0.4, pointRadius:4, pointBackgroundColor:C.green},
-      {label:'Ad spend',   data:[340,355,390,372,385,393], borderColor:C.navy,  borderDash:[4,3], fill:false, tension:0.4, pointRadius:3}
+    data:{ labels:['6mo ago','5mo ago','4mo ago','3mo ago','2mo ago','This month'], datasets:[
+      {label:'Net profit', data:[0,0,0,0,0,0], borderColor:C.green, backgroundColor:rgba(C.green,0.07), fill:true, tension:0.4, pointRadius:4, pointBackgroundColor:C.green},
+      {label:'Ad spend',   data:[0,0,0,0,0,0], borderColor:C.navy,  borderDash:[4,3], fill:false, tension:0.4, pointRadius:3}
     ]},
     options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
       x:{ticks:{font:{size:10}}, grid:{display:false}},
@@ -1534,6 +1510,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const moonIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>`;
     const btn = document.getElementById('themeToggle');
     if (btn) btn.innerHTML = moonIcon;
+  }
+
+  // Populate period picker with last 13 months
+  const picker = document.getElementById('periodPicker');
+  if (picker) {
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const now = new Date();
+    for (let i = 0; i < 13; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const val = d.toISOString().slice(0, 7);
+      const label = monthNames[d.getMonth()] + ' ' + d.getFullYear();
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = label;
+      if (val === state.currentPeriod) opt.selected = true;
+      picker.appendChild(opt);
+    }
   }
 
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

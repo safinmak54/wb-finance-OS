@@ -45,7 +45,7 @@
       <a class="nav-item" onclick="app.navigate('transactions')" data-page="transactions">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         Transactions
-        <span class="nav-badge" id="reviewBadge">14</span>
+        <span class="nav-badge" id="reviewBadge"></span>
       </a>
       <a class="nav-item" onclick="app.navigate('journals')" data-page="journals">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
@@ -118,10 +118,6 @@
       <div class="topbar-right">
         <div class="period-picker topbar-hide-mobile">
           <select id="periodPicker" onchange="app.setPeriod(this.value)">
-            <option value="2025-03">March 2025</option>
-            <option value="2025-02">February 2025</option>
-            <option value="2025-01">January 2025</option>
-            <option value="2024-12">December 2024</option>
           </select>
         </div>
         <button class="btn-primary topbar-hide-mobile" onclick="app.openModal('addTransaction')">+ New Transaction</button>
