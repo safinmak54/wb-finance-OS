@@ -397,72 +397,15 @@ const app = {
   renderPnL(entity) {
     if (entity === undefined) entity = state.currentEntity;
     const el = document.getElementById('pnlReport');
-    const scale = entity === 'all' ? 1 : { LP: 0.37, KP: 0.26, BP: 0.18, WBP: 0.19 }[entity] || 1;
-    const s = v => (v * scale);
-
-    const stripe = s(1842300), paypal = s(620150), wire = s(537900), returns = s(42800);
-    const totalIncome = stripe + paypal + wire - returns;
-    const cogs = s(985000), shipping = s(128400);
-    const grossProfit = totalIncome - cogs - shipping;
-    const google = s(218400), meta = s(174600), agency = s(62000);
-    const w2 = s(298000), c1099 = s(44500), ptax = s(28600);
-    const subs = s(18200), rent = s(24000), util = s(3200);
-    const stripeFees = s(55270), paypalFees = s(18600);
-    const office = s(2800), repairs = s(4100), tel = s(3600), bank = s(1840), comp = s(8400);
-    const totalAd = google + meta + agency;
-    const totalPayroll = w2 + c1099 + ptax;
-    const totalPlatform = stripeFees + paypalFees;
-    const totalOther = office + repairs + tel + bank + comp;
-    const totalOpex = totalAd + totalPayroll + subs + rent + util + totalPlatform + totalOther;
-    const noi = grossProfit - totalOpex;
-    const distributions = s(120000);
-    const netProfit = noi - distributions;
-
     el.innerHTML = `
       <div class="report-header">
         <h2>Profit & Loss Statement</h2>
         <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · ${this.getPeriodLabel(state.currentPeriod)} · Accrual basis</p>
       </div>
-      ${pnlSection('Gross Revenue')}
-      ${pnlLine('Stripe payouts', stripe, 1)}
-      ${pnlLine('PayPal payouts', paypal, 1)}
-      ${pnlLine('Wire and check', wire, 1)}
-      ${pnlLine('Returns and cancellations', -returns, 1, 'neg')}
-      ${pnlTotal('Total Income', totalIncome, 'pos')}
-
-      ${pnlSection('Cost of Goods Sold')}
-      ${pnlLine('Cost of goods sold', cogs, 1)}
-      ${pnlLine('Shipping costs', shipping, 1)}
-      ${pnlTotal('Gross Profit', grossProfit, 'pos')}
-      ${pnlLine(`Gross margin: ${((grossProfit/totalIncome)*100).toFixed(1)}%`, null, 1, 'muted')}
-
-      ${pnlSection('Operating Expenses')}
-      ${pnlLine('Advertisement', null, 1, 'group')}
-      ${pnlLine('Google Ads', google, 2)}
-      ${pnlLine('Meta Ads', meta, 2)}
-      ${pnlLine('Ad agency fees', agency, 2)}
-      ${pnlLine('Wages & Payroll', null, 1, 'group')}
-      ${pnlLine('W2 employees', w2, 2)}
-      ${pnlLine('1099 contractors', c1099, 2)}
-      ${pnlLine('Payroll tax', ptax, 2)}
-      ${pnlLine('Dues and subscriptions', subs, 1)}
-      ${pnlLine('Rent expense', rent, 1)}
-      ${pnlLine('Utilities', util, 1)}
-      ${pnlLine('Platform fees', null, 1, 'group')}
-      ${pnlLine('Stripe fees', stripeFees, 2)}
-      ${pnlLine('PayPal fees', paypalFees, 2)}
-      ${pnlLine('Other operating expenses', null, 1, 'group')}
-      ${pnlLine('Office supplies', office, 2)}
-      ${pnlLine('Repairs & maintenance', repairs, 2)}
-      ${pnlLine('Telephone & internet', tel, 2)}
-      ${pnlLine('Bank fees', bank, 2)}
-      ${pnlLine('Computers & software', comp, 2)}
-      ${pnlTotal('Total Operating Expenses', totalOpex)}
-
-      ${pnlGrand('Net Operating Income', noi, noi >= 0 ? 'pos' : 'neg')}
-      ${pnlLine('Partner distributions', -distributions, 1, 'neg')}
-      ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
-      ${pnlLine(`Net margin: ${((netProfit/totalIncome)*100).toFixed(1)}%`, null, 1, 'muted')}
+      <div style="padding:48px;text-align:center;color:var(--text3)">
+        <p style="font-size:15px;margin-bottom:8px">No classified transactions yet</p>
+        <p style="font-size:13px">Classify transactions in the Inbox to populate this report.</p>
+      </div>
     `;
   },
 
@@ -471,57 +414,17 @@ const app = {
   // ---- BALANCE SHEET ----
   renderBalance() {
     const entity = state.currentEntity;
-    const sc = entity === 'all' ? 1 : ({LP:0.37,KP:0.26,BP:0.18,WBP:0.19}[entity] || 0.25);
-    const s = v => Math.round(v * sc);
     const period = this.getPeriodLabel(state.currentPeriod);
-
-    // Cash: show only relevant entity accounts
-    const cashRows = entity === 'all'
-      ? [['LP checking',284100],['KP checking',196400],['BP checking',88200],['WBP checking',142600],['One Ops checking',318900]]
-      : {LP:[['LP checking',284100]],KP:[['KP checking',196400]],BP:[['BP checking',88200]],WBP:[['WBP checking',142600]],ONEOPS:[['One Ops checking',318900]]}[entity] || [];
-    const totalCash = cashRows.reduce((sum,[,v]) => sum + v, 0);
-    const creditCards = entity === 'all'
-      ? [[' — LP',18400],[' — KP',12600],[' — BP',9100]]
-      : {LP:[[' — LP',18400]],KP:[[' — KP',12600]],BP:[[' — BP',9100]]}[entity] || [];
-
-    const ar = s(124300), inv = s(248600), prepaid = s(36800);
-    const totalAssets = totalCash + ar + inv + prepaid;
-    const ap = s(312400), payrollLib = s(48200), accrued = s(62800);
-    const ccTotal = creditCards.reduce((sum,[,v]) => sum + v, 0);
-    const totalLiab = ap + payrollLib + accrued + ccTotal;
-    const equity = s(520860), netProfit = s(455040), distrib = s(120000);
-    const totalEquity = equity + netProfit - distrib;
-
     const el = document.getElementById('balanceReport');
     el.innerHTML = `
       <div class="report-header">
         <h2>Balance Sheet</h2>
         <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · As of ${period}</p>
       </div>
-      ${pnlSection('Assets')}
-      ${pnlLine('Current assets', null, 1, 'group')}
-      ${cashRows.map(([name,val]) => pnlLine('Cash — '+name, val, 2)).join('')}
-      ${pnlLine('Total cash', totalCash, 1, 'subtotal')}
-      ${pnlLine('Accounts receivable', ar, 2)}
-      ${pnlLine('Inventory', inv, 2)}
-      ${pnlLine('Prepaid expenses', prepaid, 2)}
-      ${pnlTotal('Total Assets', totalAssets, 'pos')}
-
-      ${pnlSection('Liabilities')}
-      ${pnlLine('Accounts payable', ap, 1)}
-      ${pnlLine('Payroll liabilities', payrollLib, 1)}
-      ${pnlLine('Accrued expenses', accrued, 1)}
-      ${creditCards.map(([name,val]) => pnlLine('Credit card payable'+name, val, 1)).join('')}
-      ${pnlTotal('Total Liabilities', totalLiab)}
-
-      ${pnlSection('Equity')}
-      ${pnlLine('Owner equity', equity, 1)}
-      ${pnlLine('Retained earnings', 0, 1)}
-      ${pnlLine('Net profit — current period', netProfit, 1, 'pos')}
-      ${pnlLine('Partner distributions', -distrib, 1, 'neg')}
-      ${pnlTotal('Total Equity', totalEquity, 'pos')}
-
-      ${pnlGrand('Total Liabilities + Equity', totalLiab + totalEquity, 'pos')}
+      <div style="padding:48px;text-align:center;color:var(--text3)">
+        <p style="font-size:15px;margin-bottom:8px">No classified transactions yet</p>
+        <p style="font-size:13px">Classify transactions in the Inbox to populate this report.</p>
+      </div>
     `;
   },
 
