@@ -948,6 +948,7 @@ const app = {
         <div class="toolbar-right">
           <span style="font-size:13px;color:var(--text3)">${txns.length} to classify</span>
           <button class="btn-outline" id="bulkClassifyBtn" style="display:none" onclick="app.bulkClassify()">Classify Selected</button>
+          <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
         </div>
       </div>
       ${txns.length === 0 ? `
@@ -989,7 +990,10 @@ const app = {
                     </select>
                     <div style="font-size:11px;margin-top:2px"><a href="#" onclick="app.openNewAccountModal();return false" style="color:var(--accent)">+ New account</a></div>
                   </td>
-                  <td><button class="btn-primary" style="font-size:12px;padding:4px 10px" onclick="app.classifyRow('${t.id}')">Classify</button></td>
+                  <td style="white-space:nowrap">
+                    <button class="btn-primary" style="font-size:12px;padding:4px 10px" onclick="app.classifyRow('${t.id}')">Classify</button>
+                    <button class="btn-outline" style="font-size:12px;padding:4px 8px;color:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1006,8 +1010,10 @@ const app = {
 
   onRowCheck() {
     const anyChecked = [...document.querySelectorAll('.row-check')].some(c => c.checked);
-    const btn = document.getElementById('bulkClassifyBtn');
-    if (btn) btn.style.display = anyChecked ? 'inline-block' : 'none';
+    const classifyBtn = document.getElementById('bulkClassifyBtn');
+    const deleteBtn   = document.getElementById('bulkDeleteBtn');
+    if (classifyBtn) classifyBtn.style.display = anyChecked ? 'inline-block' : 'none';
+    if (deleteBtn)   deleteBtn.style.display   = anyChecked ? 'inline-block' : 'none';
   },
 
   // ---- CLASSIFY SINGLE ROW ----
@@ -1101,8 +1107,49 @@ const app = {
 
     this.toast(`${success} classified${failed ? `, ${failed} failed` : ''}`);
     document.getElementById('bulkClassifyBtn').style.display = 'none';
+    document.getElementById('bulkDeleteBtn').style.display = 'none';
     const badge = document.getElementById('reviewBadge');
     if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
+  },
+
+  // ---- DELETE SINGLE ROW ----
+  async deleteRow(rawId) {
+    if (!confirm('Delete this transaction?')) return;
+    const { error } = await supabaseClient.from('raw_transactions').delete().eq('id', rawId);
+    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    document.querySelector(`tr[data-id="${rawId}"]`)?.remove();
+    const badge = document.getElementById('reviewBadge');
+    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - 1) || '';
+    const countEl = document.querySelector('#inboxContent .toolbar-right span');
+    if (countEl) {
+      const n = Math.max(0, parseInt(countEl.textContent) - 1);
+      countEl.textContent = n + ' to classify';
+    }
+    this.toast('Deleted');
+  },
+
+  // ---- BULK DELETE ----
+  async bulkDelete() {
+    const checkedRows = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
+    if (!checkedRows.length) { this.toast('No rows selected'); return; }
+    if (!confirm(`Delete ${checkedRows.length} transaction${checkedRows.length !== 1 ? 's' : ''}?`)) return;
+
+    const ids = checkedRows.map(r => r.dataset.id);
+    const { error } = await supabaseClient.from('raw_transactions').delete().in('id', ids);
+    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+
+    checkedRows.forEach(r => r.remove());
+    const badge = document.getElementById('reviewBadge');
+    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - ids.length) || '';
+    const countEl = document.querySelector('#inboxContent .toolbar-right span');
+    if (countEl) {
+      const n = Math.max(0, parseInt(countEl.textContent) - ids.length);
+      countEl.textContent = n + ' to classify';
+    }
+    document.getElementById('bulkDeleteBtn').style.display = 'none';
+    document.getElementById('bulkClassifyBtn').style.display = 'none';
+    document.getElementById('inboxSelectAll').checked = false;
+    this.toast(`${ids.length} deleted`);
   },
 
   // ---- MANUAL RAW TXN ENTRY ----
