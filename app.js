@@ -1203,15 +1203,15 @@ const app = {
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
                   <td>
-                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px" onchange="if(this.value==='__new__'){this.value='';app.openNewAccountModal();}">
+                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px" onchange="if(this.value==='__new__'){this.value='';app.openNewAccountModal();}else{const btn=this.closest('tr').querySelector('.classify-btn');if(btn){btn.style.opacity=this.value?'1':'0.35';btn.style.background=this.value?'var(--green,#16a34a)':''}}">
                       <option value="">— select account —</option>
                       ${acctOptions}
                       <option value="__new__">+ New account</option>
                     </select>
                   </td>
                   <td style="white-space:nowrap">
-                    <button class="btn-primary" style="font-size:12px;padding:4px 10px" onclick="app.classifyRow('${t.id}')">Classify</button>
-                    <button class="btn-outline" style="font-size:12px;padding:4px 8px;color:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
+                    <button class="btn-primary classify-btn" style="font-size:12px;padding:4px 10px;background:var(--green,#16a34a);border-color:var(--green,#16a34a);opacity:0.35" onclick="app.classifyRow('${t.id}')">Classify</button>
+                    <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
                   </td>
                 </tr>
               `).join('')}
@@ -1292,17 +1292,16 @@ const app = {
     const checkedRows = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
     if (!checkedRows.length) { this.toast('No rows selected'); return; }
 
-    const accountIds = [...new Set(checkedRows.map(r => r.querySelector('.acct-sel')?.value).filter(Boolean))];
-    if (accountIds.length === 0) { this.toast('Select a category for all checked rows'); return; }
-    if (accountIds.length > 1)   { this.toast('All selected rows must use the same category for bulk classify'); return; }
+    const rowsMissingCategory = checkedRows.filter(r => !r.querySelector('.acct-sel')?.value);
+    if (rowsMissingCategory.length > 0) { this.toast(`${rowsMissingCategory.length} row(s) missing a category — select one for each`); return; }
 
-    const accountId = accountIds[0];
     let success = 0, failed = 0;
 
     for (const row of checkedRows) {
-      const rawId = row.dataset.id;
+      const rawId     = row.dataset.id;
+      const accountId = row.querySelector('.acct-sel')?.value;
       const entityCode = row.querySelector('.entity-sel')?.value;
-      if (!entityCode) { failed++; continue; }
+      if (!entityCode || !accountId) { failed++; continue; }
 
       const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
       if (error) { failed++; continue; }
