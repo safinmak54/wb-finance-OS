@@ -91,8 +91,8 @@ async function loadDataFromSupabase() {
     // Load vendors
     const { data: vendors, error: venErr } = await supabaseClient
       .from('vendors').select('*').order('name');
-    if (!venErr && vendors && vendors.length > 0) {
-      DATA.vendors = vendors.map(v => ({
+    if (!venErr) {
+      DATA.vendors = (vendors || []).map(v => ({
         id: v.id,
         name: v.name,
         type: v.vendor_type || 'other',
@@ -105,7 +105,7 @@ async function loadDataFromSupabase() {
       // Rebuild vendor name map
       window._vendorByName = {};
       DATA.vendors.forEach(v => { window._vendorByName[v.name] = v.id; });
-      // Update overdue badge
+      // Always update overdue badge (clears hardcoded value when DB is empty)
       const overdueCount = DATA.vendors.filter(v => v.overdue > 0).length;
       const vBadge = document.getElementById('overdueVendorBadge');
       if (vBadge) vBadge.textContent = overdueCount || '';
