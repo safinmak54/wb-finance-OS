@@ -1198,7 +1198,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td class="${Number(t.amount) >= 0 ? 'pos' : 'neg'}" style="font-variant-numeric:tabular-nums">
+                  <td class="${t.direction === 'DEBIT' ? 'neg' : 'pos'}" style="font-variant-numeric:tabular-nums">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
@@ -1877,12 +1877,19 @@ const app = {
       `<tr>${row.map(cell => `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell}</td>`).join('')}</tr>`
     ).join('');
 
+    const entityOptions = ['WB','LP','KP','BP','WBP','ONEOPS'].map(e =>
+      `<option value="${e}">${e}</option>`).join('');
+
     document.getElementById('modalBody').innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
         <div style="font-size:12px;font-weight:600;color:var(--text)">${rows.length} rows detected</div>
         <button class="btn-outline btn-sm" onclick="app.openModal('importCSV')" style="font-size:11px">← Change file</button>
       </div>
       <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px">Entity <span style="color:var(--red)">*</span></div>
+        <select id="csvEntitySelect" class="filter-select" style="width:100%;margin-bottom:14px">
+          ${entityOptions}
+        </select>
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:6px">Column mapping</div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Map <b>Amount</b> for a single column, or <b>Debit + Credit</b> for two-column bank statements.</div>
         ${mappingHTML}
@@ -1907,6 +1914,8 @@ const app = {
     const mapping = {};
     selects.forEach(s => { mapping[s.dataset.field] = parseInt(s.value); });
 
+    const csvEntity = document.getElementById('csvEntitySelect')?.value;
+    if (!csvEntity)           { this.toast('Select an entity');                return; }
     if (mapping.accDate < 0)  { this.toast('Date column is required');        return; }
     if (mapping.desc < 0)     { this.toast('Description column is required'); return; }
     if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
@@ -1944,7 +1953,8 @@ const app = {
         transaction_date: accDate,
         accounting_date:  accDate,
         source:           'csv',
-        classified:       false
+        classified:       false,
+        entity_id:        window._entityByCode[csvEntity] || null
       });
     });
 
