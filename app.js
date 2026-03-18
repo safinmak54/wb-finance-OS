@@ -220,8 +220,8 @@ const app = {
       if (page === 'ledger')       await this.renderLedger();
       if (page === 'vendors')      this.renderVendors();
       if (page === 'invoices')     this.renderInvoices();
-      if (page === 'pnl')          this.renderPnL();
-      if (page === 'balance')      this.renderBalance();
+      if (page === 'pnl')          await this.renderPnL();
+      if (page === 'balance')      await this.renderBalance();
       if (page === 'journals')     this.renderJournals();
       if (page === 'coa')          this.renderCOA();
       if (page === 'banks')        this.renderBanks();
@@ -237,8 +237,8 @@ const app = {
     else if (pg === 'ledger') await this.renderLedger();
     else if (pg === 'vendors')  this.renderVendors();
     else if (pg === 'invoices') this.renderInvoices();
-    else if (pg === 'pnl')      this.renderPnL();
-    else if (pg === 'balance')  this.renderBalance();
+    else if (pg === 'pnl')      await this.renderPnL();
+    else if (pg === 'balance')  await this.renderBalance();
     else if (pg === 'dashboard') await this.updateDashboardKPIs();
   },
 
@@ -402,38 +402,186 @@ const app = {
     this.openModal('editTransaction', t);
   },
 
+  // ---- REPORT DATA HELPERS ----
+  async fetchReportData(entity, period) {
+    let txnQuery = supabaseClient
+      .from('transactions')
+      .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
+      .gte('acc_date', period + '-01')
+      .lte('acc_date', period + '-31');
+    if (entity !== 'all') txnQuery = txnQuery.eq('entity', entity);
+    const { data: txns, error: txnErr } = await txnQuery;
+    if (txnErr) { console.error('Report txn error:', txnErr); return null; }
+
+    const { data: journals } = await supabaseClient
+      .from('journal_entries')
+      .select('id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))')
+      .eq('period', period);
+
+    const flatJournals = (journals || []).map(je => ({
+      ...je,
+      netAmount: (je.ledger_entries || []).reduce((s, l) =>
+        s + (Number(l.debit_amount || 0) - Number(l.credit_amount || 0)), 0)
+    }));
+
+    return { txns: txns || [], journals: flatJournals };
+  },
+
+  groupByAccount(txns) {
+    const groups = {};
+    for (const t of txns) {
+      const acct = t.accounts;
+      if (!acct) continue;
+      if (!groups[t.account_id]) groups[t.account_id] = { account: acct, total: 0 };
+      groups[t.account_id].total += Number(t.amount);
+    }
+    return groups;
+  },
+
   // ---- P&L REPORT ----
-  renderPnL(entity) {
+  async renderPnL(entity) {
     if (entity === undefined) entity = state.currentEntity;
+    const period = state.currentPeriod;
     const el = document.getElementById('pnlReport');
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    const data = await this.fetchReportData(entity, period);
+    if (!data) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load report</div>'; return; }
+
+    const groups = this.groupByAccount(data.txns);
+    const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
+    const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
+    const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
+    const renderLines = (lines, isExpense = false) => lines.map(g =>
+      pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2)
+    ).join('');
+
+    const revenueLines = byType('revenue', ['contra']);
+    const contraLines  = bySubtype('contra');
+    const cogsLines    = bySubtype('cogs');
+    const adLines      = bySubtype('advertising');
+    const payrollLines = bySubtype('payroll');
+    const platformLines= bySubtype('platform');
+    const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission']);
+
+    const totalRevenue  = sumLines(revenueLines);
+    const totalContra   = Math.abs(sumLines(contraLines));
+    const totalIncome   = totalRevenue - totalContra;
+    const totalCogs     = Math.abs(sumLines(cogsLines));
+    const grossProfit   = totalIncome - totalCogs;
+    const totalAd       = Math.abs(sumLines(adLines));
+    const totalPayroll  = Math.abs(sumLines(payrollLines));
+    const totalPlatform = Math.abs(sumLines(platformLines));
+    const totalOpex     = Math.abs(sumLines(opexLines));
+    const totalExpenses = totalCogs + totalAd + totalPayroll + totalPlatform + totalOpex;
+    const noi           = totalIncome - totalExpenses;
+
+    const adjusting = (data.journals || []).filter(j => j.entry_type === 'adjusting');
+    const totalAdj  = adjusting.reduce((s, j) => s + (j.netAmount || 0), 0);
+    const netProfit = noi + totalAdj;
+    const marginPct = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '—';
+    const grossPct  = totalIncome > 0 ? ((grossProfit / totalIncome) * 100).toFixed(1) : '—';
+
     el.innerHTML = `
       <div class="report-header">
         <h2>Profit & Loss Statement</h2>
-        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · ${this.getPeriodLabel(state.currentPeriod)} · Accrual basis</p>
+        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · ${this.getPeriodLabel(period)} · Accrual basis</p>
       </div>
-      <div style="padding:48px;text-align:center;color:var(--text3)">
-        <p style="font-size:15px;margin-bottom:8px">No classified transactions yet</p>
-        <p style="font-size:13px">Classify transactions in the Inbox to populate this report.</p>
-      </div>
+      ${pnlSection('Gross Revenue')}
+      ${renderLines(revenueLines)}
+      ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
+      ${pnlTotal('Total Revenue', totalIncome, 'pos')}
+      ${pnlSection('Cost of Goods Sold')}
+      ${renderLines(cogsLines, true)}
+      ${pnlTotal('Gross Profit', grossProfit, grossProfit >= 0 ? 'pos' : 'neg')}
+      ${pnlLine(`Gross margin: ${grossPct}%`, null, 1, 'muted')}
+      ${pnlSection('Operating Expenses')}
+      ${adLines.length ? pnlLine('Advertisement', null, 1, 'group') + renderLines(adLines, true) : ''}
+      ${payrollLines.length ? pnlLine('Wages & Payroll', null, 1, 'group') + renderLines(payrollLines, true) : ''}
+      ${platformLines.length ? pnlLine('Platform fees', null, 1, 'group') + renderLines(platformLines, true) : ''}
+      ${opexLines.length ? pnlLine('Other operating expenses', null, 1, 'group') + renderLines(opexLines, true) : ''}
+      ${pnlTotal('Total Operating Expenses', totalExpenses)}
+      ${pnlGrand('Net Operating Income', noi, noi >= 0 ? 'pos' : 'neg')}
+      ${adjusting.length ? `
+        ${pnlSection('Adjusting Entries')}
+        ${adjusting.map(j => pnlLine(j.description || 'Adjustment', j.netAmount, 1)).join('')}
+        ${pnlTotal('Total Adjustments', totalAdj, totalAdj >= 0 ? 'pos' : 'neg')}
+      ` : ''}
+      ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
+      ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
+      ${totalIncome === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
     `;
   },
 
-  setPnlEntity(val) { this.renderPnL(val); },
+  async setPnlEntity(val) { await this.renderPnL(val); },
 
   // ---- BALANCE SHEET ----
-  renderBalance() {
+  async fetchBalanceSheetData(entity) {
+    let query = supabaseClient
+      .from('transactions')
+      .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, is_elimination)');
+    if (entity !== 'all') query = query.eq('entity', entity);
+    const { data: txns, error } = await query;
+    if (error) { console.error('Balance Sheet error:', error); return null; }
+    return txns || [];
+  },
+
+  async renderBalance() {
     const entity = state.currentEntity;
     const period = this.getPeriodLabel(state.currentPeriod);
     const el = document.getElementById('balanceReport');
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    const [bsTxns, pnlData] = await Promise.all([
+      this.fetchBalanceSheetData(entity),
+      this.fetchReportData(entity, state.currentPeriod)
+    ]);
+    if (!bsTxns) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load</div>'; return; }
+
+    const groups = this.groupByAccount(bsTxns);
+    const byType = (type) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination);
+    const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
+    const renderLines = (lines, isLiab = false) => lines.map(g =>
+      pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isLiab ? Math.abs(g.total) : g.total, 2)
+    ).join('');
+
+    const assetLines  = byType('asset');
+    const liabLines   = byType('liability');
+    const equityLines = byType('equity');
+
+    const totalAssets = sumLines(assetLines);
+    const totalLiab   = Math.abs(sumLines(liabLines));
+
+    let netProfit = 0;
+    if (pnlData) {
+      const pnlGroups = this.groupByAccount(pnlData.txns);
+      const rev = Object.values(pnlGroups).filter(g => g.account.account_type === 'revenue').reduce((s, g) => s + g.total, 0);
+      const exp = Object.values(pnlGroups).filter(g => g.account.account_type === 'expense').reduce((s, g) => s + Math.abs(g.total), 0);
+      netProfit = rev - exp;
+    }
+
+    const totalEquity     = sumLines(equityLines) + netProfit;
+    const totalLiabEquity = totalLiab + totalEquity;
+    const balanced        = Math.abs(totalAssets - totalLiabEquity) < 1;
+
     el.innerHTML = `
       <div class="report-header">
         <h2>Balance Sheet</h2>
         <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · As of ${period}</p>
       </div>
-      <div style="padding:48px;text-align:center;color:var(--text3)">
-        <p style="font-size:15px;margin-bottom:8px">No classified transactions yet</p>
-        <p style="font-size:13px">Classify transactions in the Inbox to populate this report.</p>
-      </div>
+      ${pnlSection('Assets')}
+      ${renderLines(assetLines)}
+      ${pnlTotal('Total Assets', totalAssets, 'pos')}
+      ${pnlSection('Liabilities')}
+      ${renderLines(liabLines, true)}
+      ${pnlTotal('Total Liabilities', totalLiab)}
+      ${pnlSection('Equity')}
+      ${renderLines(equityLines)}
+      ${pnlLine('Net profit (current period)', netProfit, 2, netProfit >= 0 ? 'pos' : 'neg')}
+      ${pnlTotal('Total Equity', totalEquity, totalEquity >= 0 ? 'pos' : 'neg')}
+      ${pnlGrand('Total Liabilities + Equity', totalLiabEquity, 'pos')}
+      ${!balanced && (totalAssets > 0 || totalLiab > 0) ? `<div style="color:var(--red);padding:8px;font-size:13px">⚠ Out of balance by ${fmt(Math.abs(totalAssets - totalLiabEquity))}</div>` : ''}
+      ${totalAssets === 0 && totalLiab === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified yet.</div>` : ''}
     `;
   },
 
@@ -1761,64 +1909,47 @@ const app = {
       if (el) el.textContent = val !== null ? fmt(val) : '—';
     };
 
-    // Zero out while loading
     ['m-revenue','m-income','m-gp','m-np','m-cash','m-adspend'].forEach(id => set(id, 0));
-
     if (!supabaseClient) return;
 
-    // Build entity filter
-    let txnQuery = supabaseClient
-      .from('transactions')
-      .select('amount, account_id, accounts(account_type, account_subtype)')
-      .gte('acc_date', period + '-01')
-      .lte('acc_date', period + '-31');
+    const data = await this.fetchReportData(entity, period);
+    if (!data) return;
 
-    if (entity !== 'all') txnQuery = txnQuery.eq('entity', entity);
+    const groups    = this.groupByAccount(data.txns);
+    const byType    = (type) => Object.values(groups).filter(g => g.account.account_type === type);
+    const bySubtype = (sub)  => Object.values(groups).filter(g => g.account.account_subtype === sub);
+    const sum       = (arr)  => arr.reduce((s, g) => s + g.total, 0);
 
-    const { data: txns, error } = await txnQuery;
-    if (error) { console.error('KPI load error:', error); return; }
-
-    const rows = txns || [];
-
-    const sumWhere = (fn) => rows.filter(fn).reduce((s, t) => s + Number(t.amount), 0);
-
-    const revenue  = sumWhere(t => t.accounts?.account_type === 'revenue');
-    const cogs     = Math.abs(sumWhere(t => t.accounts?.account_subtype === 'cogs'));
-    const adSpend  = Math.abs(sumWhere(t => t.accounts?.account_subtype === 'advertising'));
-    const expenses = Math.abs(sumWhere(t => t.accounts?.account_type === 'expense'));
-    const income   = revenue;
+    const revenue  = sum(byType('revenue'));
+    const expenses = Math.abs(sum(byType('expense')));
+    const cogs     = Math.abs(sum(bySubtype('cogs')));
+    const adSpend  = Math.abs(sum(bySubtype('advertising')));
     const gp       = revenue - cogs;
     const np       = revenue - expenses;
 
     set('m-revenue', revenue);
-    set('m-income',  income);
+    set('m-income',  revenue);
     set('m-gp',      gp);
     set('m-np',      np);
     set('m-adspend', adSpend);
+    set('m-cash',    0);
 
-    // Cash: placeholder until bank sync
-    set('m-cash', 0);
-
-    // Update insights section
     const insights = document.getElementById('insightsSection');
     if (insights) {
-      if (rows.length === 0) {
-        insights.innerHTML = '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>';
-      } else {
-        insights.innerHTML = '';
-      }
+      insights.innerHTML = data.txns.length === 0
+        ? '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>'
+        : '';
     }
 
-    // Update margin deltas
     const npEl = document.getElementById('m-np');
-    if (npEl && income > 0) {
+    if (npEl && revenue > 0) {
       const delta = npEl.parentElement?.querySelector('.metric-delta');
-      if (delta) delta.textContent = ((np / income) * 100).toFixed(1) + '% margin';
+      if (delta) delta.textContent = ((np / revenue) * 100).toFixed(1) + '% margin';
     }
     const gpEl = document.getElementById('m-gp');
-    if (gpEl && income > 0) {
+    if (gpEl && revenue > 0) {
       const delta = gpEl.parentElement?.querySelector('.metric-delta');
-      if (delta) delta.textContent = ((gp / income) * 100).toFixed(1) + '% margin';
+      if (delta) delta.textContent = ((gp / revenue) * 100).toFixed(1) + '% margin';
     }
   },
 
