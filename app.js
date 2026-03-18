@@ -10,7 +10,6 @@ const SUPABASE_URL = 'https://fxwjadkbvlvxtxxkjqkw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410';
 
 let supabaseClient = null;
-const DB_READY = SUPABASE_URL !== 'YOUR_SUPABASE_URL';
 
 // Runtime lookup maps (populated on load)
 window._entityByCode = {};   // code → uuid
@@ -18,121 +17,15 @@ window._entityById   = {};   // uuid → code
 window._accountById  = {};   // uuid → name
 window._vendorByName = {};   // name → uuid
 
-// ---- DATA STORE (hardcoded seed / offline fallback) ----
+// ---- DATA STORE ----
+// Data is loaded exclusively from Supabase. No hardcoded fallback.
 const DATA = {
-  transactions: [
-    { id:'T001', entity:'WB', desc:'Stripe payout — consolidated', vendor:'Stripe', type:'income', category:'Gross Revenue — Stripe', amount:62400, txnDate:'2025-03-31', accDate:'2025-03-31', status:'confirmed', source:'stripe' },
-    { id:'T002', entity:'ONEOPS', desc:'UPS bulk shipment Mar', vendor:'UPS', type:'expense', category:'Shipping Costs', amount:-18200, txnDate:'2025-03-31', accDate:'2025-03-31', status:'confirmed', source:'bank' },
-    { id:'T003', entity:'ONEOPS', desc:'Google Ads — March billing', vendor:'Google', type:'expense', category:'Google Ads', amount:-52100, txnDate:'2025-03-31', accDate:'2025-03-31', status:'confirmed', source:'bank' },
-    { id:'T004', entity:'LP', desc:'LP → One Ops transfer', vendor:'', type:'transfer', category:'Intercompany — eliminated', amount:140000, txnDate:'2025-03-30', accDate:'2025-03-30', status:'confirmed', source:'bank' },
-    { id:'T005', entity:'ONEOPS', desc:'ADP payroll run — Mar', vendor:'ADP', type:'payroll', category:'Wages — W2', amount:-74500, txnDate:'2025-03-30', accDate:'2025-03-30', status:'confirmed', source:'bank' },
-    { id:'T006', entity:'WB', desc:'PayPal payout batch', vendor:'PayPal', type:'income', category:'Gross Revenue — PayPal', amount:21800, txnDate:'2025-03-29', accDate:'2025-03-29', status:'confirmed', source:'paypal' },
-    { id:'T007', entity:'ONEOPS', desc:'Unknown ACH — vendor unidentified', vendor:'Unknown', type:'expense', category:'Unclassified', amount:-4200, txnDate:'2025-03-28', accDate:'2025-03-28', status:'review', source:'bank' },
-    { id:'T008', entity:'WB', desc:'2% commission transfer — ZT Brands', vendor:'ZT Brands', type:'transfer', category:'Eliminated on consolidation', amount:59151, txnDate:'2025-03-28', accDate:'2025-03-28', status:'confirmed', source:'bank' },
-    { id:'T009', entity:'ONEOPS', desc:'Meta Ads — March', vendor:'Meta', type:'expense', category:'Meta Ads', amount:-44600, txnDate:'2025-03-27', accDate:'2025-03-27', status:'confirmed', source:'bank' },
-    { id:'T010', entity:'ONEOPS', desc:'FedEx shipping batch', vendor:'FedEx', type:'expense', category:'Shipping Costs', amount:-12800, txnDate:'2025-03-26', accDate:'2025-03-26', status:'confirmed', source:'bank' },
-    { id:'T011', entity:'LP', desc:'Stripe payout — Lanyard', vendor:'Stripe', type:'income', category:'Gross Revenue — Stripe', amount:38200, txnDate:'2025-03-25', accDate:'2025-03-25', status:'confirmed', source:'stripe' },
-    { id:'T012', entity:'KP', desc:'Stripe payout — Koolers', vendor:'Stripe', type:'income', category:'Gross Revenue — Stripe', amount:26400, txnDate:'2025-03-25', accDate:'2025-03-25', status:'confirmed', source:'stripe' },
-    { id:'T013', entity:'ONEOPS', desc:'Shopify platform fee', vendor:'Shopify', type:'expense', category:'Platform Fees', amount:-3200, txnDate:'2025-03-24', accDate:'2025-03-24', status:'confirmed', source:'bank' },
-    { id:'T014', entity:'ONEOPS', desc:'COGS — promo products batch', vendor:'Promo Direct', type:'cogs', category:'Cost of Goods Sold', amount:-128000, txnDate:'2025-03-22', accDate:'2025-03-22', status:'confirmed', source:'bank' },
-    { id:'T015', entity:'ONEOPS', desc:'Contractor payment — creative', vendor:'Studio 44', type:'payroll', category:'Contractor — 1099', amount:-8500, txnDate:'2025-03-21', accDate:'2025-03-21', status:'review', source:'bank' },
-    { id:'T016', entity:'BP', desc:'Wire payment received', vendor:'', type:'income', category:'Gross Revenue — Wire/Check', amount:44000, txnDate:'2025-03-20', accDate:'2025-03-20', status:'confirmed', source:'bank' },
-    { id:'T017', entity:'ONEOPS', desc:'AWS cloud services', vendor:'Amazon Web Services', type:'expense', category:'Computers and Software', amount:-2800, txnDate:'2025-03-18', accDate:'2025-03-18', status:'confirmed', source:'bank' },
-    { id:'T018', entity:'WBP', desc:'PayPal payout — WB Promo', vendor:'PayPal', type:'income', category:'Gross Revenue — PayPal', amount:18600, txnDate:'2025-03-15', accDate:'2025-03-15', status:'confirmed', source:'paypal' },
-    { id:'T019', entity:'ONEOPS', desc:'Office rent — March', vendor:'Realty Partners LLC', type:'expense', category:'Rent Expense', amount:-8000, txnDate:'2025-03-01', accDate:'2025-03-01', status:'confirmed', source:'bank' },
-    { id:'T020', entity:'ONEOPS', desc:'Unknown charge — ATM', vendor:'Unknown', type:'expense', category:'Unclassified', amount:-240, txnDate:'2025-03-14', accDate:'2025-03-14', status:'review', source:'bank' },
-  ],
-
-  vendors: [
-    { id:'V001', name:'Google', type:'ad_agency', ytd:218400, openInvoices:1, overdue:0, lastPayment:'2025-03-31', status:'active' },
-    { id:'V002', name:'Meta', type:'ad_agency', ytd:174600, openInvoices:1, overdue:1, lastPayment:'2025-02-28', status:'overdue' },
-    { id:'V003', name:'UPS', type:'shipping', ytd:128400, openInvoices:1, overdue:1, lastPayment:'2025-02-28', status:'overdue' },
-    { id:'V004', name:'FedEx', type:'shipping', ytd:62800, openInvoices:1, overdue:1, lastPayment:'2025-02-25', status:'overdue' },
-    { id:'V005', name:'Promo Direct', type:'cogs', ytd:985000, openInvoices:2, overdue:0, lastPayment:'2025-03-22', status:'active' },
-    { id:'V006', name:'ADP', type:'software', ytd:74500, openInvoices:0, overdue:0, lastPayment:'2025-03-30', status:'active' },
-    { id:'V007', name:'Shopify', type:'software', ytd:9600, openInvoices:0, overdue:0, lastPayment:'2025-03-24', status:'active' },
-    { id:'V008', name:'Amazon Web Services', type:'software', ytd:8400, openInvoices:0, overdue:0, lastPayment:'2025-03-18', status:'active' },
-    { id:'V009', name:'Realty Partners LLC', type:'utility', ytd:24000, openInvoices:0, overdue:0, lastPayment:'2025-03-01', status:'active' },
-    { id:'V010', name:'Studio 44', type:'ad_agency', ytd:25500, openInvoices:1, overdue:0, lastPayment:'2025-03-21', status:'active' },
-  ],
-
-  invoices: [
-    { id:'INV-001', vendor:'Meta', invoiceNum:'META-2025-03', date:'2025-02-28', due:'2025-03-28', amount:44600, paid:0, status:'overdue' },
-    { id:'INV-002', vendor:'UPS', invoiceNum:'UPS-MAR-001', date:'2025-02-28', due:'2025-03-28', amount:18200, paid:0, status:'overdue' },
-    { id:'INV-003', vendor:'FedEx', invoiceNum:'FX-2025-0312', date:'2025-02-26', due:'2025-03-26', amount:12800, paid:0, status:'overdue' },
-    { id:'INV-004', vendor:'Promo Direct', invoiceNum:'PD-20250301', date:'2025-03-01', due:'2025-04-01', amount:128000, paid:128000, status:'paid' },
-    { id:'INV-005', vendor:'Google', invoiceNum:'G-ADS-MAR25', date:'2025-03-01', due:'2025-04-15', amount:52100, paid:0, status:'open' },
-    { id:'INV-006', vendor:'Studio 44', invoiceNum:'S44-0021', date:'2025-03-15', due:'2025-04-15', amount:8500, paid:4000, status:'partial' },
-    { id:'INV-007', vendor:'Promo Direct', invoiceNum:'PD-20250315', date:'2025-03-15', due:'2025-04-15', amount:95000, paid:0, status:'open' },
-  ],
-
-  journals: [
-    { id:'JE-001', memo:'March commission — WB Brands', account:'Commission Expense', debit:59151, credit:0, date:'2025-03-31', entity:'WB', type:'elimination' },
-    { id:'JE-001', memo:'March commission — One Ops', account:'Commission Income', debit:0, credit:59151, date:'2025-03-31', entity:'ONEOPS', type:'elimination' },
-    { id:'JE-002', memo:'Accrued shipping — unpaid invoices', account:'Accrued Expenses', debit:31000, credit:0, date:'2025-03-31', entity:'WB', type:'accrual' },
-    { id:'JE-002', memo:'Accrued shipping — unpaid invoices', account:'Accounts Payable', debit:0, credit:31000, date:'2025-03-31', entity:'WB', type:'accrual' },
-    { id:'JE-003', memo:'Partner distribution — March', account:'Partner Distributions', debit:120000, credit:0, date:'2025-03-31', entity:'WB', type:'distribution' },
-    { id:'JE-003', memo:'Partner distribution — March', account:'Cash — One Ops', debit:0, credit:120000, date:'2025-03-31', entity:'WB', type:'distribution' },
-  ],
-
-  coa: [
-    { code:'1010', name:'Cash — LP checking', type:'asset', subtype:'current', line:'Cash', balance:284100, elimination:false },
-    { code:'1020', name:'Cash — KP checking', type:'asset', subtype:'current', line:'Cash', balance:196400, elimination:false },
-    { code:'1030', name:'Cash — BP checking', type:'asset', subtype:'current', line:'Cash', balance:88200, elimination:false },
-    { code:'1040', name:'Cash — WBP checking', type:'asset', subtype:'current', line:'Cash', balance:142600, elimination:false },
-    { code:'1050', name:'Cash — One Ops checking', type:'asset', subtype:'current', line:'Cash', balance:318900, elimination:false },
-    { code:'1100', name:'Accounts receivable', type:'asset', subtype:'current', line:'A/R', balance:124300, elimination:false },
-    { code:'1200', name:'Inventory', type:'asset', subtype:'current', line:'Inventory', balance:248600, elimination:false },
-    { code:'1300', name:'Prepaid expenses', type:'asset', subtype:'current', line:'Prepaid', balance:36800, elimination:false },
-    { code:'1400', name:'Intercompany receivable', type:'asset', subtype:'current', line:'Eliminated', balance:0, elimination:true },
-    { code:'2010', name:'Accounts payable', type:'liability', subtype:'current', line:'A/P', balance:312400, elimination:false },
-    { code:'2100', name:'Payroll liabilities', type:'liability', subtype:'current', line:'Payroll liabilities', balance:48200, elimination:false },
-    { code:'2200', name:'Accrued expenses', type:'liability', subtype:'current', line:'Accrued expenses', balance:62800, elimination:false },
-    { code:'2300', name:'Intercompany payable', type:'liability', subtype:'current', line:'Eliminated', balance:0, elimination:true },
-    { code:'2400', name:'Credit card payable — LP', type:'liability', subtype:'current', line:'A/P', balance:18400, elimination:false },
-    { code:'2410', name:'Credit card payable — KP', type:'liability', subtype:'current', line:'A/P', balance:12600, elimination:false },
-    { code:'2420', name:'Credit card payable — BP', type:'liability', subtype:'current', line:'A/P', balance:9100, elimination:false },
-    { code:'3010', name:'Owner equity', type:'equity', subtype:'equity', line:'Owner equity', balance:520860, elimination:false },
-    { code:'3020', name:'Retained earnings', type:'equity', subtype:'equity', line:'Retained earnings', balance:0, elimination:false },
-    { code:'3030', name:'Partner distributions', type:'equity', subtype:'equity', line:'Distributions', balance:-120000, elimination:false },
-    { code:'4010', name:'Gross revenue — Stripe', type:'revenue', subtype:'revenue', line:'Gross revenue', balance:1842300, elimination:false },
-    { code:'4020', name:'Gross revenue — PayPal', type:'revenue', subtype:'revenue', line:'Gross revenue', balance:620150, elimination:false },
-    { code:'4030', name:'Gross revenue — Wire/Check', type:'revenue', subtype:'revenue', line:'Gross revenue', balance:537900, elimination:false },
-    { code:'4900', name:'Returns and cancellations', type:'revenue', subtype:'contra', line:'Returns', balance:-42800, elimination:false },
-    { code:'4950', name:'Commission income — One Ops', type:'revenue', subtype:'revenue', line:'Eliminated', balance:59151, elimination:true },
-    { code:'5010', name:'Cost of goods sold', type:'expense', subtype:'cogs', line:'COGS', balance:985000, elimination:false },
-    { code:'5020', name:'Shipping costs', type:'expense', subtype:'cogs', line:'Shipping', balance:128400, elimination:false },
-    { code:'6010', name:'Google Ads', type:'expense', subtype:'advertising', line:'Advertisement', balance:218400, elimination:false },
-    { code:'6020', name:'Meta Ads', type:'expense', subtype:'advertising', line:'Advertisement', balance:174600, elimination:false },
-    { code:'6030', name:'Ad agency fees', type:'expense', subtype:'advertising', line:'Ad agencies', balance:62000, elimination:false },
-    { code:'6100', name:'Wages — W2', type:'expense', subtype:'payroll', line:'Wages', balance:298000, elimination:false },
-    { code:'6110', name:'Contractor — 1099', type:'expense', subtype:'payroll', line:'Wages', balance:44500, elimination:false },
-    { code:'6120', name:'Payroll tax', type:'expense', subtype:'payroll', line:'Payroll tax', balance:28600, elimination:false },
-    { code:'6200', name:'Dues and subscriptions', type:'expense', subtype:'opex', line:'Dues and subscriptions', balance:18200, elimination:false },
-    { code:'6300', name:'Rent expense', type:'expense', subtype:'opex', line:'Rent', balance:24000, elimination:false },
-    { code:'6400', name:'Utilities', type:'expense', subtype:'opex', line:'Utility expense', balance:3200, elimination:false },
-    { code:'6500', name:'Stripe fees', type:'expense', subtype:'platform', line:'Platform fees', balance:55270, elimination:false },
-    { code:'6510', name:'PayPal fees', type:'expense', subtype:'platform', line:'Platform fees', balance:18600, elimination:false },
-    { code:'6600', name:'Office supplies', type:'expense', subtype:'opex', line:'Other opex', balance:2800, elimination:false },
-    { code:'6610', name:'Repairs and maintenance', type:'expense', subtype:'opex', line:'Other opex', balance:4100, elimination:false },
-    { code:'6620', name:'Telephone and internet', type:'expense', subtype:'opex', line:'Other opex', balance:3600, elimination:false },
-    { code:'6630', name:'Bank fees', type:'expense', subtype:'opex', line:'Other opex', balance:1840, elimination:false },
-    { code:'6640', name:'Computers and software', type:'expense', subtype:'opex', line:'Other opex', balance:8400, elimination:false },
-    { code:'6700', name:'Commission expense — WB', type:'expense', subtype:'commission', line:'Eliminated', balance:59151, elimination:true },
-  ],
-
-  banks: [
-    { entity:'LP', name:'Lanyard Promo', bank:'Chase Business', last4:'4821', balance:284100, type:'checking', synced:'2 min ago', connected:true },
-    { entity:'KP', name:'Koolers Promo', bank:'Bank of America', last4:'3094', balance:196400, type:'checking', synced:'2 min ago', connected:true },
-    { entity:'BP', name:'Band Promo', bank:'Wells Fargo', last4:'7612', balance:88200, type:'checking', synced:'5 min ago', connected:true },
-    { entity:'WBP', name:'WB Promo', bank:'Chase Business', last4:'9284', balance:142600, type:'checking', synced:'2 min ago', connected:true },
-    { entity:'ONEOPS', name:'One Operations', bank:'Chase Business', last4:'1103', balance:318900, type:'checking', synced:'2h ago', connected:true },
-    { entity:'LP', name:'Lanyard Promo', bank:'Chase Ink', last4:'6614', balance:-18400, type:'credit', synced:'2 min ago', connected:true },
-    { entity:'KP', name:'Koolers Promo', bank:'Amex Business', last4:'5521', balance:-12600, type:'credit', synced:'10 min ago', connected:true },
-    { entity:'BP', name:'Band Promo', bank:'Chase Ink', last4:'3308', balance:-9100, type:'credit', synced:'5 min ago', connected:true },
-    { entity:'ALL', name:'Stripe', bank:'Stripe', last4:'—', balance:0, type:'processor', synced:'Real-time', connected:true },
-    { entity:'ALL', name:'PayPal', bank:'PayPal', last4:'—', balance:0, type:'processor', synced:'Real-time', connected:true },
-  ]
+  transactions: [],
+  vendors: [],
+  invoices: [],
+  journals: [],
+  coa: [],
+  banks: []
 };
 
 // ---- SUPABASE DATA LOADER ----
@@ -157,6 +50,17 @@ async function loadDataFromSupabase() {
     (accounts || []).forEach(a => {
       window._accountById[a.id] = a.account_name;
     });
+
+    // Populate DATA.coa for COA page render
+    DATA.coa = (accounts || []).map(a => ({
+      code: a.account_code,
+      name: a.account_name,
+      type: a.account_type,
+      subtype: a.account_subtype,
+      line: a.line || a.account_name,
+      balance: 0,  // live balance computed in Phase 3
+      elimination: a.is_elimination || false
+    }));
 
     // Load transactions
     const { data: txns, error: txnErr } = await supabaseClient
@@ -251,7 +155,9 @@ async function loadDataFromSupabase() {
 
   } catch (err) {
     console.error('Supabase load error:', err);
-    app.toast('Offline mode — showing demo data');
+    app.toast('Connection error — check Supabase credentials and refresh');
+    document.getElementById('pageTitle').textContent = 'Connection Error';
+    document.getElementById('pageSub').textContent = 'Could not connect to database. Check console for details.';
   }
 }
 
@@ -1718,12 +1624,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (btn) btn.innerHTML = moonIcon;
   }
 
-  if (DB_READY) {
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    await loadDataFromSupabase();
-  } else {
-    console.info('WB Finance OS: Running in offline/demo mode. Add Supabase credentials to app.js to enable live data.');
-  }
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  await loadDataFromSupabase();
   initDashboardCharts();
   app.updateDashboardKPIs();
   ['txnEntityFilter','txnTypeFilter','txnStatusFilter'].forEach(id => {
