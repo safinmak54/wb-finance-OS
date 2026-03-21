@@ -1171,7 +1171,17 @@ const app = {
 
     if (type === 'importCSV') {
       title.textContent = 'Import Transactions';
+      const uploadEntityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
+        `<option value="${e}" ${(this._csvImportEntity||'') === e ? 'selected' : ''}>${e}</option>`
+      ).join('');
       body.innerHTML = `
+        <div style="margin-bottom:16px">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:6px">Entity <span style="color:var(--red)">*</span></div>
+          <select id="uploadEntityPre" class="filter-select" style="width:100%" onchange="app._csvImportEntity=this.value">
+            <option value="">— select entity —</option>
+            ${uploadEntityOptions}
+          </select>
+        </div>
         <div style="margin-bottom:20px">
           <label class="csv-drop-zone" for="csvFileInput" id="csvDropZone" style="padding:32px 20px">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="1.5" style="margin-bottom:10px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -2171,8 +2181,9 @@ const app = {
       `<tr>${row.map(cell => `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell}</td>`).join('')}</tr>`
     ).join('');
 
+    const preEntity = this._csvImportEntity || '';
     const entityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
-      `<option value="${e}">${e}</option>`).join('');
+      `<option value="${e}" ${e === preEntity ? 'selected' : ''}>${e}</option>`).join('');
 
     document.getElementById('modalBody').innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
