@@ -1278,7 +1278,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--blue)' : 'var(--red)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--blue)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
@@ -1761,7 +1761,7 @@ const app = {
           <tbody>
             ${rows.map(t => {
               const amt = Number(t.amount);
-              const amtColor = amt >= 0 ? 'var(--red,#dc2626)' : 'var(--blue,#2563eb)';
+              const amtColor = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
               return `
               <tr>
