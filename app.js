@@ -17,6 +17,20 @@ window._entityById   = {};   // uuid → code
 window._accountById  = {};   // uuid → name
 window._vendorByName = {};   // name → uuid
 
+// ---- ENTITY GROUPS ----
+const ENTITY_GROUPS = {
+  wb_promo:  ['WBP','LP','KP','BP'],
+  wb_full:   ['WBP','LP','KP','BP','SWAG','RUSH'],
+  one_ops:   ['ONEOPS'],
+  sp_brands: ['SP1'],
+};
+
+function applyEntityFilter(query, entity) {
+  if (!entity || entity === 'all') return query;
+  if (ENTITY_GROUPS[entity]) return query.in('entity', ENTITY_GROUPS[entity]);
+  return query.eq('entity', entity);
+}
+
 // ---- DATA STORE ----
 // Data is loaded exclusively from Supabase. No hardcoded fallback.
 const DATA = {
@@ -25,7 +39,8 @@ const DATA = {
   invoices: [],
   journals: [],
   coa: [],
-  banks: []
+  banks: [],
+  classificationRules: []
 };
 
 // ---- SUPABASE DATA LOADER ----
@@ -152,6 +167,11 @@ async function loadDataFromSupabase() {
       });
     }
 
+    // Load classification rules
+    const { data: rules } = await supabaseClient
+      .from('classification_rules').select('*').eq('is_active', true).order('created_at');
+    DATA.classificationRules = rules || [];
+
   } catch (err) {
     console.error('Supabase load error:', err);
     app.toast('Connection error — check Supabase credentials and refresh');
@@ -194,7 +214,7 @@ const app = {
 
     const titles = {
       dashboard: ['Dashboard', `${period} · Consolidated view`],
-      inbox:  ['Inbox', 'Unclassified transactions'],
+      inbox:  ['New Transactions', 'Unclassified transactions'],
       ledger: ['Ledger', `Classified transactions · ${period}`],
       journals: ['Journal Entries', 'Double-entry ledger'],
       reconcile: ['Reconciliation', `Bank vs book · ${period}`],
@@ -421,7 +441,7 @@ const app = {
       .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
       .gte('acc_date', period + '-01')
       .lte('acc_date', period + '-31');
-    if (entity !== 'all') txnQuery = txnQuery.eq('entity', entity);
+    txnQuery = applyEntityFilter(txnQuery, entity);
     const { data: txns, error: txnErr } = await txnQuery;
     if (txnErr) { console.error('Report txn error:', txnErr); return null; }
 
@@ -547,7 +567,7 @@ const app = {
     let query = supabaseClient
       .from('transactions')
       .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, is_elimination)');
-    if (entity !== 'all') query = query.eq('entity', entity);
+    query = applyEntityFilter(query, entity);
     const { data: txns, error } = await query;
     if (error) { console.error('Balance Sheet error:', error); return null; }
     return txns || [];
@@ -820,7 +840,7 @@ const app = {
       .gte('acc_date', period + '-01')
       .lte('acc_date', period + '-31')
       .order('acc_date', { ascending: true });
-    if (entity !== 'all') q = q.eq('entity', entity);
+    q = applyEntityFilter(q, entity);
 
     const { data: txns, error } = await q;
     if (error) { console.error('Cashflow load error:', error); return; }
@@ -1200,12 +1220,14 @@ const app = {
       .from('raw_transactions').select('*').eq('classified', false)
       .order('transaction_date', { ascending: false });
 
-    if (error) { this.toast('Failed to load inbox'); console.error(error); return; }
+    if (error) { this.toast('Failed to load transactions'); console.error(error); return; }
 
     const txns = rawTxns || [];
     const acctOptions = (accounts || []).map(a =>
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
     ).join('');
+
+    const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
 
     // Update sidebar badge
     const badge = document.getElementById('reviewBadge');
@@ -1216,16 +1238,17 @@ const app = {
         <div class="toolbar-left">
           <button class="btn-primary" onclick="app.openModal('importCSV')">↑ Upload CSV</button>
           <button class="btn-outline" onclick="app.openModal('newRawTxn')">+ Manual Entry</button>
+          <button class="btn-outline" onclick="app.openRulesModal()" style="font-size:12px">⚡ Rules</button>
         </div>
         <div class="toolbar-right">
           <span style="font-size:13px;color:var(--text3)">${txns.length} to classify</span>
-          <button class="btn-outline" id="bulkClassifyBtn" style="display:none" onclick="app.bulkClassify()">Classify Selected</button>
+          <button class="btn-primary" id="bulkClassifyBtn" style="display:none;background:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="app.bulkClassify()">Finalize Selected</button>
           <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
         </div>
       </div>
       ${txns.length === 0 ? `
         <div style="padding:64px;text-align:center;color:var(--text3)">
-          <p style="font-size:15px;margin-bottom:8px">Inbox is empty</p>
+          <p style="font-size:15px;margin-bottom:8px">No new transactions</p>
           <p style="font-size:13px">Upload a CSV or add a manual transaction to get started.</p>
         </div>
       ` : `
@@ -1234,7 +1257,7 @@ const app = {
             <thead>
               <tr>
                 <th><input type="checkbox" id="inboxSelectAll" onchange="app.toggleSelectAll(this)"></th>
-                <th>Date</th><th>Description</th><th>Entity</th><th>Amount</th><th>Source</th>
+                <th>Date</th><th>Bank Account</th><th>Description</th><th>Entity</th><th>Amount</th><th>Source</th>
                 <th style="min-width:260px">Category (COA)</th><th></th>
               </tr>
             </thead>
@@ -1243,15 +1266,16 @@ const app = {
                 <tr data-id="${t.id}">
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
                   <td style="white-space:nowrap">${t.transaction_date || ''}</td>
+                  <td style="font-size:12px;color:var(--text3);white-space:nowrap">${t.bank_account || '—'}</td>
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
-                      ${['WB','LP','KP','BP','WBP','ONEOPS'].map(e =>
+                      ${allEntityCodes.map(e =>
                         `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--blue)' : 'var(--red)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
@@ -1273,6 +1297,8 @@ const app = {
         </div>
       `}
     `;
+    // Apply auto-classification rules after render
+    this.applyClassificationRules();
   },
 
   toggleSelectAll(checkbox) {
@@ -1281,11 +1307,138 @@ const app = {
   },
 
   onRowCheck() {
-    const anyChecked = [...document.querySelectorAll('.row-check')].some(c => c.checked);
+    const checked = [...document.querySelectorAll('.row-check')].filter(c => c.checked);
+    const n = checked.length;
     const classifyBtn = document.getElementById('bulkClassifyBtn');
     const deleteBtn   = document.getElementById('bulkDeleteBtn');
-    if (classifyBtn) classifyBtn.style.display = anyChecked ? 'inline-block' : 'none';
-    if (deleteBtn)   deleteBtn.style.display   = anyChecked ? 'inline-block' : 'none';
+    if (classifyBtn) {
+      classifyBtn.style.display = n > 0 ? 'inline-block' : 'none';
+      classifyBtn.textContent = n > 0 ? `Finalize ${n} Transaction${n > 1 ? 's' : ''}` : 'Finalize Selected';
+    }
+    if (deleteBtn) deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
+  },
+
+  // ---- AUTO-CLASSIFICATION RULES ----
+  applyClassificationRules() {
+    const rules = DATA.classificationRules || [];
+    if (!rules.length) return;
+    document.querySelectorAll('#inboxTable tbody tr[data-id]').forEach(row => {
+      const descInput = row.querySelector('.desc-edit');
+      const acctSel   = row.querySelector('.acct-sel');
+      if (!descInput || !acctSel || acctSel.value) return; // skip if already assigned
+      const desc = descInput.value.toLowerCase();
+      for (const rule of rules) {
+        if (desc.includes(rule.pattern.toLowerCase())) {
+          acctSel.value = rule.account_id;
+          // Trigger green classify button
+          const btn = row.querySelector('.classify-btn');
+          if (btn) { btn.style.opacity = '1'; btn.style.background = 'var(--green,#16a34a)'; }
+          // Subtle highlight to show auto-matched
+          row.style.background = 'rgba(37,99,235,0.04)';
+          break;
+        }
+      }
+    });
+  },
+
+  openRulesModal() {
+    const rules = DATA.classificationRules || [];
+    const modal = document.getElementById('modalBody');
+    const overlay = document.getElementById('modalOverlay');
+    if (!modal || !overlay) return;
+
+    // Build account options for add-rule form
+    const acctOptHtml = (DATA.coa || []).map(a =>
+      `<option value="${a.id}">${a.code} — ${a.name}</option>`
+    ).join('');
+
+    const defaultPatterns = [
+      'Google Ads','Bing Ads','Meta Ads','Stripe','PayPal','US CBP','UPS','FedEx'
+    ];
+
+    modal.innerHTML = `
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px">⚡ Classification Rules</div>
+      <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Rules auto-assign a category when a transaction description contains the pattern (case-insensitive). First match wins.</p>
+
+      <div style="margin-bottom:16px">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>Name</th><th>Pattern</th><th>Account</th><th></th></tr></thead>
+          <tbody id="rulesTableBody">
+            ${rules.length === 0
+              ? `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
+              : rules.map(r => `
+                <tr>
+                  <td>${r.name}</td>
+                  <td><code style="font-size:11px;background:var(--surface2);padding:1px 4px;border-radius:3px">${r.pattern}</code></td>
+                  <td style="font-size:11px;color:var(--text2)">${(DATA.coa || []).find(a => a.id === r.account_id)?.name || r.account_id?.slice(0,8)+'…'}</td>
+                  <td><button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button></td>
+                </tr>`).join('')
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:10px">Add Rule</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+          <div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Name</div>
+            <input id="ruleNameInput" type="text" placeholder="e.g. Google Ads" style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Pattern (keyword)</div>
+            <input id="rulePatternInput" type="text" placeholder="e.g. GOOGLE" style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Account</div>
+            <select id="ruleAccountSelect" class="filter-select" style="width:100%;font-size:12px">
+              <option value="">— select —</option>
+              ${acctOptHtml}
+            </select>
+          </div>
+          <button class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="app.saveRule()">Save</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Quick-add defaults (select account for each):</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${defaultPatterns.map(p => `<button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('ruleNameInput').value='${p}';document.getElementById('rulePatternInput').value='${p}'">${p}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Close</button>
+      </div>
+    `;
+    document.getElementById('modalTitle').textContent = 'Classification Rules';
+    overlay.classList.add('open');
+  },
+
+  async saveRule() {
+    const name      = document.getElementById('ruleNameInput')?.value?.trim();
+    const pattern   = document.getElementById('rulePatternInput')?.value?.trim();
+    const accountId = document.getElementById('ruleAccountSelect')?.value;
+    if (!name || !pattern || !accountId) { this.toast('Fill in name, pattern, and account'); return; }
+
+    const { error } = await supabaseClient.from('classification_rules').insert({
+      name, pattern, account_id: accountId, is_active: true
+    });
+    if (error) { this.toast('Failed to save rule'); console.error(error); return; }
+
+    // Reload rules and refresh modal
+    const { data: rules } = await supabaseClient.from('classification_rules').select('*').eq('is_active', true).order('created_at');
+    DATA.classificationRules = rules || [];
+    this.toast(`Rule "${name}" saved`);
+    this.openRulesModal();
+  },
+
+  async deleteRule(ruleId) {
+    const { error } = await supabaseClient.from('classification_rules').delete().eq('id', ruleId);
+    if (error) { this.toast('Failed to delete rule'); return; }
+    DATA.classificationRules = DATA.classificationRules.filter(r => r.id !== ruleId);
+    this.toast('Rule deleted');
+    this.openRulesModal();
   },
 
   // ---- CLASSIFY SINGLE ROW ----
@@ -1556,7 +1709,7 @@ const app = {
       .select('*, accounts(account_code, account_name, account_type)')
       .order('acc_date', { ascending: false });
 
-    if (entity !== 'all') query = query.eq('entity', entity);
+    query = applyEntityFilter(query, entity);
     if (period) query = query.gte('acc_date', period + '-01').lte('acc_date', period + '-31');
 
     const { data: txns, error } = await query;
@@ -1571,7 +1724,7 @@ const app = {
         .from('transactions')
         .select('*, accounts(account_code, account_name, account_type)')
         .order('acc_date', { ascending: false });
-      if (entity !== 'all') fallbackQ = fallbackQ.eq('entity', entity);
+      fallbackQ = applyEntityFilter(fallbackQ, entity);
       const { data: fallbackTxns } = await fallbackQ;
       if ((fallbackTxns || []).length > 0) {
         rows = fallbackTxns;
@@ -1605,7 +1758,7 @@ const app = {
           <tbody>
             ${rows.map(t => {
               const amt = Number(t.amount);
-              const amtColor = amt >= 0 ? 'var(--green,#16a34a)' : 'var(--red,#dc2626)';
+              const amtColor = amt >= 0 ? 'var(--red,#dc2626)' : 'var(--blue,#2563eb)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
               return `
               <tr>
@@ -1933,22 +2086,25 @@ const app = {
       if (['debit','dr','debits','debitamount'].includes(k)) map.debit = i;
       if (['credit','cr','credits','creditamount'].includes(k)) map.credit = i;
       if (['status','state'].includes(k)) map.status = i;
+      if (['accountname','bankaccount','accountnumber','accountno','acctname','acctno'].includes(k) ||
+          (k.includes('account') && !k.includes('date'))) map.bankAccount = i;
     });
     return map;
   },
 
   renderCSVMappingUI(headers, rows) {
     const fields = [
-      { key: 'accDate',  label: 'Date',        required: true  },
-      { key: 'entity',   label: 'Entity',       required: false },
-      { key: 'desc',     label: 'Description',  required: true  },
-      { key: 'vendor',   label: 'Vendor',       required: false },
-      { key: 'type',     label: 'Type',         required: false },
-      { key: 'category', label: 'Category',     required: false },
-      { key: 'amount',   label: 'Amount',       required: false },
-      { key: 'debit',    label: 'Debit',        required: false },
-      { key: 'credit',   label: 'Credit',       required: false },
-      { key: 'status',   label: 'Status',       required: false },
+      { key: 'accDate',     label: 'Date',         required: true  },
+      { key: 'entity',      label: 'Entity',        required: false },
+      { key: 'desc',        label: 'Description',   required: true  },
+      { key: 'bankAccount', label: 'Bank Account',  required: false },
+      { key: 'vendor',      label: 'Vendor',        required: false },
+      { key: 'type',        label: 'Type',          required: false },
+      { key: 'category',    label: 'Category',      required: false },
+      { key: 'amount',      label: 'Amount',        required: false },
+      { key: 'debit',       label: 'Debit',         required: false },
+      { key: 'credit',      label: 'Credit',        required: false },
+      { key: 'status',      label: 'Status',        required: false },
     ];
     const autoMap = this.autoDetectCSVColumns(headers);
     const mappingHTML = fields.map(f => `
@@ -1965,7 +2121,7 @@ const app = {
       `<tr>${row.map(cell => `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell}</td>`).join('')}</tr>`
     ).join('');
 
-    const entityOptions = ['WB','LP','KP','BP','WBP','ONEOPS'].map(e =>
+    const entityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
       `<option value="${e}">${e}</option>`).join('');
 
     document.getElementById('modalBody').innerHTML = `
@@ -2034,6 +2190,7 @@ const app = {
 
       if (!accDate || !desc || isNaN(amount) || amount === 0) { skipped++; return; }
 
+      const bankAcct = mapping.bankAccount >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim() || null : null;
       inserts.push({
         description:      desc,
         amount,
@@ -2042,7 +2199,8 @@ const app = {
         accounting_date:  accDate,
         source:           'csv',
         classified:       false,
-        entity_id:        window._entityByCode[csvEntity] || null
+        entity_id:        window._entityByCode[csvEntity] || null,
+        bank_account:     bankAcct
       });
     });
 
@@ -2052,7 +2210,7 @@ const app = {
     if (error) { this.toast('Import failed — see console'); console.error(error); return; }
 
     this.closeModal();
-    this.toast(`${inserts.length} transaction${inserts.length !== 1 ? 's' : ''} imported to Inbox${skipped ? `, ${skipped} skipped` : ''}`);
+    this.toast(`${inserts.length} transaction${inserts.length !== 1 ? 's' : ''} imported${skipped ? `, ${skipped} skipped` : ''}`);
     await this.navigate('inbox');
   },
 
@@ -2378,7 +2536,7 @@ const app = {
         let q = supabaseClient.from('transactions')
           .select('amount, accounts(account_type, account_subtype)')
           .gte('acc_date', mo + '-01').lte('acc_date', mo + '-31');
-        if (entity !== 'all') q = q.eq('entity', entity);
+        q = applyEntityFilter(q, entity);
         const { data: mTxns } = await q;
         const mRows = mTxns || [];
         const mRev  = mRows.filter(t => t.accounts?.account_type === 'revenue').reduce((s,t) => s + Number(t.amount), 0);

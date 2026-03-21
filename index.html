@@ -25,12 +25,23 @@
     <div class="entity-switcher">
       <label>Entity view</label>
       <select id="entityFilter" onchange="app.setEntity(this.value)">
-        <option value="all">All entities (Consolidated)</option>
-        <option value="LP">Lanyard Promo LLC</option>
-        <option value="KP">Koolers Promo LLC</option>
-        <option value="BP">Band Promo LLC</option>
-        <option value="WBP">WB Promo LLC</option>
-        <option value="ONEOPS">One Operations Mgmt</option>
+        <optgroup label="— Groups —">
+          <option value="all">All Entities (Consolidated)</option>
+          <option value="wb_promo">WB Brands — Promo</option>
+          <option value="wb_full">WB Brands — Full</option>
+          <option value="one_ops">One Operations</option>
+          <option value="sp_brands">SP Brands</option>
+        </optgroup>
+        <optgroup label="— Individual —">
+          <option value="WBP">WB Promo LLC</option>
+          <option value="LP">Lanyard Promo LLC</option>
+          <option value="KP">Koolers Promo LLC</option>
+          <option value="BP">Band Promo LLC</option>
+          <option value="SWAG">Swag Promo (SWAG)</option>
+          <option value="RUSH">Rush Promo (RUSH)</option>
+          <option value="ONEOPS">One Operations Mgmt</option>
+          <option value="SP1">SP Brand 1</option>
+        </optgroup>
       </select>
     </div>
 
@@ -44,7 +55,7 @@
       <div class="nav-group-label">Accounting</div>
       <a class="nav-item" onclick="app.navigate('inbox')" data-page="inbox">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-        Inbox
+        New Transactions
         <span class="nav-badge" id="reviewBadge"></span>
       </a>
       <a class="nav-item" onclick="app.navigate('ledger')" data-page="ledger">
