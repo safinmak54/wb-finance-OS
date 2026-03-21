@@ -1771,7 +1771,10 @@ const app = {
                 <td>${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
                 <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums">${amtDisplay}</td>
                 <td style="color:var(--text3);font-size:12px">${t.memo || ''}</td>
-                <td><button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button></td>
+                <td style="white-space:nowrap">
+                  <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button>
+                  <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteLedgerRow('${t.id}')">✕</button>
+                </td>
               </tr>
             `}).join('')}
           </tbody>
@@ -1823,6 +1826,14 @@ const app = {
 
     this.toast('Updated ✓');
     this.closeModal();
+    await this.renderLedger();
+  },
+
+  async deleteLedgerRow(txnId) {
+    if (!confirm('Delete this transaction from the ledger? This cannot be undone.')) return;
+    const { error } = await supabaseClient.from('transactions').delete().eq('id', txnId);
+    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    this.toast('Deleted ✓');
     await this.renderLedger();
   },
 
