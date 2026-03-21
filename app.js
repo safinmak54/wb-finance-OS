@@ -1270,7 +1270,7 @@ const app = {
             <thead>
               <tr>
                 <th><input type="checkbox" id="inboxSelectAll" onchange="app.toggleSelectAll(this)"></th>
-                <th>Date</th><th>Bank Account</th><th>Description</th><th>Entity</th><th>Amount</th><th>Source</th>
+                <th>Date</th><th>Bank Account</th><th>Acct #</th><th>Description</th><th>Entity</th><th>Amount</th><th>Source</th>
                 <th style="min-width:260px">Category (COA)</th><th></th>
               </tr>
             </thead>
@@ -1280,6 +1280,7 @@ const app = {
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
                   <td style="white-space:nowrap">${t.transaction_date || ''}</td>
                   <td style="font-size:12px;color:var(--text3);white-space:nowrap">${t.bank_account || '—'}</td>
+                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;font-family:var(--mono)">${t.account_number || '—'}</td>
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
@@ -2123,8 +2124,10 @@ const app = {
       if (['debit','dr','debits','debitamount'].includes(k)) map.debit = i;
       if (['credit','cr','credits','creditamount'].includes(k)) map.credit = i;
       if (['status','state'].includes(k)) map.status = i;
-      if (['accountname','bankaccount','accountnumber','accountno','acctname','acctno'].includes(k) ||
-          (k.includes('account') && !k.includes('date'))) map.bankAccount = i;
+      if (['bankaccount','accountname','acctname'].includes(k) ||
+          (k.includes('account') && k.includes('name'))) map.bankAccount = i;
+      if (['accountnumber','accountno','acctno','accountnum','acctnum'].includes(k) ||
+          (k.includes('account') && (k.includes('number') || k.includes('num') || k.includes('no')))) map.accountNumber = i;
     });
 
     // Value-based detection for synthetic headers (Col_1, Col_2 …) from record-type bank files
@@ -2138,6 +2141,7 @@ const app = {
         if (map.amount === undefined && vals.every(v => /^\d+\.\d{2}$/.test(v)) && parseFloat(first) > 0) map.amount = i;
         if (map.type === undefined && vals.some(v => /\b(CREDIT|DEBIT)\b/i.test(v))) map.type = i;
         if (map.bankAccount === undefined && /\b(LLC|INC|CORP|CO\.|LTD|MANAGEMENT|PROMO|BRANDS)\b/i.test(first)) map.bankAccount = i;
+        if (map.accountNumber === undefined && vals.every(v => /^\d{6,18}$/.test(v))) map.accountNumber = i;
       });
       // Pass 2: detect description — skip columns already assigned
       const assigned = new Set(Object.values(map));
@@ -2157,7 +2161,8 @@ const app = {
       { key: 'accDate',     label: 'Date',         required: true  },
       { key: 'entity',      label: 'Entity',        required: false },
       { key: 'desc',        label: 'Description',   required: true  },
-      { key: 'bankAccount', label: 'Bank Account',  required: false },
+      { key: 'bankAccount',   label: 'Bank Account',   required: false },
+      { key: 'accountNumber', label: 'Account Number', required: false },
       { key: 'vendor',      label: 'Vendor',        required: false },
       { key: 'type',        label: 'Type',          required: false },
       { key: 'category',    label: 'Category',      required: false },
@@ -2259,7 +2264,8 @@ const app = {
 
       if (!accDate || !desc || isNaN(amount) || amount === 0) { skipped++; return; }
 
-      const bankAcct = mapping.bankAccount >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim() || null : null;
+      const bankAcct  = mapping.bankAccount   >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim()   || null : null;
+      const acctNum   = mapping.accountNumber >= 0 ? row[mapping.accountNumber]?.replace(/"/g,'').trim() || null : null;
       inserts.push({
         description:      desc,
         amount,
@@ -2269,7 +2275,8 @@ const app = {
         source:           'csv',
         classified:       false,
         entity_id:        window._entityByCode[csvEntity] || null,
-        bank_account:     bankAcct
+        bank_account:     bankAcct,
+        account_number:   acctNum
       });
     });
 
