@@ -2119,22 +2119,24 @@ const app = {
 
     // Value-based detection for synthetic headers (Col_1, Col_2 …) from record-type bank files
     if (headers.every(h => /^Col_\d+$/.test(h)) && rows && rows.length > 0) {
-      // Sample a few rows for reliable detection
       const samples = rows.slice(0, Math.min(5, rows.length));
+      // Pass 1: detect date, amount, type, bankAccount first
       headers.forEach((h, i) => {
         const vals = samples.map(r => String(r[i] || '').trim());
         const first = vals[0];
-        // YYYYMMDD date
         if (map.accDate === undefined && vals.every(v => /^\d{8}$/.test(v))) map.accDate = i;
-        // Dollar amount: positive number with cents, all numeric
         if (map.amount === undefined && vals.every(v => /^\d+\.\d{2}$/.test(v)) && parseFloat(first) > 0) map.amount = i;
-        // Transaction type containing CREDIT or DEBIT keywords
         if (map.type === undefined && vals.some(v => /\b(CREDIT|DEBIT)\b/i.test(v))) map.type = i;
-        // Description: long text, last or near-last column
-        if (map.desc === undefined && first.length > 15 && /[A-Za-z].*[A-Za-z]/.test(first) &&
-            !/^\d{8}$/.test(first) && !/^0+$/.test(first)) map.desc = i;
-        // Bank account name: contains LLC, INC, CORP, etc.
         if (map.bankAccount === undefined && /\b(LLC|INC|CORP|CO\.|LTD|MANAGEMENT|PROMO|BRANDS)\b/i.test(first)) map.bankAccount = i;
+      });
+      // Pass 2: detect description — skip columns already assigned
+      const assigned = new Set(Object.values(map));
+      headers.forEach((h, i) => {
+        if (assigned.has(i)) return;
+        const vals = samples.map(r => String(r[i] || '').trim());
+        const first = vals[0];
+        if (map.desc === undefined && first.length > 10 && /[A-Za-z].*[A-Za-z]/.test(first) &&
+            !/^\d{8}$/.test(first) && !/^0+$/.test(first)) map.desc = i;
       });
     }
     return map;
