@@ -276,6 +276,9 @@ const app = {
   normalizeDate(str) {
     if (!str) return str;
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // YYYYMMDD (bank feed format: 20251231)
+    const m3 = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (m3) return `${m3[1]}-${m3[2]}-${m3[3]}`;
     // MM/DD/YYYY
     const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
@@ -2050,7 +2053,20 @@ const app = {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
         if (raw.length < 2) { this.toast('File appears empty or has no data rows'); return; }
-        // Auto-detect header row: scan first 5 rows, pick the one with the most column-keyword matches
+
+        // Detect BAI/record-type coded bank files (H=header, D=detail, T=trailer rows)
+        const firstCols = raw.slice(0, Math.min(20, raw.length)).map(r => String(r[0] || '').trim());
+        const fcSet = new Set(firstCols);
+        if (fcSet.has('D') && (fcSet.has('H') || fcSet.has('T'))) {
+          // Fixed record-type format: keep only D rows, generate positional headers
+          const dRows = raw.filter(r => String(r[0] || '').trim() === 'D');
+          const maxCols = Math.max(...dRows.map(r => r.length));
+          const syntheticHeaders = Array.from({length: maxCols}, (_, i) => `Col_${i + 1}`);
+          callback(syntheticHeaders, dRows.map(r => r.map(v => String(v ?? ''))));
+          return;
+        }
+
+        // Standard format: auto-detect header row by keyword scoring
         const headerKws = ['date','amount','debit','credit','description','desc','memo','account','balance','status','type','check','payee','vendor','category','reference'];
         const scoreRow = r => r.filter(c => { const k = String(c).toLowerCase().replace(/[^a-z]/g,''); return headerKws.some(kw => k.includes(kw)); }).length;
         let headerRowIdx = 0;
@@ -2070,7 +2086,7 @@ const app = {
     reader.readAsArrayBuffer(file);
   },
 
-  autoDetectCSVColumns(headers) {
+  autoDetectCSVColumns(headers, rows) {
     const map = {};
     const n = s => s.toLowerCase().replace(/[^a-z]/g, '');
     headers.forEach((h, i) => {
@@ -2089,6 +2105,27 @@ const app = {
       if (['accountname','bankaccount','accountnumber','accountno','acctname','acctno'].includes(k) ||
           (k.includes('account') && !k.includes('date'))) map.bankAccount = i;
     });
+
+    // Value-based detection for synthetic headers (Col_1, Col_2 …) from record-type bank files
+    if (headers.every(h => /^Col_\d+$/.test(h)) && rows && rows.length > 0) {
+      // Sample a few rows for reliable detection
+      const samples = rows.slice(0, Math.min(5, rows.length));
+      headers.forEach((h, i) => {
+        const vals = samples.map(r => String(r[i] || '').trim());
+        const first = vals[0];
+        // YYYYMMDD date
+        if (map.accDate === undefined && vals.every(v => /^\d{8}$/.test(v))) map.accDate = i;
+        // Dollar amount: positive number with cents, all numeric
+        if (map.amount === undefined && vals.every(v => /^\d+\.\d{2}$/.test(v)) && parseFloat(first) > 0) map.amount = i;
+        // Transaction type containing CREDIT or DEBIT keywords
+        if (map.type === undefined && vals.some(v => /\b(CREDIT|DEBIT)\b/i.test(v))) map.type = i;
+        // Description: long text, last or near-last column
+        if (map.desc === undefined && first.length > 15 && /[A-Za-z].*[A-Za-z]/.test(first) &&
+            !/^\d{8}$/.test(first) && !/^0+$/.test(first)) map.desc = i;
+        // Bank account name: contains LLC, INC, CORP, etc.
+        if (map.bankAccount === undefined && /\b(LLC|INC|CORP|CO\.|LTD|MANAGEMENT|PROMO|BRANDS)\b/i.test(first)) map.bankAccount = i;
+      });
+    }
     return map;
   },
 
@@ -2106,7 +2143,7 @@ const app = {
       { key: 'credit',      label: 'Credit',        required: false },
       { key: 'status',      label: 'Status',        required: false },
     ];
-    const autoMap = this.autoDetectCSVColumns(headers);
+    const autoMap = this.autoDetectCSVColumns(headers, rows);
     const mappingHTML = fields.map(f => `
       <div class="csv-map-row">
         <div class="csv-map-label">${f.label}${f.required ? '<span style="color:var(--red);margin-left:2px">*</span>' : ''}</div>
@@ -2172,14 +2209,22 @@ const app = {
 
     rows.forEach(row => {
       const accDate = this.normalizeDate(row[mapping.accDate]?.replace(/"/g, '').trim());
-      const desc    = row[mapping.desc]?.replace(/"/g, '').trim();
+      // Clean description: strip trailing \EFFDAT and normalize whitespace
+      const desc = row[mapping.desc]?.replace(/"/g, '').replace(/\s*\\EFFDAT\s*$/i, '').trim();
 
       let amount, direction;
       if (mapping.amount >= 0) {
-        const raw = row[mapping.amount]?.replace(/["$,\s]/g, '');
-        const val = parseFloat(raw);
-        amount    = Math.abs(val);
-        direction = val >= 0 ? 'CREDIT' : 'DEBIT';
+        const rawAmt = row[mapping.amount]?.replace(/["$,\s]/g, '');
+        const val = parseFloat(rawAmt);
+        amount = Math.abs(val);
+        // Use type column to determine direction if available (e.g. "ACH CREDIT", "MISCELLANEOUS DEBIT")
+        if (mapping.type >= 0) {
+          const typeStr = (row[mapping.type] || '').toUpperCase();
+          if (typeStr.includes('CREDIT')) direction = 'CREDIT';
+          else if (typeStr.includes('DEBIT')) direction = 'DEBIT';
+        }
+        // Fallback: positive = credit, negative = debit
+        if (!direction) direction = val >= 0 ? 'CREDIT' : 'DEBIT';
       } else {
         const debitVal  = parseFloat(mapping.debit  >= 0 ? row[mapping.debit]?.replace(/["$,\s]/g,'')  || '0' : '0') || 0;
         const creditVal = parseFloat(mapping.credit >= 0 ? row[mapping.credit]?.replace(/["$,\s]/g,'') || '0' : '0') || 0;
