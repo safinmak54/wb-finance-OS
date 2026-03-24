@@ -19,7 +19,6 @@ window._vendorByName = {};   // name → uuid
 
 // ---- ENTITY GROUPS ----
 const ENTITY_GROUPS = {
-  wb_promo:  ['WBP','LP','KP','BP'],
   wb_full:   ['WBP','LP','KP','BP','SWAG','RUSH'],
   one_ops:   ['ONEOPS'],
   sp_brands: ['SP1'],
@@ -1279,8 +1278,8 @@ const app = {
                 <tr data-id="${t.id}">
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
                   <td style="white-space:nowrap">${t.transaction_date || ''}</td>
-                  <td style="font-size:12px;color:var(--text3);white-space:nowrap">${t.bank_account || '—'}</td>
-                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;font-family:var(--mono)">${t.account_number || '—'}</td>
+                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;cursor:default" title="Read-only — from CSV">${t.bank_account || '—'}</td>
+                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;font-family:var(--mono);cursor:default" title="Read-only — from CSV">${t.account_number || '—'}</td>
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
