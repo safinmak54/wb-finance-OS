@@ -24,6 +24,27 @@ const ENTITY_GROUPS = {
   sp_brands: ['SP1'],
 };
 
+// Bank account name → entity code (most specific patterns first)
+const BANK_ACCOUNT_ENTITY_MAP = [
+  { keywords: ['lanyard', 'lp bank', 'lp '],          code: 'LP'     },
+  { keywords: ['kooler'],                               code: 'KP'     },
+  { keywords: ['band promo'],                           code: 'BP'     },
+  { keywords: ['wb promo', 'wbp'],                      code: 'WBP'    },
+  { keywords: ['wb brand', 'wb '],                      code: 'WBP'    },
+  { keywords: ['rush'],                                 code: 'RUSH'   },
+  { keywords: ['swag'],                                 code: 'SWAG'   },
+  { keywords: ['sp brand', ' sp '],                     code: 'SP1'    },
+  { keywords: ['one op', 'oneop', 'one operations'],    code: 'ONEOPS' },
+];
+function detectEntityFromBankAccount(name) {
+  if (!name) return null;
+  const lower = (' ' + name + ' ').toLowerCase();
+  for (const entry of BANK_ACCOUNT_ENTITY_MAP) {
+    if (entry.keywords.some(k => lower.includes(k))) return entry.code;
+  }
+  return null;
+}
+
 function applyEntityFilter(query, entity) {
   if (!entity || entity === 'all') return query;
   if (ENTITY_GROUPS[entity]) return query.in('entity', ENTITY_GROUPS[entity]);
@@ -1175,9 +1196,9 @@ const app = {
       ).join('');
       body.innerHTML = `
         <div style="margin-bottom:16px">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:6px">Entity <span style="color:var(--red)">*</span></div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:4px">Fallback Entity <span style="font-weight:400;font-style:italic">(auto-detected from bank account name · optional)</span></div>
           <select id="uploadEntityPre" class="filter-select" style="width:100%" onchange="app._csvImportEntity=this.value">
-            <option value="">— select entity —</option>
+            <option value="">— auto-detect only —</option>
             ${uploadEntityOptions}
           </select>
         </div>
@@ -1278,8 +1299,8 @@ const app = {
                 <tr data-id="${t.id}">
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
                   <td style="white-space:nowrap">${t.transaction_date || ''}</td>
-                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;cursor:default" title="Read-only — from CSV">${t.bank_account || '—'}</td>
-                  <td style="font-size:12px;color:var(--text3);white-space:nowrap;font-family:var(--mono);cursor:default" title="Read-only — from CSV">${t.account_number || '—'}</td>
+                  <td style="font-size:12px;color:var(--text);white-space:nowrap;cursor:default" title="Read-only — from CSV">${t.bank_account || '—'}</td>
+                  <td style="font-size:12px;color:var(--text);white-space:nowrap;font-family:var(--mono);cursor:default" title="Read-only — from CSV">${t.account_number || '—'}</td>
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
@@ -1375,13 +1396,12 @@ const app = {
 
       <div style="margin-bottom:16px">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Name</th><th>Pattern</th><th>Account</th><th></th></tr></thead>
+          <thead><tr><th>Includes</th><th>Account</th><th></th></tr></thead>
           <tbody id="rulesTableBody">
             ${rules.length === 0
-              ? `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
+              ? `<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
               : rules.map(r => `
                 <tr>
-                  <td>${r.name}</td>
                   <td><code style="font-size:11px;background:var(--surface2);padding:1px 4px;border-radius:3px">${r.pattern}</code></td>
                   <td style="font-size:11px;color:var(--text2)">${(DATA.coa || []).find(a => a.id === r.account_id)?.name || r.account_id?.slice(0,8)+'…'}</td>
                   <td><button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button></td>
@@ -1393,13 +1413,9 @@ const app = {
 
       <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:10px">
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:10px">Add Rule</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
           <div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Name</div>
-            <input id="ruleNameInput" type="text" placeholder="e.g. Google Ads" style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
-          </div>
-          <div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Pattern (keyword)</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Includes (word)</div>
             <input id="rulePatternInput" type="text" placeholder="e.g. GOOGLE" style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
           </div>
           <div>
@@ -1416,7 +1432,7 @@ const app = {
       <div style="margin-bottom:14px">
         <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Quick-add defaults (select account for each):</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${defaultPatterns.map(p => `<button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('ruleNameInput').value='${p}';document.getElementById('rulePatternInput').value='${p}'">${p}</button>`).join('')}
+          ${defaultPatterns.map(p => `<button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('rulePatternInput').value='${p}'">${p}</button>`).join('')}
         </div>
       </div>
 
@@ -1429,20 +1445,18 @@ const app = {
   },
 
   async saveRule() {
-    const name      = document.getElementById('ruleNameInput')?.value?.trim();
     const pattern   = document.getElementById('rulePatternInput')?.value?.trim();
     const accountId = document.getElementById('ruleAccountSelect')?.value;
-    if (!name || !pattern || !accountId) { this.toast('Fill in name, pattern, and account'); return; }
+    if (!pattern || !accountId) { this.toast('Enter a keyword and select an account'); return; }
 
     const { error } = await supabaseClient.from('classification_rules').insert({
-      name, pattern, account_id: accountId, is_active: true
+      name: pattern, pattern, account_id: accountId, is_active: true
     });
     if (error) { this.toast('Failed to save rule'); console.error(error); return; }
 
-    // Reload rules and refresh modal
     const { data: rules } = await supabaseClient.from('classification_rules').select('*').eq('is_active', true).order('created_at');
     DATA.classificationRules = rules || [];
-    this.toast(`Rule "${name}" saved`);
+    this.toast('Rule saved');
     this.openRulesModal();
   },
 
@@ -2223,8 +2237,7 @@ const app = {
     const mapping = {};
     selects.forEach(s => { mapping[s.dataset.field] = parseInt(s.value); });
 
-    const csvEntity = document.getElementById('csvEntitySelect')?.value;
-    if (!csvEntity)           { this.toast('Select an entity');                return; }
+    const csvEntity = document.getElementById('csvEntitySelect')?.value || '';
     if (mapping.accDate < 0)  { this.toast('Date column is required');        return; }
     if (mapping.desc < 0)     { this.toast('Description column is required'); return; }
     if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
@@ -2263,8 +2276,9 @@ const app = {
 
       if (!accDate || !desc || isNaN(amount) || amount === 0) { skipped++; return; }
 
-      const bankAcct  = mapping.bankAccount   >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim()   || null : null;
-      const acctNum   = mapping.accountNumber >= 0 ? row[mapping.accountNumber]?.replace(/"/g,'').trim() || null : null;
+      const bankAcct    = mapping.bankAccount   >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim()   || null : null;
+      const acctNum     = mapping.accountNumber >= 0 ? row[mapping.accountNumber]?.replace(/"/g,'').trim() || null : null;
+      const entityCode  = detectEntityFromBankAccount(bankAcct) || csvEntity || null;
       inserts.push({
         description:      desc,
         amount,
@@ -2273,7 +2287,7 @@ const app = {
         accounting_date:  accDate,
         source:           'csv',
         classified:       false,
-        entity_id:        window._entityByCode[csvEntity] || null,
+        entity_id:        entityCode ? (window._entityByCode[entityCode] || null) : null,
         bank_account:     bankAcct,
         account_number:   acctNum
       });
