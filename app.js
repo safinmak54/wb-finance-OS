@@ -88,6 +88,7 @@ async function loadDataFromSupabase() {
 
     // Populate DATA.coa for COA page render
     DATA.coa = (accounts || []).map(a => ({
+      id: a.id,
       code: a.account_code,
       name: a.account_name,
       type: a.account_type,
