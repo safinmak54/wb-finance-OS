@@ -2494,6 +2494,10 @@ const app = {
     document.getElementById('sidebarBackdrop').classList.remove('open');
   },
 
+  toggleSidebar() {
+    document.getElementById('app').classList.toggle('sidebar-collapsed');
+  },
+
   // ---- DASHBOARD KPIs ----
   async updateDashboardKPIs() {
     const entity = state.currentEntity;

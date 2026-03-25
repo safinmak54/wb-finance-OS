@@ -20,10 +20,13 @@
         <span class="brand-name">WB Brands</span>
         <span class="brand-sub">Finance OS</span>
       </div>
+      <button class="sidebar-collapse-btn" onclick="app.toggleSidebar()" title="Collapse sidebar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
     </div>
 
     <div class="entity-switcher">
-      <label>Entity view</label>
+      <label class="nav-label">Entity view</label>
       <select id="entityFilter" onchange="app.setEntity(this.value)">
         <option value="all">All Companies</option>
         <option value="wb_full">WB Brands</option>
@@ -36,13 +39,13 @@
       <div class="nav-group-label">Overview</div>
       <a class="nav-item active" onclick="app.navigate('dashboard')" data-page="dashboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-        Dashboard
+        <span class="nav-label">Dashboard</span>
       </a>
 
       <div class="nav-group-label">Accounting</div>
       <a class="nav-item" onclick="app.navigate('inbox')" data-page="inbox">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-        New Transactions
+        <span class="nav-label">New Transactions</span>
         <span class="nav-badge" id="reviewBadge"></span>
       </a>
       <a class="nav-item" onclick="app.navigate('ledger')" data-page="ledger">
@@ -50,57 +53,57 @@
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
           <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>
         </svg>
-        Ledger
+        <span class="nav-label">Ledger</span>
       </a>
       <a class="nav-item" onclick="app.navigate('journals')" data-page="journals">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-        Journal Entries
+        <span class="nav-label">Journal Entries</span>
       </a>
       <a class="nav-item" onclick="app.navigate('reconcile')" data-page="reconcile">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-        Reconciliation
+        <span class="nav-label">Reconciliation</span>
       </a>
 
       <div class="nav-group-label">Payables</div>
       <a class="nav-item" onclick="app.navigate('vendors')" data-page="vendors">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-        Vendors
+        <span class="nav-label">Vendors</span>
         <span class="nav-badge danger" id="overdueVendorBadge"></span>
       </a>
       <a class="nav-item" onclick="app.navigate('invoices')" data-page="invoices">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        Invoices
+        <span class="nav-label">Invoices</span>
       </a>
 
       <div class="nav-group-label">Reports</div>
       <a class="nav-item" onclick="app.navigate('pnl')" data-page="pnl">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-        Profit & Loss
+        <span class="nav-label">Profit & Loss</span>
       </a>
       <a class="nav-item" onclick="app.navigate('balance')" data-page="balance">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        Balance Sheet
+        <span class="nav-label">Balance Sheet</span>
       </a>
       <a class="nav-item" onclick="app.navigate('cashflow')" data-page="cashflow">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        Cash Flow
+        <span class="nav-label">Cash Flow</span>
       </a>
 
       <div class="nav-group-label">Settings</div>
       <a class="nav-item" onclick="app.navigate('coa')" data-page="coa">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M5.34 17.66l-1.41 1.41M20 12h-2M6 12H4M19.07 19.07l-1.41-1.41M5.34 6.34L3.93 4.93"/></svg>
-        Chart of Accounts
+        <span class="nav-label">Chart of Accounts</span>
       </a>
       <a class="nav-item" onclick="app.navigate('banks')" data-page="banks">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-        Bank Connections
+        <span class="nav-label">Bank Connections</span>
       </a>
     </nav>
 
     <div class="sidebar-footer">
       <div class="sync-status">
         <div class="sync-dot"></div>
-        <span>Live sync · 2 min ago</span>
+        <span class="nav-label">Live sync · 2 min ago</span>
       </div>
     </div>
   </aside>
