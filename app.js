@@ -17,6 +17,13 @@ window._entityById   = {};   // uuid → code
 window._accountById  = {};   // uuid → name
 window._vendorByName = {};   // name → uuid
 
+// ---- ROLES ----
+const ROLES = {
+  coo:        { pass: 'wb-coo-2026',   label: 'COO View'        },
+  bookkeeper: { pass: 'wb-books-2026', label: 'Bookkeeper View' },
+  cpa:        { pass: 'wb-cpa-2026',   label: 'CPA View'        },
+};
+
 // ---- ENTITY GROUPS ----
 const ENTITY_GROUPS = {
   wb_full:   ['WBP','LP','KP','BP','SWAG','RUSH'],
@@ -240,18 +247,23 @@ const app = {
     if (cfTitle) cfTitle.textContent = `Cash Flow Statement — ${period}`;
 
     const titles = {
-      dashboard: ['Dashboard', `${period} · Consolidated view`],
-      inbox:  ['New Transactions', 'Unclassified transactions'],
-      ledger: ['Ledger', `Classified transactions · ${period}`],
-      journals: ['Journal Entries', 'Double-entry ledger'],
-      reconcile: ['Reconciliation', `Bank vs book · ${period}`],
-      vendors: ['Vendors', 'Payables management'],
-      invoices: ['Invoices', 'Vendor invoices'],
-      pnl: ['Profit & Loss', `Consolidated · ${period}`],
-      balance: ['Balance Sheet', `As of ${period}`],
-      cashflow: ['Cash Flow', period],
-      coa: ['Chart of Accounts', 'WB Brands LLC · All entities'],
-      banks: ['Bank Connections', 'Connected accounts & processors'],
+      dashboard:  ['Dashboard', `${period} · Consolidated view`],
+      inbox:      ['New Transactions', 'Unclassified transactions'],
+      ledger:     ['Ledger', `Classified transactions · ${period}`],
+      journals:   ['Journal Entries', 'Double-entry ledger'],
+      reconcile:  ['Reconciliation', `Bank vs book · ${period}`],
+      vendors:    ['Vendors', 'Payables management'],
+      invoices:   ['Invoices', 'Vendor invoices'],
+      pnl:        ['Profit & Loss', `Consolidated · ${period}`],
+      balance:    ['Balance Sheet', `As of ${period}`],
+      cashflow:   ['Cash Flow', period],
+      coa:        ['Chart of Accounts', 'WB Brands LLC · All entities'],
+      banks:      ['Bank Connections', 'Connected accounts & processors'],
+      forecast:   ['Cash Forecast', '13-week rolling model'],
+      ratios:     ['Ratios & KPIs', 'Financial health metrics'],
+      cfnotes:    ['CFO Notes', 'GAAP compliance & tax planning'],
+      sales:      ['Sales Metrics', 'Revenue performance'],
+      productmix: ['Product Mix', 'Category & channel breakdown'],
     };
     const [title, sub] = titles[page] || ['—', ''];
     document.getElementById('pageTitle').textContent = title;
@@ -274,6 +286,11 @@ const app = {
       if (page === 'banks')        this.renderBanks();
       if (page === 'reconcile')    this.renderReconcile();
       if (page === 'cashflow')     await this.renderCashflow();
+      if (page === 'forecast')     this.renderCashForecast();
+      if (page === 'ratios')       await this.renderRatios();
+      if (page === 'cfnotes')      await this.renderCFONotes();
+      if (page === 'sales')        this.renderSalesMetrics();
+      if (page === 'productmix')   this.renderProductMix();
     }, 10);
   },
 
@@ -941,17 +958,652 @@ const app = {
       </tr>`).join('');
   },
 
+  // ---- CASH FORECAST ----
+  renderCashForecast() {
+    const el = document.getElementById('forecastContent');
+    if (!el) return;
+    const fmt = n => '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
+    const fmtK = n => (Math.abs(n) >= 1000 ? '$' + (Math.abs(n)/1000).toFixed(0) + 'K' : fmt(n));
+
+    // Seed weekly actuals (realistic WB Brands data)
+    if (!window._weeklyActuals) {
+      const now = new Date();
+      window._weeklyActuals = [
+        { week: '2026-01-05', wkn:1,  type:'Actual',   sales:751951, cogs:341169, ads:232669, oh:95000, other:0,      notes:'Jan W1' },
+        { week: '2026-01-12', wkn:2,  type:'Actual',   sales:812340, cogs:368834, ads:251826, oh:95000, other:0,      notes:'Jan W2' },
+        { week: '2026-01-19', wkn:3,  type:'Actual',   sales:698200, cogs:317091, ads:216342, oh:95000, other:0,      notes:'Jan W3' },
+        { week: '2026-01-26', wkn:4,  type:'Actual',   sales:789510, cogs:358626, ads:244548, oh:95000, other:225000, notes:'Jan W4 + Div' },
+        { week: '2026-02-02', wkn:5,  type:'Actual',   sales:774800, cogs:351993, ads:239888, oh:95000, other:0,      notes:'Feb W1' },
+        { week: '2026-02-09', wkn:6,  type:'Actual',   sales:821300, cogs:372890, ads:254403, oh:95000, other:0,      notes:'Feb W2' },
+        { week: '2026-02-16', wkn:7,  type:'Actual',   sales:756900, cogs:343736, ads:234639, oh:95000, other:0,      notes:'Feb W3' },
+        { week: '2026-02-23', wkn:8,  type:'Actual',   sales:803100, cogs:364608, ads:248961, oh:95000, other:300000, notes:'Feb W4 + Div' },
+        { week: '2026-03-02', wkn:9,  type:'Actual',   sales:832600, cogs:378012, ads:257806, oh:95000, other:0,      notes:'Mar W1' },
+        { week: '2026-03-09', wkn:10, type:'Partial',  sales:621784, cogs:282344, ads:192553, oh:95000, other:0,      notes:'Mar W2 (partial)' },
+        { week: '2026-03-16', wkn:11, type:'Forecast', sales:810000, cogs:367740, ads:250800, oh:95000, other:0,      notes:'Mar W3 forecast' },
+        { week: '2026-03-23', wkn:12, type:'Forecast', sales:820000, cogs:372300, ads:254200, oh:95000, other:0,      notes:'Mar W4 forecast' },
+        { week: '2026-03-30', wkn:13, type:'Forecast', sales:790000, cogs:358650, ads:244900, oh:95000, other:0,      notes:'Apr W1 forecast' },
+      ];
+    }
+
+    const actuals = window._weeklyActuals;
+    // Calculate burn rate from Actual weeks
+    const actualWeeks = actuals.filter(w => w.type === 'Actual');
+    const totalOut = actualWeeks.reduce((s, w) => s + w.cogs + w.ads + w.oh + w.other, 0);
+    const weeklyBurn = actualWeeks.length ? totalOut / actualWeeks.length : 0;
+    const monthlyBurn = weeklyBurn * 4.33;
+    // Use a seed bank balance (will be replaced by live data when bank connections exist)
+    const bankBalance = 1247000;
+    const runway = monthlyBurn > 0 ? bankBalance / monthlyBurn : 0;
+
+    const healthClass = closing => closing >= 300000 ? 'healthy' : closing >= 150000 ? 'watch' : 'low';
+    const healthLabel = closing => closing >= 300000 ? 'Healthy' : closing >= 150000 ? 'Watch' : 'Low';
+
+    // Build 13-week table rows
+    let opening = bankBalance;
+    const rows = actuals.map(w => {
+      const cashIn  = w.sales;
+      const cashOut = w.cogs + w.ads + w.oh + w.other;
+      const net     = cashIn - cashOut;
+      const closing = opening + net;
+      const row = { ...w, opening, cashIn, cashOut, net, closing };
+      opening = closing;
+      return row;
+    });
+
+    const runwayColor = runway >= 6 ? 'var(--green)' : runway >= 3 ? 'var(--amber)' : 'var(--red)';
+
+    el.innerHTML = `
+      <div class="forecast-kpi-row">
+        <div class="metric-card"><div class="metric-label">Bank Balance</div><div class="metric-value">${fmt(bankBalance)}</div><div class="metric-delta" style="color:var(--text2)">Seed estimate</div></div>
+        <div class="metric-card"><div class="metric-label">Monthly Burn</div><div class="metric-value">${fmtK(monthlyBurn)}</div><div class="metric-delta" style="color:var(--text2)">Avg outflows/mo</div></div>
+        <div class="metric-card"><div class="metric-label">Cash Runway</div><div class="metric-value" style="color:${runwayColor}">${runway.toFixed(1)} mo</div><div class="metric-delta" style="color:var(--text2)">At current burn</div></div>
+        <div class="metric-card"><div class="metric-label">Weeks Tracked</div><div class="metric-value">${actualWeeks.length}</div><div class="metric-delta" style="color:var(--text2)">Actual weeks</div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">13-Week Cash Model</span>
+          <div style="display:flex;gap:10px;font-size:11px">
+            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:rgba(5,150,105,0.15);border-radius:2px;display:inline-block"></em>Actual</span>
+            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:rgba(217,119,6,0.12);border-radius:2px;display:inline-block"></em>Partial</span>
+            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:var(--surface2);border:1px solid var(--border);border-radius:2px;display:inline-block"></em>Forecast</span>
+          </div>
+        </div>
+        <div class="forecast-table-wrap">
+          <table class="forecast-table">
+            <thead><tr>
+              <th style="text-align:left">Week</th>
+              <th>Opening</th><th>Cash In</th><th>COGS</th><th>Ads</th><th>Overhead</th><th>Other</th><th>Net</th><th>Closing</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr class="type-${r.type.toLowerCase()}">
+                <td><div style="font-weight:500">${r.week}</div><div style="font-size:10px;color:var(--text3)">${r.notes}</div></td>
+                <td>${fmtK(r.opening)}</td>
+                <td style="color:var(--green)">${fmtK(r.cashIn)}</td>
+                <td style="color:var(--red)">(${fmtK(r.cogs)})</td>
+                <td style="color:var(--red)">(${fmtK(r.ads)})</td>
+                <td style="color:var(--red)">(${fmtK(r.oh)})</td>
+                <td style="color:var(--red)">${r.other ? '(' + fmtK(r.other) + ')' : '—'}</td>
+                <td style="color:${r.net>=0?'var(--green)':'var(--red)'};font-weight:600">${r.net>=0?'+':''}${fmtK(r.net)}</td>
+                <td style="font-weight:700">${fmtK(r.closing)}</td>
+                <td><span class="forecast-health ${healthClass(r.closing)}">${healthLabel(r.closing)}</span></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  },
+
+  // ---- RATIOS & KPIs ----
+  async renderRatios() {
+    const el = document.getElementById('ratiosContent');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Calculating…</div>';
+    const fmt = n => '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
+    const pct = n => (n * 100).toFixed(1) + '%';
+    const ratio = (n, decimals=2) => isFinite(n) ? n.toFixed(decimals) + 'x' : '—';
+
+    const period = state.currentPeriod;
+    const entity = state.currentEntity;
+
+    // Fetch P&L data
+    let rev=0, cogs=0, adSpend=0, otherExp=0;
+    if (supabaseClient) {
+      let q = supabaseClient.from('transactions')
+        .select('amount, accounts(account_type, account_subtype)')
+        .gte('acc_date', period+'-01').lte('acc_date', period+'-31');
+      q = applyEntityFilter(q, entity);
+      const { data: txns } = await q;
+      for (const t of (txns||[])) {
+        const amt = Number(t.amount);
+        if (t.accounts?.account_type === 'revenue') rev += amt;
+        else if (t.accounts?.account_type === 'expense') {
+          if (t.accounts?.account_subtype === 'cogs') cogs += Math.abs(amt);
+          else if (t.accounts?.account_subtype === 'advertising') adSpend += Math.abs(amt);
+          else otherExp += Math.abs(amt);
+        }
+      }
+    }
+    const grossProfit  = rev - cogs;
+    const ebitda       = grossProfit - adSpend - otherExp;
+    const netProfit    = ebitda; // simplified (no D&A/interest in current model)
+    const gpMargin     = rev > 0 ? grossProfit / rev : 0;
+    const ebitdaMargin = rev > 0 ? ebitda / rev : 0;
+    const npMargin     = rev > 0 ? netProfit / rev : 0;
+
+    // Fetch balance sheet data
+    let curAssets=0, curLiab=0, totalAssets=0, totalLiab=0, equity=0, cash=0, ar=0, ap=0;
+    if (supabaseClient) {
+      let q2 = supabaseClient.from('transactions').select('amount, accounts(account_type, account_subtype)');
+      q2 = applyEntityFilter(q2, entity);
+      const { data: bsTxns } = await q2;
+      for (const t of (bsTxns||[])) {
+        const amt = Number(t.amount);
+        const typ = t.accounts?.account_type;
+        const sub = t.accounts?.account_subtype;
+        if (typ === 'asset') {
+          totalAssets += amt;
+          if (sub === 'cash' || sub === 'bank') { curAssets += amt; cash += amt; }
+          else if (sub === 'receivable') { curAssets += amt; ar += amt; }
+          else if (sub === 'current') curAssets += amt;
+        } else if (typ === 'liability') {
+          totalLiab += Math.abs(amt);
+          if (sub === 'payable' || sub === 'current') { curLiab += Math.abs(amt); ap += Math.abs(amt); }
+        } else if (typ === 'equity') {
+          equity += amt;
+        }
+      }
+    }
+    // AR from invoices
+    if (ar === 0) ar = DATA.invoices.filter(i=>i.status!=='paid').reduce((s,i)=>s+(Number(i.amount)-Number(i.amount_paid||0)),0);
+
+    const currentRatio = curLiab > 0 ? curAssets / curLiab : 0;
+    const quickRatio   = curLiab > 0 ? (cash + ar) / curLiab : 0;
+    const cashRatio    = curLiab > 0 ? cash / curLiab : 0;
+    const roa          = totalAssets > 0 ? netProfit / totalAssets : 0;
+    const roe          = equity > 0 ? netProfit / equity : 0;
+    const dso          = rev > 0 ? (ar / (rev / 30)) : 0;
+    const dpo          = cogs > 0 ? (ap / (cogs / 30)) : 0;
+    const workingCap   = curAssets - curLiab;
+    const debtEquity   = equity > 0 ? totalLiab / equity : 0;
+
+    const card = (label, value, benchmark, color, statusKey) => {
+      const statusMap = { ok: 'ok', warn: 'warn', bad: 'bad' };
+      return `<div class="ratio-card ${color}">
+        <div class="ratio-label">${label}</div>
+        <div class="ratio-value">${value}</div>
+        <div class="ratio-benchmark">Benchmark: ${benchmark}</div>
+        <span class="ratio-status ${statusMap[statusKey] || 'warn'}">${statusKey === 'ok' ? '✓ Good' : statusKey === 'bad' ? '✗ Low' : '~ Watch'}</span>
+      </div>`;
+    };
+
+    el.innerHTML = `
+      <div class="ratio-section">
+        <div class="ratio-section-title">Liquidity</div>
+        <div class="ratio-grid">
+          ${card('Current Ratio', ratio(currentRatio), '>1.5x', 'blue', currentRatio>=1.5?'ok':currentRatio>=1?'warn':'bad')}
+          ${card('Quick Ratio', ratio(quickRatio), '>1.0x', 'blue', quickRatio>=1?'ok':quickRatio>=0.7?'warn':'bad')}
+          ${card('Cash Ratio', ratio(cashRatio), '>0.2x', 'blue', cashRatio>=0.2?'ok':cashRatio>=0.1?'warn':'bad')}
+          ${card('Working Capital', fmt(workingCap), 'Positive', 'blue', workingCap>0?'ok':'bad')}
+        </div>
+      </div>
+      <div class="ratio-section">
+        <div class="ratio-section-title">Profitability</div>
+        <div class="ratio-grid">
+          ${card('Gross Margin', pct(gpMargin), '40–60%', 'green', gpMargin>=0.4?'ok':gpMargin>=0.25?'warn':'bad')}
+          ${card('EBITDA Margin', pct(ebitdaMargin), '10–20%', 'green', ebitdaMargin>=0.1?'ok':ebitdaMargin>=0.05?'warn':'bad')}
+          ${card('Net Profit Margin', pct(npMargin), '5–15%', 'green', npMargin>=0.05?'ok':npMargin>=0?'warn':'bad')}
+          ${card('ROA', pct(roa), '>5%', 'green', roa>=0.05?'ok':roa>=0.02?'warn':'bad')}
+          ${card('ROE', pct(roe), '>15%', 'green', roe>=0.15?'ok':roe>=0.05?'warn':'bad')}
+        </div>
+      </div>
+      <div class="ratio-section">
+        <div class="ratio-section-title">Efficiency</div>
+        <div class="ratio-grid">
+          ${card('DSO', dso.toFixed(0)+' days', '<45 days', 'amber', dso<=45?'ok':dso<=60?'warn':'bad')}
+          ${card('DPO', dpo.toFixed(0)+' days', '<60 days', 'amber', dpo<=60?'ok':dpo<=90?'warn':'bad')}
+          ${card('Debt / Equity', ratio(debtEquity), '<2.0x', 'amber', debtEquity<=2?'ok':debtEquity<=3?'warn':'bad')}
+        </div>
+      </div>
+      ${rev === 0 ? '<p style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No classified transactions for this period — ratios will calculate once transactions are posted.</p>' : ''}
+    `;
+  },
+
+  // ---- CFO NOTES ----
+  async renderCFONotes() {
+    const el = document.getElementById('cfnotesContent');
+    if (!el) return;
+    const fmt = n => n >= 0 ? '$' + Math.round(n).toLocaleString('en-US') : '($' + Math.round(Math.abs(n)).toLocaleString('en-US') + ')';
+
+    const flags = [
+      { sev:'🚨', title:'Credit Card Interest — Material Item', asc:'IRC §163', desc:'Outstanding CC balances ~$555K at 20% APR = ~$111K/yr interest expense. Priority: pay down highest-rate balances before dividend distributions.' },
+      { sev:'⚠️', title:'Allowance for Doubtful Accounts Required', asc:'ASC 310', desc:'AR >60 days overdue exceeds $80K. GAAP requires an allowance estimate. Recommend: reserve 50% of 90+ day AR.' },
+      { sev:'⚠️', title:'Fixed Asset Register Incomplete', asc:'ASC 360', desc:'No fixed asset schedule on file. Equipment, software licenses, and leasehold improvements must be capitalized and depreciated.' },
+      { sev:'⚠️', title:'Revenue Recognition — Disputed Invoices', asc:'ASC 606', desc:'Disputed customer invoices should not be recognized as revenue until resolved. Review open disputes monthly.' },
+      { sev:'🚨', title:'Intercompany Eliminations Required', asc:'ASC 810', desc:'Intercompany transactions between entities (WBP↔LP↔KP↔BP) must be eliminated in consolidated financials.' },
+      { sev:'ℹ️', title:'IRC §199A QBI Deduction Planning', asc:'IRC §199A', desc:'As a pass-through entity, eligible for 20% QBI deduction. Estimated savings: $25K–$35K. Coordinate with CPA before year-end.' },
+      { sev:'ℹ️', title:'Quarterly Estimated Tax Payments', asc:'IRC §6654', desc:'Q2 2026 due: Jun 15. Q3: Sep 15. Q4: Jan 15, 2027. Recommend distributing 30–35% of monthly net income for tax reserves.' },
+      { sev:'ℹ️', title:'Owner Distributions — Equity Classification', asc:'ASC 505', desc:'All owner draws/distributions must be classified as equity reduction, not operating expenses, to avoid P&L distortion.' },
+    ];
+
+    const policies = [
+      { title:'Revenue Recognition', body:'Revenue recognized at point-in-time when control transfers to customer (ASC 606). No long-term contracts requiring percentage-of-completion.' },
+      { title:'Inventory Valuation', body:'FIFO method recommended (ASC 330). Physical count required quarterly. Standard cost variance to be reviewed annually.' },
+      { title:'Depreciation', body:'Estimated D&A: ~$36K/yr. Useful lives: equipment 5–7 yr, computers 3 yr, leasehold improvements over lease term.' },
+      { title:'Accounts Receivable', body:'AR aging reviewed monthly. 90+ day balances flagged for collection. Allowance for doubtful accounts to be established per ASC 310.' },
+      { title:'Cash & Equivalents', body:'11 accounts across Huntington Bank and Third Federal. All accounts reconciled monthly. No restricted cash balances.' },
+      { title:'Credit Card Liabilities', body:'CC balances classified as current liabilities. ~20% APR. Minimum payments tracked; interest expense classified as Other Expense.' },
+      { title:'Owner Distributions', body:'Distributions classified as equity reduction (debit Retained Earnings). Not deductible as business expense for C-Corp; pass-through for LLC.' },
+      { title:'Expense Classification', body:'COGS: direct material + production labor. SG&A: advertising, payroll (non-production), platform fees, office overhead.' },
+    ];
+
+    el.innerHTML = `
+      <div class="cfnotes-section">
+        <div class="cfnotes-section-title">CPA Compliance Flags</div>
+        ${flags.map(f => `<div class="cpa-flag">
+          <div class="cpa-flag-icon">${f.sev}</div>
+          <div class="cpa-flag-body">
+            <div class="cpa-flag-title">${f.title}</div>
+            <div class="cpa-flag-desc">${f.desc}</div>
+            <div class="cpa-flag-asc">${f.asc}</div>
+          </div>
+        </div>`).join('')}
+      </div>
+      <div class="cfnotes-section">
+        <div class="cfnotes-section-title">Accounting Policies</div>
+        <div class="policy-grid">
+          ${policies.map(p => `<div class="policy-card">
+            <div class="policy-card-title">${p.title}</div>
+            <div class="policy-card-body">${p.body}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div class="cfnotes-section">
+        <div class="cfnotes-section-title">Tax Notes — 2026</div>
+        <div class="card" style="max-width:560px">
+          <table style="width:100%;font-size:13px;border-collapse:collapse">
+            <tr><td style="padding:8px 0;color:var(--text2)">Estimated 2026 YTD Net Income</td><td style="text-align:right;font-weight:600">— (see P&L)</td></tr>
+            <tr><td style="padding:8px 0;color:var(--text2)">Est. Federal Tax (32% bracket)</td><td style="text-align:right;color:var(--red);font-weight:600">Consult CPA</td></tr>
+            <tr><td style="padding:8px 0;color:var(--text2)">Est. State Tax (~5%)</td><td style="text-align:right;color:var(--red);font-weight:600">Consult CPA</td></tr>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:8px 0;font-weight:700">IRC §199A QBI Deduction (20%)</td><td style="text-align:right;color:var(--green);font-weight:700">Est. $25K–$35K savings</td></tr>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:8px 0;color:var(--text2)">Q2 Est. Tax Due</td><td style="text-align:right;font-weight:600">Jun 15, 2026</td></tr>
+            <tr><td style="padding:8px 0;color:var(--text2)">Q3 Est. Tax Due</td><td style="text-align:right;font-weight:600">Sep 15, 2026</td></tr>
+            <tr><td style="padding:8px 0;color:var(--text2)">Q4 Est. Tax Due</td><td style="text-align:right;font-weight:600">Jan 15, 2027</td></tr>
+          </table>
+          <p style="font-size:11px;color:var(--text3);margin-top:12px;border-top:1px solid var(--border);padding-top:10px">Recommendation: distribute 30–35% of monthly net income into a dedicated tax reserve account.</p>
+        </div>
+      </div>
+    `;
+  },
+
+  // ---- SALES METRICS ----
+  renderSalesMetrics() {
+    const el = document.getElementById('salesContent');
+    if (!el) return;
+
+    // Seed P&L data (15 months)
+    if (!window._plData) {
+      window._plData = {
+        months:     ['Jan-25','Feb-25','Mar-25','Apr-25','May-25','Jun-25','Jul-25','Aug-25','Sep-25','Oct-25','Nov-25','Dec-25','Jan-26','Feb-26','Mar-26'],
+        net_sales:  [2555281,2593914,2801234,2734512,2912345,2845678,2623451,2534789,2798432,2901234,3012345,3123456,2823714,2718200,2723714],
+        cogs:       [1341523,1335866,1456641,1421946,1514019,1479752,1364194,1318090,1455185,1508642,1566419,1624197,1168140,1052790,1168140],
+        ads:        [853719, 855992, 924407,902590, 961074, 939474, 866139, 836284, 923540, 957408,1034006,1030741,631966, 636160, 0      ],
+        overhead:   [385524, 276482, 379547,340120, 358234,341263, 322876,304215, 345328,358243, 371824, 384328,319523, 290340, 0      ],
+        gross_profit:[1213759,1258048,1344593,1312566,1398326,1365926,1259257,1216699,1343247,1392592,1445926,1499259,1655574,1665410,1555574],
+        net_profit: [-25484, 125574, 40599,  69856, 79019, 84913, 70242, 76200, 74379, 76941, 39096, 84190,704085, 738910,1555574],
+        gp_margin:  [47.5,   48.5,   48.0,   48.0,  48.0,  48.0,  48.0,  48.0,  48.0,  48.0,  48.0,  48.0,  57.1,   61.3,   57.1   ],
+        np_margin:  [-1.0,   4.84,   1.45,   2.55,  2.71,  2.98,  2.68,  3.01,  2.66,  2.65,  1.30,  2.69, 24.93,  27.18,  57.1   ],
+        dividends:  [225000, 300000, 0,      225000,300000,0,     225000,300000,0,     225000,300000,0,     225000, 300000, 0      ],
+      };
+    }
+    const pd = window._plData;
+    const latestIdx = pd.months.length - 1;
+    const latestSales = pd.net_sales[latestIdx];
+    const prevSales   = pd.net_sales[latestIdx - 1] || 0;
+    const latestCogs  = pd.cogs[latestIdx];
+    const latestAds   = pd.ads[latestIdx];
+    const cogsP = latestSales > 0 ? (latestCogs / latestSales * 100).toFixed(1) : '0.0';
+    const varPct  = prevSales > 0 ? ((latestSales - prevSales) / prevSales * 100).toFixed(1) : null;
+    const target  = 3000000;
+    const vsTarget = latestSales - target;
+
+    const fmtM = n => '$' + (n/1000000).toFixed(2) + 'M';
+    const fmtK = n => '$' + (n/1000).toFixed(0) + 'K';
+
+    el.innerHTML = `
+      <div class="sales-kpi-row">
+        <div class="sales-kpi" style="border-top-color:#2563eb">
+          <div class="sales-kpi-label">Latest Month Net Sales</div>
+          <div class="sales-kpi-value">${fmtM(latestSales)}</div>
+          <div class="sales-kpi-sub">${pd.months[latestIdx]}</div>
+        </div>
+        <div class="sales-kpi" style="border-top-color:${vsTarget>=0?'var(--green)':'var(--red)'}">
+          <div class="sales-kpi-label">vs Target ($3M)</div>
+          <div class="sales-kpi-value" style="color:${vsTarget>=0?'var(--green)':'var(--red)'}">${vsTarget>=0?'+':''}${fmtK(vsTarget)}</div>
+          <div class="sales-kpi-sub">${varPct !== null ? (varPct >= 0 ? '+' : '') + varPct + '% vs prior month' : ''}</div>
+        </div>
+        <div class="sales-kpi" style="border-top-color:#d97706">
+          <div class="sales-kpi-label">COGS %</div>
+          <div class="sales-kpi-value">${cogsP}%</div>
+          <div class="sales-kpi-sub">of net sales</div>
+        </div>
+        <div class="sales-kpi" style="border-top-color:#7c3aed">
+          <div class="sales-kpi-label">Ads Cost</div>
+          <div class="sales-kpi-value">${fmtK(latestAds)}</div>
+          <div class="sales-kpi-sub">${latestSales > 0 ? (latestAds/latestSales*100).toFixed(1) + '% of sales' : ''}</div>
+        </div>
+        <div class="sales-kpi" style="border-top-color:#0891b2">
+          <div class="sales-kpi-label">Gross Margin</div>
+          <div class="sales-kpi-value">${pd.gp_margin[latestIdx].toFixed(1)}%</div>
+          <div class="sales-kpi-sub">of net sales</div>
+        </div>
+      </div>
+      <div class="sales-charts-grid">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Monthly Net Sales (15 months)</span></div>
+          <div class="chart-wrap" style="height:240px"><canvas id="salesMonthlyChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">GP & NP Margins</span></div>
+          <div class="chart-wrap" style="height:240px"><canvas id="salesMarginChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Net Profit Trend</span></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="salesProfitChart"></canvas></div>
+      </div>
+    `;
+
+    // Monthly bar + target line
+    setTimeout(() => {
+      const mc = document.getElementById('salesMonthlyChart');
+      if (mc) {
+        if (window._salesMonthlyChart) window._salesMonthlyChart.destroy();
+        window._salesMonthlyChart = new Chart(mc.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: pd.months,
+            datasets: [
+              { label: 'Net Sales', data: pd.net_sales.map(v => Math.round(v/1000)), backgroundColor: '#2563eb', borderRadius: 4 },
+              { label: 'COGS',      data: pd.cogs.map(v => Math.round(v/1000)),      backgroundColor: '#f87171', borderRadius: 4 },
+              { label: 'Target', data: pd.months.map(() => Math.round(target/1000)), type: 'line', borderColor: '#d97706', borderDash: [6,4], backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2 },
+            ],
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } }, scales: { y: { ticks: { callback: v => '$' + v + 'K' } } } }
+        });
+      }
+      const mgc = document.getElementById('salesMarginChart');
+      if (mgc) {
+        if (window._salesMarginChart) window._salesMarginChart.destroy();
+        window._salesMarginChart = new Chart(mgc.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: pd.months,
+            datasets: [
+              { label: 'GP Margin %', data: pd.gp_margin, borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.08)', fill: true, tension: 0.3 },
+              { label: 'NP Margin %', data: pd.np_margin, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3 },
+            ],
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { font: { size: 11 } } } }, scales: { y: { ticks: { callback: v => v + '%' } } } }
+        });
+      }
+      const pc = document.getElementById('salesProfitChart');
+      if (pc) {
+        if (window._salesProfitChart) window._salesProfitChart.destroy();
+        window._salesProfitChart = new Chart(pc.getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: pd.months,
+            datasets: [
+              { label: 'Net Profit', data: pd.net_profit.map(v => Math.round(v/1000)), backgroundColor: pd.net_profit.map(v => v>=0?'#16a34a':'#f87171'), borderRadius: 4 },
+            ],
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => '$' + v + 'K' } } } }
+        });
+      }
+    }, 50);
+  },
+
+  // ---- PRODUCT MIX ----
+  renderProductMix() {
+    const el = document.getElementById('productmixContent');
+    if (!el) return;
+
+    // Seed product mix data
+    if (!window._productMix) {
+      window._productMix = {
+        updatedAt: 'Seed data',
+        categories: [
+          { name: 'Lanyards',       revenue: 1302095, cogs: 468754, ads: 227866, platform: 'Shopify', channel: 'Direct' },
+          { name: 'Wristbands',     revenue: 816239,  cogs: 293846, ads: 142792, platform: 'Amazon',  channel: 'Marketplace' },
+          { name: 'Can Coolers',    revenue: 435854,  cogs: 156907, ads:  76274, platform: 'Shopify', channel: 'Direct' },
+          { name: 'Tumblers',       revenue: 109536,  cogs:  39433, ads:  19169, platform: 'Etsy',    channel: 'Marketplace' },
+          { name: 'Custom Apparel', revenue:  59990,  cogs:  21596, ads:  10498, platform: 'Shopify', channel: 'Wholesale' },
+        ],
+      };
+    }
+    const mx = window._productMix;
+    const totalRev   = mx.categories.reduce((s,c) => s+c.revenue, 0);
+    const totalCogs  = mx.categories.reduce((s,c) => s+c.cogs, 0);
+    const totalAds   = mx.categories.reduce((s,c) => s+c.ads, 0);
+    const totalGP    = totalRev - totalCogs - totalAds;
+    const fmtM = n => '$' + (n/1000).toFixed(0) + 'K';
+    const pct  = (n,d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
+
+    const colors = ['#2563eb','#16a34a','#d97706','#7c3aed','#0891b2'];
+
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <span style="font-size:11px;color:var(--text3)">Source: ${mx.updatedAt}</span>
+        <button class="btn-outline" style="font-size:12px;border-color:var(--purple);color:var(--purple)" onclick="app._refreshProductMix()">🔄 Refresh</button>
+      </div>
+      <div class="sales-kpi-row">
+        <div class="sales-kpi" style="border-top-color:#2563eb"><div class="sales-kpi-label">MTD Revenue</div><div class="sales-kpi-value">${fmtM(totalRev)}</div></div>
+        <div class="sales-kpi" style="border-top-color:#d97706"><div class="sales-kpi-label">Avg COGS %</div><div class="sales-kpi-value">${pct(totalCogs,totalRev)}</div></div>
+        <div class="sales-kpi" style="border-top-color:#7c3aed"><div class="sales-kpi-label">Avg Ads %</div><div class="sales-kpi-value">${pct(totalAds,totalRev)}</div></div>
+        <div class="sales-kpi" style="border-top-color:#16a34a"><div class="sales-kpi-label">Gross Margin $</div><div class="sales-kpi-value">${fmtM(totalGP)}</div></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">Category Breakdown</span></div>
+        <table class="data-table">
+          <thead><tr><th>Category</th><th class="amount">Revenue</th><th class="amount">COGS %</th><th class="amount">Ads %</th><th class="amount">Gross Margin %</th><th class="amount">% of Total</th></tr></thead>
+          <tbody>
+            ${mx.categories.map((c,i) => {
+              const gm = c.revenue > 0 ? ((c.revenue-c.cogs-c.ads)/c.revenue*100).toFixed(1) : '0.0';
+              const share = totalRev > 0 ? (c.revenue/totalRev*100).toFixed(1) : '0.0';
+              return `<tr>
+                <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[i]};margin-right:6px"></span>${c.name}</td>
+                <td class="amount">${fmtM(c.revenue)}</td>
+                <td class="amount">${pct(c.cogs,c.revenue)}</td>
+                <td class="amount">${pct(c.ads,c.revenue)}</td>
+                <td class="amount" style="color:${parseFloat(gm)>=30?'var(--green)':'var(--amber)'}">${gm}%</td>
+                <td class="amount">${share}%</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card"><div class="card-header"><span class="card-title">Revenue Mix</span></div><div class="chart-wrap" style="height:220px"><canvas id="pmDonutChart"></canvas></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">Revenue by Category</span></div><div class="chart-wrap" style="height:220px"><canvas id="pmBarChart"></canvas></div></div>
+      </div>
+    `;
+
+    setTimeout(() => {
+      const dc = document.getElementById('pmDonutChart');
+      if (dc) {
+        if (window._pmDonut) window._pmDonut.destroy();
+        window._pmDonut = new Chart(dc.getContext('2d'), {
+          type: 'doughnut',
+          data: { labels: mx.categories.map(c=>c.name), datasets: [{ data: mx.categories.map(c=>Math.round(c.revenue/1000)), backgroundColor: colors, borderWidth: 0 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 10 } } }, cutout: '62%' },
+        });
+      }
+      const bc = document.getElementById('pmBarChart');
+      if (bc) {
+        if (window._pmBar) window._pmBar.destroy();
+        window._pmBar = new Chart(bc.getContext('2d'), {
+          type: 'bar',
+          data: { labels: mx.categories.map(c=>c.name), datasets: [{ label: 'Revenue ($K)', data: mx.categories.map(c=>Math.round(c.revenue/1000)), backgroundColor: colors, borderRadius: 4 }] },
+          options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { callback: v => '$'+v+'K' } } } },
+        });
+      }
+    }, 50);
+  },
+
+  _refreshProductMix() {
+    this.toast('Product mix refreshed (using seed data — configure GAS proxy in Bank Connections to sync live)');
+  },
+
+  // ---- GOOGLE SHEETS SYNC ----
+  async gvizFetch(sheetId, sheetName) {
+    const cfg = this._getSyncConfig();
+    const encoded = encodeURIComponent(sheetName);
+    // Try GAS proxy first if configured
+    if (cfg.gasProxy) {
+      try {
+        const proxyUrl = `${cfg.gasProxy}?action=gviz&id=${sheetId}&sheet=${encoded}`;
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const text = await res.text();
+          return this._parseGvizResponse(text);
+        }
+      } catch { /* fall through to direct */ }
+    }
+    // Direct gviz (works in some browsers, blocked by CORS in file:// protocol)
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${encoded}&tqx=out:json`;
+    const res = await fetch(url);
+    const text = await res.text();
+    return this._parseGvizResponse(text);
+  },
+
+  _parseGvizResponse(text) {
+    // gviz returns: /*O_o*/ google.visualization.Query.setResponse({...})
+    const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\)/);
+    if (!match) throw new Error('Invalid gviz response');
+    const json = JSON.parse(match[1]);
+    const rows = json?.table?.rows || [];
+    return rows.map(row => (row.c || []).map(cell => cell?.v ?? null));
+  },
+
+  _getSyncConfig() {
+    try { return JSON.parse(localStorage.getItem('wbSyncConfig') || '{}'); }
+    catch { return {}; }
+  },
+
+  async parsePLSheet(rows) {
+    if (!rows.length) return;
+    // Row 0 = headers, find month columns
+    const headers = rows[0] || [];
+    const monthCols = [];
+    const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    headers.forEach((h, i) => {
+      if (i === 0) return;
+      const s = String(h || '').toLowerCase();
+      if (monthNames.some(m => s.includes(m)) || /\d{4}/.test(s)) monthCols.push({ col: i, label: String(h) });
+    });
+    if (!monthCols.length) return;
+
+    const find = (keyword) => rows.findIndex(r => String(r[0]||'').toLowerCase().includes(keyword));
+    const getRow = (keyword) => {
+      const idx = find(keyword);
+      return idx >= 0 ? rows[idx] : null;
+    };
+
+    const extract = (row) => monthCols.map(mc => Number(String(row?.[mc.col] || 0).replace(/[^0-9.-]/g,'')) || 0);
+
+    const salesRow  = getRow('total income') || getRow('net sales') || getRow('total revenue');
+    const cogsRow   = getRow('total cogs')   || getRow('cost of goods');
+    const adsRow    = getRow('advertising')  || getRow('ads');
+    const ohRow     = getRow('overhead')     || getRow('sg&a');
+    const gpRow     = getRow('gross profit');
+    const npRow     = getRow('net income')   || getRow('net profit');
+
+    if (!salesRow) return; // can't parse
+
+    window._plData = {
+      months:      monthCols.map(m => m.label),
+      net_sales:   extract(salesRow),
+      cogs:        extract(cogsRow),
+      ads:         extract(adsRow),
+      overhead:    extract(ohRow),
+      gross_profit:extract(gpRow),
+      net_profit:  extract(npRow),
+      gp_margin:   [],
+      np_margin:   [],
+      dividends:   new Array(monthCols.length).fill(0),
+    };
+    const pd = window._plData;
+    pd.gp_margin = pd.net_sales.map((s,i) => s > 0 ? pd.gross_profit[i]/s*100 : 0);
+    pd.np_margin = pd.net_sales.map((s,i) => s > 0 ? pd.net_profit[i]/s*100 : 0);
+  },
+
+  async refreshAllSheets() {
+    const cfg = this._getSyncConfig();
+    const btn = document.getElementById('syncSheetsBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+
+    let done = 0;
+    const total = Object.keys(cfg).filter(k => k.endsWith('Id')).length;
+    const check = () => { done++; if (done >= total && btn) { btn.disabled = false; btn.textContent = '🔄 Sync Sheets'; this.toast('Sheets synced'); } };
+
+    try {
+      if (cfg.plSheetId) {
+        const rows = await this.gvizFetch(cfg.plSheetId, cfg.plSheetName || 'Sheet1');
+        await this.parsePLSheet(rows);
+        if (state.currentPage === 'sales') this.renderSalesMetrics();
+        check();
+      }
+    } catch (e) { console.warn('PL sheet sync failed', e); check(); }
+
+    if (done === 0) { if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Sheets'; } this.toast('Configure sheet IDs in Bank Connections settings'); }
+  },
+
   // ---- BANKS ----
   renderBanks() {
     const grid = document.getElementById('banksGrid');
     if (!grid) return;
+    const cfg = this._getSyncConfig();
     grid.innerHTML = `
-      <div style="grid-column:1/-1;padding:64px;text-align:center;color:var(--text3)">
-        <div style="font-size:32px;margin-bottom:16px">🏦</div>
-        <p style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--text2)">Bank Connections — Coming Soon</p>
-        <p style="font-size:13px">Direct bank feeds and real-time balance sync will be available in a future update.<br>Use CSV import in the Inbox to load transactions in the meantime.</p>
+      <div style="grid-column:1/-1">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><span class="card-title">Google Sheets Sync Settings</span></div>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:16px">Connect your Google Sheets to enable live P&L, sales, and cash balance sync. Requires a Google Apps Script (GAS) proxy URL for CORS bypass.</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div class="form-group">
+              <label>GAS Proxy URL</label>
+              <input type="text" id="syncGasProxy" class="filter-input" style="width:100%" placeholder="https://script.google.com/macros/s/…/exec" value="${cfg.gasProxy||''}"/>
+            </div>
+            <div class="form-group">
+              <label>P&L Sheet ID</label>
+              <input type="text" id="syncPlId" class="filter-input" style="width:100%" placeholder="Google Sheet ID" value="${cfg.plSheetId||''}"/>
+            </div>
+            <div class="form-group">
+              <label>P&L Tab Name</label>
+              <input type="text" id="syncPlSheet" class="filter-input" style="width:100%" placeholder="e.g. Sheet1" value="${cfg.plSheetName||'Sheet1'}"/>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" onclick="app.saveSyncConfig()">Save Settings</button>
+            <button class="btn-outline" id="syncSheetsBtn" onclick="app.refreshAllSheets()">🔄 Sync Sheets Now</button>
+          </div>
+        </div>
+        <div style="padding:32px;text-align:center;color:var(--text3)">
+          <div style="font-size:32px;margin-bottom:16px">🏦</div>
+          <p style="font-size:15px;font-weight:600;margin-bottom:8px;color:var(--text2)">Direct Bank Connections — Coming Soon</p>
+          <p style="font-size:13px">Real-time bank feeds will be available in a future update.<br>Use CSV import in the Inbox to load transactions in the meantime.</p>
+        </div>
       </div>
     `;
+  },
+
+  saveSyncConfig() {
+    const cfg = {
+      gasProxy:    document.getElementById('syncGasProxy')?.value?.trim() || '',
+      plSheetId:   document.getElementById('syncPlId')?.value?.trim()     || '',
+      plSheetName: document.getElementById('syncPlSheet')?.value?.trim()  || 'Sheet1',
+    };
+    localStorage.setItem('wbSyncConfig', JSON.stringify(cfg));
+    this.toast('Sync settings saved');
   },
 
   // ---- RECONCILE ----
@@ -2663,11 +3315,56 @@ const app = {
     set('m-adspend', adSpend);
     set('m-cash',    0);
 
+    // Cash Runway KPI (inject into metric-card highlight if available)
+    const runwayKpi = document.getElementById('m-runway');
+    if (runwayKpi && window._weeklyActuals) {
+      const actualWeeks = window._weeklyActuals.filter(w => w.type === 'Actual');
+      const totalOut = actualWeeks.reduce((s, w) => s + w.cogs + w.ads + w.oh + w.other, 0);
+      const weeklyBurn = actualWeeks.length ? totalOut / actualWeeks.length : 0;
+      const monthlyBurn = weeklyBurn * 4.33;
+      const bankBalance = 1247000;
+      const runway = monthlyBurn > 0 ? bankBalance / monthlyBurn : 0;
+      runwayKpi.textContent = runway.toFixed(1) + ' mo';
+      const delta = runwayKpi.parentElement?.querySelector('.metric-delta');
+      if (delta) { delta.textContent = 'Cash runway'; delta.style.color = runway >= 6 ? 'var(--green)' : runway >= 3 ? 'var(--amber)' : 'var(--red)'; }
+    }
+
+    // Net profit pulse animation
+    const npCard = document.getElementById('m-np')?.closest('.metric-card');
+    if (npCard) {
+      npCard.classList.toggle('kpi-pulse-positive', np > 0);
+      npCard.classList.toggle('kpi-pulse-negative', np < 0);
+    }
+
+    // Auto-generated insights
     const insights = document.getElementById('insightsSection');
     if (insights) {
-      insights.innerHTML = data.txns.length === 0
-        ? '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>'
-        : '';
+      if (data.txns.length === 0) {
+        insights.innerHTML = '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>';
+      } else {
+        const cards = [];
+        // Gross margin insight
+        const gpMargin = revenue > 0 ? gp / revenue * 100 : 0;
+        if (gpMargin < 35) cards.push({ type:'danger',  icon:'⚠', title:'Gross margin below 35%', body:`Gross margin is ${gpMargin.toFixed(1)}% — target is 40%+. Review COGS and pricing.` });
+        else if (gpMargin > 50) cards.push({ type:'success', icon:'✓', title:'Strong gross margin', body:`Gross margin is ${gpMargin.toFixed(1)}% — well above the 40% target.` });
+        // AR overdue
+        const overdueAR = DATA.invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + (Number(i.amount) - Number(i.amount_paid || 0)), 0);
+        if (overdueAR > 50000) cards.push({ type:'warning', icon:'⏰', title:`Overdue AR: ${fmt(overdueAR)}`, body:`${DATA.invoices.filter(i=>i.status==='overdue').length} invoice(s) past due. Follow up to protect cash flow.` });
+        // Ad spend ratio
+        if (revenue > 0 && adSpend / revenue > 0.35) cards.push({ type:'warning', icon:'📣', title:`Ad spend is ${(adSpend/revenue*100).toFixed(1)}% of revenue`, body:'Ad spend exceeds 35% of revenue. Review ROAS and campaign efficiency.' });
+        // Net loss
+        if (np < 0) cards.push({ type:'danger', icon:'📉', title:`Net loss this period: ${fmt(Math.abs(np))}`, body:'Review operating expenses and consider deferring discretionary spend.' });
+        // Cash runway from forecast
+        if (window._weeklyActuals) {
+          const actualWeeks = window._weeklyActuals.filter(w => w.type === 'Actual');
+          const weeklyBurn = actualWeeks.length ? actualWeeks.reduce((s,w)=>s+w.cogs+w.ads+w.oh+w.other,0)/actualWeeks.length : 0;
+          const runway = weeklyBurn > 0 ? (1247000 / (weeklyBurn * 4.33)) : 0;
+          if (runway > 0 && runway < 4) cards.push({ type:'warning', icon:'💰', title:`Cash runway: ${runway.toFixed(1)} months`, body:'Cash runway is under 4 months. Monitor weekly cash flow closely.' });
+        }
+        insights.innerHTML = cards.length
+          ? cards.map(c => `<div class="insight-card insight-${c.type}"><strong>${c.icon} ${c.title}</strong><span>${c.body}</span></div>`).join('')
+          : '';
+      }
     }
 
     const npEl = document.getElementById('m-np');
@@ -2815,6 +3512,226 @@ const app = {
     const filter = document.getElementById('txnEntityFilter');
     if (filter) filter.value = entity === 'ALL' ? '' : entity;
     this.navigate('transactions');
+  },
+
+  // ---- ROLE-BASED LOGIN ----
+  login() {
+    const pass = document.getElementById('loginPass')?.value?.trim();
+    const errEl = document.getElementById('loginError');
+    for (const [role, cfg] of Object.entries(ROLES)) {
+      if (pass === cfg.pass) {
+        localStorage.setItem('wbRole', JSON.stringify({ role, label: cfg.label }));
+        this._applyRole(role, cfg.label);
+        document.getElementById('loginScreen').style.display = 'none';
+        return;
+      }
+    }
+    if (errEl) errEl.textContent = 'Incorrect access code. Try again.';
+  },
+
+  logout() {
+    localStorage.removeItem('wbRole');
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginError').textContent = '';
+    document.getElementById('loginScreen').style.display = '';
+    // Hide AI panel
+    const aiPanel = document.getElementById('aiPanel');
+    const aiTab   = document.getElementById('aiPanelTab');
+    if (aiPanel) aiPanel.classList.add('collapsed');
+    if (aiTab)   aiTab.style.display = 'none';
+    document.getElementById('logoutBtn').style.display = 'none';
+    document.getElementById('roleLabel').textContent = '';
+  },
+
+  _applyRole(role, label) {
+    // Show/hide nav items based on role
+    document.querySelectorAll('[data-roles]').forEach(el => {
+      const roles = el.getAttribute('data-roles').split(',').map(r => r.trim());
+      el.style.display = roles.includes(role) ? '' : 'none';
+    });
+    // Show role label & logout btn
+    const lbl = document.getElementById('roleLabel');
+    if (lbl) lbl.textContent = label;
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) logoutBtn.style.display = '';
+    // Show AI panel tab for COO only
+    const aiTab = document.getElementById('aiPanelTab');
+    if (aiTab) aiTab.style.display = role === 'coo' ? '' : 'none';
+    // Navigate to default page for role
+    const defaultPage = { coo: 'dashboard', bookkeeper: 'inbox', cpa: 'pnl' }[role] || 'dashboard';
+    this.navigate(defaultPage);
+  },
+
+  // ---- AI ADVISOR PANEL ----
+  toggleAiPanel() {
+    const panel = document.getElementById('aiPanel');
+    const tab   = document.getElementById('aiPanelTab');
+    if (!panel) return;
+    const collapsed = panel.classList.toggle('collapsed');
+    if (tab) tab.style.display = collapsed ? '' : 'none';
+    if (!collapsed && !this._aiWelcomed) {
+      this._aiWelcomed = true;
+      this._renderAiWelcome();
+    }
+  },
+
+  connectAiKey() {
+    const key = document.getElementById('aiKeyInput')?.value?.trim();
+    if (!key) return;
+    localStorage.setItem('wbAiKey', key);
+    this._updateAiKeyStatus(true);
+    this.toast('AI Advisor connected');
+  },
+
+  _updateAiKeyStatus(connected) {
+    const dot = document.getElementById('aiKeyStatus');
+    const bar = document.getElementById('aiKeyBar');
+    if (dot) dot.className = 'ai-key-dot ' + (connected ? 'connected' : '');
+    if (bar) bar.style.display = connected ? 'none' : '';
+  },
+
+  _renderAiWelcome() {
+    const msgs = document.getElementById('aiMessages');
+    if (!msgs) return;
+    msgs.innerHTML = `<div class="ai-msg ai-msg-assistant"><div class="ai-bubble">Hi! I'm your AI financial advisor. Ask me anything about WB Brands' performance — margins, cash runway, AR aging, or what to focus on this month.</div></div>`;
+  },
+
+  async sendAiMessage() {
+    const key = localStorage.getItem('wbAiKey');
+    if (!key) { this.toast('Connect your Anthropic API key first'); return; }
+    const input = document.getElementById('aiInput');
+    const text = input?.value?.trim();
+    if (!text) return;
+    input.value = '';
+    this._appendAiMsg('user', text);
+    const thinking = this._appendAiThinking();
+    try {
+      const context = await this.buildFinancialContext();
+      if (!window._AI_HISTORY) window._AI_HISTORY = [];
+      window._AI_HISTORY.push({ role: 'user', content: text });
+      const response = await this.callAnthropicAPI(key, context, window._AI_HISTORY);
+      thinking.remove();
+      window._AI_HISTORY.push({ role: 'assistant', content: response });
+      this._appendAiMsg('assistant', response);
+    } catch (err) {
+      thinking.remove();
+      this._appendAiMsg('assistant', `Error: ${err.message}`);
+    }
+  },
+
+  async callAnthropicAPI(apiKey, context, history) {
+    const systemPrompt = `You are Rizwan's personal CFO and financial thinking partner for WB Brands LLC (a promo-products group: Lanyards, Wristbands, Can Coolers, Swagprint across LP, KP, BP, WBP, ONEOPS entities).
+
+PERSONALITY: Sharp, direct, no fluff. Use actual numbers from the context. Add ONE insight on blind spots/risks/opportunities. End with 2–3 follow-up questions (bulleted with →). Keep total response under 150 words.
+
+LIVE FINANCIAL CONTEXT:
+${context}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: history,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `API error ${res.status}`);
+    }
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  },
+
+  async buildFinancialContext() {
+    const period = state.currentPeriod;
+    const entity = state.currentEntity;
+    const fmt = n => '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    const pct = n => (n * 100).toFixed(1) + '%';
+
+    // Pull current period P&L data
+    let rev = 0, cogs = 0, adSpend = 0, otherExp = 0, adjEntries = 0;
+    if (supabaseClient) {
+      let q = supabaseClient.from('transactions')
+        .select('amount, accounts(account_type, account_subtype)')
+        .gte('acc_date', period + '-01').lte('acc_date', period + '-31');
+      q = applyEntityFilter(q, entity);
+      const { data: txns } = await q;
+      for (const t of (txns || [])) {
+        const amt = Number(t.amount);
+        if (t.accounts?.account_type === 'revenue') rev += amt;
+        else if (t.accounts?.account_type === 'expense') {
+          const sub = t.accounts?.account_subtype;
+          if (sub === 'cogs') cogs += Math.abs(amt);
+          else if (sub === 'advertising') adSpend += Math.abs(amt);
+          else otherExp += Math.abs(amt);
+        }
+      }
+      // Journal adjustments
+      const { data: jEntries } = await supabaseClient.from('journal_entries')
+        .select('ledger_entries(debit_amount,credit_amount,accounts(account_type))')
+        .eq('entry_type', 'adjusting').eq('period', period);
+      for (const je of (jEntries || [])) {
+        for (const le of (je.ledger_entries || [])) {
+          if (le.accounts?.account_type === 'revenue') adjEntries += (Number(le.credit_amount) - Number(le.debit_amount));
+        }
+      }
+    }
+    const grossProfit = rev - cogs;
+    const totalExp = adSpend + otherExp;
+    const netProfit = grossProfit - totalExp + adjEntries;
+    const gpMargin = rev > 0 ? grossProfit / rev : 0;
+    const npMargin = rev > 0 ? netProfit / rev : 0;
+
+    // AR aging
+    const openInvoices = DATA.invoices.filter(i => i.status !== 'paid');
+    const totalAR = openInvoices.reduce((s, i) => s + (Number(i.amount) - Number(i.amount_paid || 0)), 0);
+    const overdueAR = openInvoices.filter(i => i.status === 'overdue').reduce((s, i) => s + (Number(i.amount) - Number(i.amount_paid || 0)), 0);
+
+    // Top vendors
+    const topVendors = [...DATA.vendors].sort((a, b) => Number(b.ytd) - Number(a.ytd)).slice(0, 3);
+
+    const periodLabel = this.getPeriodLabel(period);
+    return [
+      `Period: ${periodLabel} | Entity: ${entity === 'all' ? 'All Companies' : entity}`,
+      `Revenue: ${fmt(rev)} | COGS: ${fmt(cogs)} | Gross Profit: ${fmt(grossProfit)} (${pct(gpMargin)})`,
+      `Ad Spend: ${fmt(adSpend)} | Other OpEx: ${fmt(otherExp)} | Net Profit: ${fmt(netProfit)} (${pct(npMargin)})`,
+      `AR Outstanding: ${fmt(totalAR)} | Overdue AR: ${fmt(overdueAR)}`,
+      topVendors.length ? `Top vendors by YTD spend: ${topVendors.map(v => v.name + ' ' + fmt(Number(v.ytd))).join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+  },
+
+  _appendAiMsg(role, text) {
+    const msgs = document.getElementById('aiMessages');
+    if (!msgs) return null;
+    const div = document.createElement('div');
+    div.className = `ai-msg ai-msg-${role}`;
+    // Simple markdown: bold, bullets
+    const formatted = text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^→ /gm, '• ');
+    div.innerHTML = `<div class="ai-bubble">${formatted}</div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return div;
+  },
+
+  _appendAiThinking() {
+    const msgs = document.getElementById('aiMessages');
+    if (!msgs) return { remove: () => {} };
+    const div = document.createElement('div');
+    div.className = 'ai-msg ai-msg-assistant';
+    div.innerHTML = '<div class="ai-bubble ai-thinking">Analyzing your data…</div>';
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    return div;
   },
 
   toggleDarkMode() {
@@ -2985,7 +3902,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   await loadDataFromSupabase();
   initDashboardCharts();
-  await app.updateDashboardKPIs();
+
+  // Check for saved AI key
+  const savedAiKey = localStorage.getItem('wbAiKey');
+  if (savedAiKey) app._updateAiKeyStatus(true);
+
+  // Check for saved role — auto-login if present
+  const savedRole = localStorage.getItem('wbRole');
+  if (savedRole) {
+    try {
+      const { role, label } = JSON.parse(savedRole);
+      document.getElementById('loginScreen').style.display = 'none';
+      app._applyRole(role, label);
+    } catch {
+      localStorage.removeItem('wbRole');
+    }
+  }
+
   ['txnEntityFilter','txnTypeFilter','txnStatusFilter'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', () => app.filterTransactions());
