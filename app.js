@@ -210,8 +210,13 @@ const state = {
   txnPageSize: 15,
   txnSort: { field: 'accDate', dir: 'desc' },
   filteredTxns: [...DATA.transactions],
-  charts: {}
+  charts: {},
+  pnlEntities: [],   // empty = all/consolidated; filled = selected entity codes
 };
+
+// P&L comparison data (from localStorage, set at render time)
+let _pnlCmp = null;
+function _pnlNorm(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
 // ---- MAIN APP OBJECT ----
 const app = {
@@ -466,7 +471,9 @@ const app = {
       .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
       .gte('acc_date', period + '-01')
       .lte('acc_date', period + '-31');
-    txnQuery = applyEntityFilter(txnQuery, entity);
+    // entity can be a string (single/group/all) or an array of entity codes
+    if (Array.isArray(entity) && entity.length > 0) txnQuery = txnQuery.in('entity', entity);
+    else txnQuery = applyEntityFilter(txnQuery, entity);
     const { data: txns, error: txnErr } = await txnQuery;
     if (txnErr) { console.error('Report txn error:', txnErr); return null; }
 
@@ -496,11 +503,16 @@ const app = {
   },
 
   // ---- P&L REPORT ----
-  async renderPnL(entity) {
-    if (entity === undefined) entity = state.currentEntity;
+  async renderPnL() {
+    const entity = state.pnlEntities.length > 0 ? state.pnlEntities : state.currentEntity;
     const period = state.currentPeriod;
     const el = document.getElementById('pnlReport');
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    // Load comparison data from localStorage
+    try { const s = localStorage.getItem('pnlComparison'); _pnlCmp = s ? JSON.parse(s).data : null; }
+    catch(e) { _pnlCmp = null; }
+    if (_pnlCmp) el.classList.add('comparing'); else el.classList.remove('comparing');
 
     const [data, closedRow] = await Promise.all([
       this.fetchReportData(entity, period),
@@ -543,11 +555,15 @@ const app = {
     const marginPct = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '—';
     const grossPct  = totalIncome > 0 ? ((grossProfit / totalIncome) * 100).toFixed(1) : '—';
 
+    const entityLabel = Array.isArray(entity) ? entity.join(', ') : (entity === 'all' ? 'Consolidated' : entity);
+    const cmpMeta = _pnlCmp ? JSON.parse(localStorage.getItem('pnlComparison') || '{}') : null;
     el.innerHTML = `
       <div class="report-header">
         <h2>Profit & Loss Statement</h2>
-        <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · ${this.getPeriodLabel(period)} · Accrual basis</p>
+        <p>WB Brands LLC — ${entityLabel} · ${this.getPeriodLabel(period)} · Accrual basis</p>
+        ${cmpMeta ? `<p style="font-size:11px;color:var(--accent);margin-top:4px">Comparing vs: ${cmpMeta.label || 'Prior period'} · <button class="btn-outline" style="font-size:11px;padding:1px 8px" onclick="app.clearComparison()">Clear</button></p>` : ''}
       </div>
+      ${_pnlCmp ? `<div class="report-cmp-header"><span>Account</span><span>${this.getPeriodLabel(period)}</span><span>${cmpMeta?.label || 'Prior'}</span><span>Variance</span></div>` : ''}
       ${pnlSection('Gross Revenue')}
       ${renderLines(revenueLines)}
       ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
@@ -585,7 +601,111 @@ const app = {
     `;
   },
 
-  async setPnlEntity(val) { await this.renderPnL(val); },
+  async setPnlEntity(val) { await this.renderPnL(); },
+
+  togglePnlEntity(code) {
+    const idx = state.pnlEntities.indexOf(code);
+    if (idx >= 0) state.pnlEntities.splice(idx, 1);
+    else state.pnlEntities.push(code);
+    // Update pill styles
+    document.querySelectorAll('.pnl-entity-pill').forEach(b => b.classList.remove('active'));
+    if (state.pnlEntities.length === 0) {
+      document.getElementById('pnlPillAll')?.classList.add('active');
+    } else {
+      state.pnlEntities.forEach(c => document.getElementById('pnlPill' + c)?.classList.add('active'));
+    }
+    this.renderPnL();
+  },
+
+  clearPnlEntities() {
+    state.pnlEntities = [];
+    document.querySelectorAll('.pnl-entity-pill').forEach(b => b.classList.remove('active'));
+    document.getElementById('pnlPillAll')?.classList.add('active');
+    this.renderPnL();
+  },
+
+  openComparisonUpload() {
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (!title || !body) return;
+    title.textContent = 'Upload Comparison P&L';
+    body.innerHTML = `
+      <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Upload a prior year P&L CSV/Excel. The file should have an account name column and an amount column.</p>
+      <div class="form-group">
+        <label>Comparison Label (e.g. "2024 Full Year")</label>
+        <input type="text" id="cmpLabel" placeholder="2024 Full Year" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);width:100%;background:var(--surface)">
+      </div>
+      <div class="form-group">
+        <label>File</label>
+        <input type="file" id="cmpFileInput" accept=".csv,.xls,.xlsx" style="font-size:13px" onchange="app._loadComparisonFile(this)">
+      </div>
+      <div id="cmpMapArea"></div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  _loadComparisonFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    this.readSpreadsheetFile(file, (headers, rows) => {
+      this._cmpImportData = { headers, rows };
+      const mapArea = document.getElementById('cmpMapArea');
+      if (!mapArea) return;
+      const opts = headers.map((h, i) => `<option value="${i}">${h}</option>`).join('');
+      mapArea.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div class="form-group" style="margin:0">
+            <label>Account Name column</label>
+            <select id="cmpNameCol" class="filter-select" style="width:100%"><option value="-1">—</option>${opts}</select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Amount column</label>
+            <select id="cmpAmtCol" class="filter-select" style="width:100%"><option value="-1">—</option>${opts}</select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">${rows.length} rows detected</div>
+        <div class="form-actions" style="margin-top:0">
+          <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="app.saveComparison()">Save Comparison</button>
+        </div>
+      `;
+      // Auto-detect columns
+      headers.forEach((h, i) => {
+        const k = h.toLowerCase().replace(/[^a-z]/g,'');
+        if (['name','account','description','category'].some(x => k.includes(x))) document.getElementById('cmpNameCol').value = i;
+        if (['amount','total','value','balance','sum'].some(x => k.includes(x))) document.getElementById('cmpAmtCol').value = i;
+      });
+    });
+  },
+
+  saveComparison() {
+    const label   = document.getElementById('cmpLabel')?.value?.trim() || 'Prior Period';
+    const nameCol = parseInt(document.getElementById('cmpNameCol')?.value ?? '-1');
+    const amtCol  = parseInt(document.getElementById('cmpAmtCol')?.value ?? '-1');
+    if (nameCol < 0 || amtCol < 0) { this.toast('Select account name and amount columns'); return; }
+    const { rows } = this._cmpImportData || {};
+    if (!rows?.length) { this.toast('No data loaded'); return; }
+    const data = {};
+    rows.forEach(row => {
+      const name = (row[nameCol] || '').replace(/"/g,'').trim();
+      const amt  = parseFloat((row[amtCol] || '').replace(/["$,\s]/g,''));
+      if (name && !isNaN(amt)) data[_pnlNorm(name)] = amt;
+    });
+    localStorage.setItem('pnlComparison', JSON.stringify({ label, data }));
+    this.toast(`Comparison "${label}" loaded`);
+    this.closeModal();
+    this.renderPnL();
+  },
+
+  clearComparison() {
+    localStorage.removeItem('pnlComparison');
+    _pnlCmp = null;
+    document.getElementById('pnlReport')?.classList.remove('comparing');
+    this.renderPnL();
+  },
 
   // ---- BALANCE SHEET ----
   async fetchBalanceSheetData(entity) {
@@ -2720,27 +2840,40 @@ const app = {
 function pnlSection(title) {
   return `<div class="report-section-title">${title}</div>`;
 }
+function _cmpCols(label, curAmt) {
+  if (!_pnlCmp || curAmt === null || curAmt === undefined) return '';
+  const key = _pnlNorm(label);
+  const cmpAmt = _pnlCmp[key];
+  if (cmpAmt === undefined) return '<span class="report-amount-cmp">—</span><span class="report-amount-var"></span>';
+  const varAmt = curAmt - cmpAmt;
+  const varColor = varAmt >= 0 ? 'var(--green)' : 'var(--red)';
+  const varStr = varAmt === 0 ? '—' : (varAmt > 0 ? `+${fmt(varAmt)}` : `(${fmt(Math.abs(varAmt))})`);
+  return `<span class="report-amount-cmp">${cmpAmt < 0 ? `(${fmt(Math.abs(cmpAmt))})` : fmt(cmpAmt)}</span><span class="report-amount-var" style="color:${varColor}">${varStr}</span>`;
+}
 function pnlLine(label, amount, indent, style = '') {
   const cls = indent === 2 ? 'indent2' : 'indent1';
-  if (!amount && amount !== 0) return `<div class="report-line ${cls}"><span style="font-style:${style==='group'?'normal':''}; font-weight:${style==='group'?'500':'400'}">${label}</span></div>`;
+  if (!amount && amount !== 0) return `<div class="report-line ${cls}"><span style="font-weight:${style==='group'?'500':'400'}">${label}</span>${_pnlCmp ? '<span></span><span></span><span></span>' : ''}</div>`;
   const muted = style === 'muted';
-  return `<div class="report-line ${cls} ${muted?'':''}">
+  const amtStr = amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount);
+  return `<div class="report-line ${cls}">
     <span style="color:${muted?'var(--text3)':'inherit'};font-size:${muted?'11px':'13px'}">${label}</span>
-    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':style==='subtotal'?'':''}">
-      ${amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount)}
-    </span>` : ''}
+    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':''}">${amtStr}</span>${_cmpCols(label, amount)}` : `${_pnlCmp ? '<span></span><span></span><span></span>' : ''}`}
   </div>`;
 }
 function pnlTotal(label, amount, style = '') {
+  const amtStr = amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount);
   return `<div class="report-line total">
     <span>${label}</span>
-    <span class="report-amount ${style}">${amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount)}</span>
+    <span class="report-amount ${style}">${amtStr}</span>
+    ${_cmpCols(label, amount)}
   </div>`;
 }
 function pnlGrand(label, amount, style = '') {
+  const amtStr = amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount);
   return `<div class="report-line grand-total">
     <span>${label}</span>
-    <span class="report-amount ${style}" style="font-size:15px">${amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount)}</span>
+    <span class="report-amount ${style}" style="font-size:15px">${amtStr}</span>
+    ${_cmpCols(label, amount)}
   </div>`;
 }
 

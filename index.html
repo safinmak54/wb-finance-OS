@@ -330,17 +330,16 @@
 
     <!-- P&L PAGE -->
     <div id="page-pnl" class="page">
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <select class="filter-select" onchange="app.setPnlEntity(this.value)">
-            <option value="all">Consolidated (WB Brands LLC)</option>
-            <option value="LP">Lanyard Promo LLC</option>
-            <option value="KP">Koolers Promo LLC</option>
-            <option value="BP">Band Promo LLC</option>
-            <option value="WBP">WB Promo LLC</option>
-          </select>
+      <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+        <div class="toolbar-left" style="flex-wrap:wrap;gap:6px;align-items:center">
+          <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em">Entities:</span>
+          <button class="pnl-entity-pill active" id="pnlPillAll" onclick="app.clearPnlEntities()">All</button>
+          ${['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
+            `<button class="pnl-entity-pill" id="pnlPill${e}" onclick="app.togglePnlEntity('${e}')">${e}</button>`
+          ).join('')}
         </div>
         <div class="toolbar-right">
+          <button class="btn-outline" id="pnlCmpBtn" onclick="app.openComparisonUpload()" style="font-size:12px">↑ Compare</button>
           <button class="btn-outline" onclick="app.printReport()">⬜ Print / PDF</button>
           <button class="btn-outline" onclick="app.exportCSV()">↓ Export</button>
         </div>
