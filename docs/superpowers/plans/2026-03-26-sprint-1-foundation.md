@@ -39,20 +39,9 @@ const ROLES = {
 };
 ```
 
-- [ ] **Step 2: Add admin pages list**
+- [ ] **Step 2: (No extra constant needed)**
 
-Immediately after the ROLES block, add a lookup map of which pages each role can see. This replaces the role-based `data-roles` filtering. The admin sees everything:
-
-```js
-const ROLE_PAGES = {
-  coo:        ['dashboard','pnl','balance','cashflow','ratios','cfnotes','ap','reconcile','sales','productmix','forecast','banks'],
-  bookkeeper: ['inbox','ledger','journals','reconcile','vendors','invoices','coa'],
-  cpa:        ['journals','pnl','balance','cashflow','ratios','cfnotes','invoices','coa'],
-  admin:      ['dashboard','inbox','ledger','journals','pnl','balance','cashflow','ratios','cfnotes','ap','reconcile','sales','productmix','forecast','invoices','vendors','coa','banks'],
-};
-```
-
-> Note: Cross-reference with the actual `data-roles` attributes in `index.html` sidebar to confirm the coo/bookkeeper/cpa page lists match what's already there. The admin list is the union of all.
+The `ROLES` constant is the only change needed for login. Page visibility is controlled entirely by `data-roles` HTML attributes parsed in `_applyRole()`. Do NOT add a `ROLE_PAGES` JS constant — it would be dead code.
 
 - [ ] **Step 3: Add admin login tile in index.html**
 
@@ -70,14 +59,20 @@ In `app.js`, find the `login()` method. Confirm it loops through `Object.entries
 
 - [ ] **Step 5: Add `admin` to every sidebar `data-roles` attribute in index.html**
 
-Every sidebar `<a>` or `<li>` with a `data-roles` attribute needs `admin` appended. Go through all 17 nav items. Example:
+Every sidebar `<a>` or `<li>` with a `data-roles` attribute needs `,admin` appended. The existing codebase uses **comma-separated** values and splits on `','` in `_applyRole()`. Do NOT use spaces. Go through all 17 nav items. Example:
 
 ```html
 <!-- Before -->
 <a data-page="dashboard" data-roles="coo">
 
 <!-- After -->
-<a data-page="dashboard" data-roles="coo admin">
+<a data-page="dashboard" data-roles="coo,admin">
+
+<!-- Multi-role example -->
+<!-- Before -->
+<a data-page="ledger" data-roles="coo,bookkeeper">
+<!-- After -->
+<a data-page="ledger" data-roles="coo,bookkeeper,admin">
 ```
 
 Do this for all nav items. The admin role should see every page.
@@ -196,7 +191,9 @@ getPeriodLabel(val) {
 
 - [ ] **Step 4: Update `fetchReportData(entity, period)` to use date range**
 
-Current signature uses `period` (YYYY-MM) to build `period + '-01'` / `period + '-31'`. The new call sites will pass `state.globalPeriodRange`. Update:
+Current signature uses `period` (YYYY-MM) to build `period + '-01'` / `period + '-31'`. Update the full function signature and all date filters inside it. There are two sub-queries that need updating:
+
+**a) `transactions` query** — replace `period + '-01'` / `period + '-31'` with `range.from` / `range.to`:
 
 ```js
 async fetchReportData(entity, periodRange) {
@@ -207,8 +204,18 @@ async fetchReportData(entity, periodRange) {
     .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
     .gte('acc_date', range.from)
     .lte('acc_date', range.to);
-  // ... rest of function unchanged
 ```
+
+**b) `journal_entries` query** — any `.eq('period', period)` call inside `fetchReportData` must change to a range filter. Replace:
+```js
+.eq('period', period)
+```
+With:
+```js
+.gte('period', range.from.slice(0,7))
+.lte('period', range.to.slice(0,7))
+```
+This converts `2026-03-01` → `2026-03` for the YYYY-MM `period` column used in `journal_entries`.
 
 - [ ] **Step 5: Find all `state.currentPeriod` references and migrate**
 
@@ -488,11 +495,33 @@ updateTopbarKPIs() {
   netEl.style.display = '';
 },
 
-// Helper: format large numbers as $1.25M or $234K
+/// Helper: format large numbers as $1.25M or $234K
+// IMPORTANT: app.js already has local `const fmtM = ...` closures inside some functions (lines ~1283 and ~1403).
+// Before adding this method, search app.js for "const fmtM" and remove those local declarations — they
+// will shadow this method. After removal, all callers inside those functions will use this.fmtM() via
+// the app object instead.
 fmtM(n) {
   if (Math.abs(n) >= 1e6) return `$${(n/1e6).toFixed(2)}M`;
   if (Math.abs(n) >= 1e3) return `$${Math.round(n/1e3)}K`;
   return `$${Math.round(n)}`;
+},
+
+// Helper: show a toast notification.
+// IMPORTANT: app.js may or may not have an existing toast mechanism. Search for "toast" in app.js first.
+// If a toast function already exists under a different name, use that instead.
+// If no toast exists, add this implementation (or use a simple alert as fallback during development):
+showToast(message, type = 'info') {
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  toast.style.cssText = `
+    position:fixed; bottom:20px; right:20px; z-index:9999;
+    background:${type==='success'?'#16a34a':type==='error'?'#dc2626':'#334155'};
+    color:#fff; padding:10px 18px; border-radius:8px; font-size:0.82rem;
+    box-shadow:0 4px 16px rgba(0,0,0,0.2); animation:fadeIn 0.2s;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
 },
 ```
 
@@ -688,6 +717,7 @@ async submitImport() {
     document.getElementById('importResult').innerHTML = `<p style="color:var(--red)">Error: ${error.message}</p>`;
   } else {
     document.getElementById('importResult').innerHTML = `<p style="color:var(--green)">✓ Imported ${records.length} transactions successfully.</p>`;
+    // Use this.showToast() if it exists, or the existing toast mechanism found in app.js
     this.showToast(`${records.length} transactions imported`, 'success');
   }
 },

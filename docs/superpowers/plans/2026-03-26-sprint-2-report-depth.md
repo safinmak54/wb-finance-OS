@@ -208,10 +208,13 @@ async _renderPnlByEntity(range) {
 _summarizePnlData(data) {
   // Returns { Revenue, COGS, 'Gross Profit', 'Operating Expenses', 'Net Income' }
   if (!data) return {};
+  // IMPORTANT: account_type values in Supabase are lowercase. Check your actual data with:
+  // SELECT DISTINCT account_type FROM accounts; — adjust the strings below to match exactly.
+  // Common values: 'revenue', 'cogs', 'expense', 'asset', 'liability', 'equity'
   const txns = data.txns || [];
-  const rev  = txns.filter(t=>t.accounts?.account_type==='Revenue').reduce((s,t)=>s+t.amount,0);
-  const cogs = txns.filter(t=>t.accounts?.account_type==='COGS').reduce((s,t)=>s+Math.abs(t.amount),0);
-  const opex = txns.filter(t=>t.accounts?.account_type==='Expense'&&t.accounts?.account_subtype!=='COGS').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const rev  = txns.filter(t=>t.accounts?.account_type==='revenue').reduce((s,t)=>s+t.amount,0);
+  const cogs = txns.filter(t=>t.accounts?.account_type==='cogs').reduce((s,t)=>s+Math.abs(t.amount),0);
+  const opex = txns.filter(t=>t.accounts?.account_type==='expense'&&t.accounts?.account_subtype!=='cogs').reduce((s,t)=>s+Math.abs(t.amount),0);
   const gp   = rev - cogs;
   return { Revenue: rev, COGS: cogs, 'Gross Profit': gp, 'Operating Expenses': opex, 'Net Income': gp - opex };
 },
@@ -334,20 +337,29 @@ async _renderPnlCharts(data, range) {
     const opex = summary['Operating Expenses'] || 0;
     const net  = summary['Net Income'] || 0;
 
-    // Floating bars: [start, end]
+    // Floating bar waterfall: each element is [bottom, top].
+    // 5 steps: Revenue rises 0→rev, COGS drops rev→gp, Gross Profit label bar (zero height),
+    // OpEx drops gp→net, Net Income rises 0→net.
     const wfData = [
-      [0, rev],
-      [rev - cogs, rev],
-      [opex, gp],
-      [0, net],
+      [0, rev],      // Revenue
+      [gp, rev],     // COGS: drops from top of Revenue bar down to Gross Profit level
+      [gp, gp],      // Gross Profit: zero-height (shows label; bar is invisible)
+      [net, gp],     // Op. Expenses: drops from Gross Profit down to Net Income level
+      [0, net],      // Net Income
     ];
-    const wfColors = ['#3b82f6', rev-cogs >= 0 ? '#22c55e' : '#ef4444', '#f59e0b', net >= 0 ? '#22c55e' : '#ef4444'];
+    const wfColors = [
+      '#3b82f6',                           // Revenue — blue
+      '#ef4444',                           // COGS — red (cost deduction)
+      'rgba(0,0,0,0)',                     // Gross Profit — transparent (label only)
+      '#f59e0b',                           // Op. Expenses — amber (cost deduction)
+      net >= 0 ? '#22c55e' : '#ef4444',   // Net Income — green if profitable, red if loss
+    ];
 
     if (state.charts.pnlWaterfall) state.charts.pnlWaterfall.destroy();
     state.charts.pnlWaterfall = new Chart(wfEl, {
       type: 'bar',
       data: {
-        labels: ['Revenue','COGS','Op. Expenses','Net Income'],
+        labels: ['Revenue','COGS','Gross Profit','Op. Expenses','Net Income'],
         datasets: [{ data: wfData, backgroundColor: wfColors, borderRadius: 4 }]
       },
       options: {
@@ -520,16 +532,18 @@ Add a `_parseBsData(data)` helper that extracts the needed line items from the f
 _parseBsData(data) {
   if (!data) return { currentAssets:0, currentLiabilities:0, totalLiabilities:0, totalEquity:0, inventory:0, priorRE:0, netIncome:0, distributions:0 };
   const txns = data.txns || [];
+  // IMPORTANT: Run `SELECT DISTINCT account_type FROM accounts` in Supabase to get exact values.
+  // Adjust the strings below to match your actual data — they may be lowercase, Title Case, or mixed.
   const sum = type => txns.filter(t=>t.accounts?.account_type===type).reduce((s,t)=>s+Math.abs(t.amount),0);
   return {
-    currentAssets:      sum('Current Asset'),
-    currentLiabilities: sum('Current Liability'),
-    totalLiabilities:   sum('Current Liability') + sum('Long-term Liability'),
-    totalEquity:        sum('Equity'),
-    inventory:          txns.filter(t=>t.accounts?.account_subtype==='Inventory').reduce((s,t)=>s+Math.abs(t.amount),0),
+    currentAssets:      sum('current asset'),      // adjust if needed
+    currentLiabilities: sum('current liability'),  // adjust if needed
+    totalLiabilities:   sum('current liability') + sum('long-term liability'),
+    totalEquity:        sum('equity'),
+    inventory:          txns.filter(t=>t.accounts?.account_subtype==='inventory').reduce((s,t)=>s+Math.abs(t.amount),0),
     priorRE:            0,   // use seed or journal_entries if available
-    netIncome:          sum('Revenue') - sum('COGS') - sum('Expense'),
-    distributions:      txns.filter(t=>t.accounts?.account_subtype==='Owner Distribution').reduce((s,t)=>s+Math.abs(t.amount),0),
+    netIncome:          sum('revenue') - sum('cogs') - sum('expense'),
+    distributions:      txns.filter(t=>t.accounts?.account_subtype==='owner distribution').reduce((s,t)=>s+Math.abs(t.amount),0),
   };
 },
 ```
@@ -635,10 +649,19 @@ async renderCashFlow() {
 
   const txns = data.txns || [];
 
-  // Categorize by account_subtype tags
-  const operating   = txns.filter(t => !['investing','financing'].includes(t.accounts?.cash_flow_category?.toLowerCase()));
-  const investing   = txns.filter(t => t.accounts?.cash_flow_category?.toLowerCase() === 'investing');
-  const financing   = txns.filter(t => t.accounts?.cash_flow_category?.toLowerCase() === 'financing');
+  // Categorize by account_type (no cash_flow_category column exists in accounts table).
+  // Strategy: use account_type to classify. Adjust type strings to match your actual Supabase data.
+  // Run `SELECT DISTINCT account_type, account_subtype FROM accounts` to see actual values.
+  //
+  // Investing: fixed assets, equipment, CapEx — typically 'fixed asset' or 'long-term asset'
+  // Financing: loans, notes payable, owner equity/distributions — typically 'long-term liability' or 'equity'
+  // Operating: everything else (revenue, cogs, expense, current asset/liability)
+  const INVESTING_TYPES = new Set(['fixed asset','long-term asset','equipment']);
+  const FINANCING_TYPES = new Set(['long-term liability','notes payable','equity','owner distribution']);
+
+  const investing = txns.filter(t => INVESTING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
+  const financing = txns.filter(t => FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
+  const operating = txns.filter(t => !INVESTING_TYPES.has(t.accounts?.account_type?.toLowerCase()) && !FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
 
   const renderSection = (bodyId, totalId, items) => {
     const body  = document.getElementById(bodyId);

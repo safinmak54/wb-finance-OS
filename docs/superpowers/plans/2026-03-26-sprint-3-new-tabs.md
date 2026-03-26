@@ -53,7 +53,7 @@ create policy "Allow all for authenticated" on ap_items for all using (true);
 ```sql
 create table reconciliation_matches (
   id uuid primary key default gen_random_uuid(),
-  statement_txn_id text,
+  statement_txn_id text unique,   -- unique required for upsert onConflict to work
   book_txn_id uuid references transactions(id),
   entity text,
   amount numeric(12,2),
@@ -398,38 +398,71 @@ async autoMatch() {
 },
 ```
 
-- [ ] **Step 4: Augment existing `renderReconcile()` to fetch `reconciliation_matches` and update summary cards**
+- [ ] **Step 4: Augment existing `renderReconcile()` to fetch matches and update summary cards**
 
-At the start of the existing `renderReconcile()` function, add a fetch for existing matches and update the summary cards:
-
-```js
-// Fetch match summary
-const { data: matches } = await supabaseClient.from('reconciliation_matches').select('match_status, count').eq('entity', entity !== 'all' ? entity : undefined);
-// ... count by status and update reconMatched, reconUnmatched, reconPending, reconDisputed
-
-// Color-code rows that are already matched
-// In bankBody and bookBody table renders, add a class to rows whose ID appears in matches
-```
-
-Full implementation: after rendering bank/book rows, fetch `reconciliation_matches` for the period and mark matched rows with a green left border or a "✓" chip in the Match column.
-
-- [ ] **Step 5: Add Confirm/Dispute buttons for pending matches**
-
-When rendering rows with `match_status='pending'`, show a Confirm button and a Dispute button:
+At the start of the existing `renderReconcile()` function, insert this block to fetch existing matches, count them by status, and update summary cards:
 
 ```js
-// In bank body render, for rows that appear in matches with status 'pending':
-`<button onclick="app.confirmMatch('${matchId}')">Confirm</button>
- <button onclick="app.disputeMatch('${matchId}')">Dispute</button>`
+// --- Fetch existing matches for the current period ---
+const entity = state.globalEntity;
+const range  = state.globalPeriodRange;
+
+let matchQ = supabaseClient.from('reconciliation_matches').select('id, statement_txn_id, book_txn_id, match_status, amount');
+if (entity !== 'all') matchQ = matchQ.eq('entity', entity);
+const { data: matches } = await matchQ;
+const matchList = matches || [];
+
+// Count by status
+const counts = { matched:0, unmatched:0, pending:0, disputed:0 };
+matchList.forEach(m => { if (counts[m.match_status] !== undefined) counts[m.match_status]++; });
+
+// Update summary card elements
+const setCard = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+setCard('reconMatched',   counts.matched);
+setCard('reconUnmatched', counts.unmatched);
+setCard('reconPending',   counts.pending);
+setCard('reconDisputed',  counts.disputed);
+
+// Build a lookup: statement_txn_id → match record (for coloring bank rows)
+const bankMatchMap = {};
+matchList.forEach(m => { bankMatchMap[m.statement_txn_id] = m; });
 ```
+
+Then, in the bank table body render (where `#bankBody` rows are built), add a "Match" column cell that shows status:
+
+```js
+// Inside the bank row render loop — replace existing Match cell with:
+const match = bankMatchMap[String(bank.id)];
+const matchCell = match
+  ? match.match_status === 'matched'
+    ? `<span style="color:var(--green)">✓ Matched</span>`
+    : match.match_status === 'pending'
+    ? `<button class="ap-action-btn" onclick="app.confirmMatch('${match.id}')">Confirm</button>
+       <button class="ap-action-btn" onclick="app.disputeMatch('${match.id}')">Dispute</button>`
+    : match.match_status === 'disputed'
+    ? `<span style="color:var(--red)">Disputed</span>`
+    : '—'
+  : '—';
+// Inject matchCell into the Match <td> of this row
+```
+
+- [ ] **Step 5: Add `confirmMatch()` and `disputeMatch()` to app.js**
 
 ```js
 async confirmMatch(matchId) {
-  await supabaseClient.from('reconciliation_matches').update({ match_status: 'matched', matched_at: new Date().toISOString() }).eq('id', matchId);
+  const { error } = await supabaseClient.from('reconciliation_matches')
+    .update({ match_status: 'matched', matched_at: new Date().toISOString() })
+    .eq('id', matchId);
+  if (error) { this.showToast('Error confirming match', 'error'); return; }
+  this.showToast('Match confirmed', 'success');
   await this.renderReconcile();
 },
 async disputeMatch(matchId) {
-  await supabaseClient.from('reconciliation_matches').update({ match_status: 'disputed' }).eq('id', matchId);
+  const { error } = await supabaseClient.from('reconciliation_matches')
+    .update({ match_status: 'disputed' })
+    .eq('id', matchId);
+  if (error) { this.showToast('Error disputing match', 'error'); return; }
+  this.showToast('Match disputed', 'success');
   await this.renderReconcile();
 },
 ```
@@ -884,23 +917,27 @@ In the `<thead>` of the invoices table, add two columns before the last column:
 <th>Aging Bucket</th>
 ```
 
-- [ ] **Step 2: Augment the invoice render function in app.js**
+- [ ] **Step 2: Integrate aging into the invoice render function — do NOT post-process DOM**
 
-Find the function that populates the invoices table (likely `renderInvoices()` or called from `navigate('invoices')`). Add at the end:
+Find the existing invoice render function in `app.js` (search for `renderInvoices` or `invoiceBody` or the tbody ID used). It builds invoice rows as an HTML string or via `innerHTML`. Integrate the aging columns **directly into that row template**, not as a post-render DOM pass.
+
+**Pattern to follow — integrate these two cells into the existing row template:**
 
 ```js
-// After invoice rows are rendered, compute aging and add columns
-this._renderInvoiceAging(invoices); // invoices = the fetched invoice array
+// Inside the invoice row render loop, add these two cells before the last cell:
+const aging = this.agingBucket(inv.due_date || inv.due_date_col); // use actual field name from invoice object
+const ageCell   = `<td class="r">${aging.days !== undefined && aging.days >= 0 ? aging.days : '—'}</td>`;
+const bucketCell = `<td><span class="aging-chip ${aging.cls}">${aging.label}</span></td>`;
+// Example row string (adjust to match actual row template):
+// `<tr>...<td>${inv.vendor}</td>..${ageCell}${bucketCell}..actions..</tr>`
 ```
 
-Add the method:
+**After rendering all rows, call the aging grid render separately** (this IS safe to call after innerHTML, since it uses its own container `#invAgingGrid`):
 
 ```js
-_renderInvoiceAging(invoices) {
+_renderInvoiceAgingGrid(invoices) {
   const BUCKET_LABELS = ['Current','1-30 Days','31-60 Days','61-90 Days','90+ Days'];
   const BUCKET_CLS    = ['current','low','medium','high','critical'];
-
-  // Aggregate totals per bucket
   const totals = [0,0,0,0,0];
   const counts = [0,0,0,0,0];
   const clsToIdx = { current:0, low:1, medium:2, high:3, critical:4 };
@@ -912,7 +949,6 @@ _renderInvoiceAging(invoices) {
     counts[idx]++;
   });
 
-  // Render aging grid
   const grid = document.getElementById('invAgingGrid');
   if (grid) {
     grid.innerHTML = BUCKET_LABELS.map((label, i) => `
@@ -922,34 +958,23 @@ _renderInvoiceAging(invoices) {
         <div class="aging-cell-count">${counts[i]} invoice${counts[i]!==1?'s':''}</div>
       </div>`).join('');
   }
-
-  // Add Age and Aging Bucket cells to each existing table row
-  // (If rows are already rendered, we can append; or integrate into the row render loop)
-  const rows = document.querySelectorAll('#invoicesTableBody tr');
-  rows.forEach((tr, i) => {
-    const inv   = invoices[i];
-    if (!inv) return;
-    const aging = this.agingBucket(inv.due_date);
-    const ageTd = document.createElement('td');
-    ageTd.className = 'r';
-    ageTd.textContent = aging.days !== undefined ? aging.days : '—';
-    const bucketTd = document.createElement('td');
-    bucketTd.innerHTML = `<span class="aging-chip ${aging.cls}">${aging.label}</span>`;
-    // Insert before last cell
-    const lastTd = tr.lastElementChild;
-    tr.insertBefore(bucketTd, lastTd);
-    tr.insertBefore(ageTd, bucketTd);
-  });
 },
 
 filterInvoicesByBucket(bucket) {
   this._invBucketFilter = this._invBucketFilter === bucket ? null : bucket;
-  // Re-render invoices (navigate will re-fetch)
-  this.navigate('invoices');
+  this.navigate('invoices'); // re-fetches and re-renders with filter active
 },
 ```
 
-> Note: The exact `#invoicesTableBody` ID and row structure depends on the existing invoice render. Check the actual ID used. If the invoice render builds HTML as a string, integrate Age and Bucket into the row template string directly rather than post-processing with DOM manipulation.
+In `renderInvoices()`, apply the bucket filter before building the row HTML:
+
+```js
+// Apply bucket filter if active
+const filtered = this._invBucketFilter
+  ? invoices.filter(inv => this.agingBucket(inv.due_date).cls === this._invBucketFilter)
+  : invoices;
+// then render filtered rows and call this._renderInvoiceAgingGrid(invoices) (unfiltered totals)
+```
 
 - [ ] **Step 3: Verify in browser — Invoices page shows 5-cell aging grid above table. Age (days) and Aging Bucket columns appear in the table. Click a bucket cell — table filters to that age group.**
 
