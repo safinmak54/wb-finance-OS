@@ -217,6 +217,7 @@ const state = {
 const app = {
   // Navigation
   navigate(page) {
+    if (page !== 'inbox') this._inboxLoadAll = false; // reset pagination on nav away
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     const el = document.getElementById('page-' + page);
@@ -1250,22 +1251,26 @@ const app = {
       .from('accounts').select('id, account_code, account_name, account_type')
       .order('account_code');
 
-    const { data: rawTxns, error } = await supabaseClient
-      .from('raw_transactions').select('*').eq('classified', false)
+    const PAGE = 200;
+    const loadAll = this._inboxLoadAll || false;
+    const query = supabaseClient
+      .from('raw_transactions').select('*', { count: 'exact' }).eq('classified', false)
       .order('transaction_date', { ascending: false });
+    const { data: rawTxns, count: totalCount, error } = await (loadAll ? query : query.limit(PAGE));
 
     if (error) { this.toast('Failed to load transactions'); console.error(error); return; }
 
     const txns = rawTxns || [];
+    const hasMore = !loadAll && (totalCount || 0) > PAGE;
     const acctOptions = (accounts || []).map(a =>
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
     ).join('');
 
     const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
 
-    // Update sidebar badge
+    // Update sidebar badge with total count
     const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = txns.length || '';
+    if (badge) badge.textContent = (totalCount || txns.length) || '';
 
     el.innerHTML = `
       <div class="toolbar">
@@ -1330,6 +1335,11 @@ const app = {
             </tbody>
           </table>
         </div>
+        ${hasMore ? `
+          <div style="padding:12px 16px;background:var(--surface2);border-top:1px solid var(--border);display:flex;align-items:center;gap:12px">
+            <span style="font-size:12px;color:var(--text3)">Showing ${txns.length} of ${totalCount} unclassified transactions</span>
+            <button class="btn-outline" style="font-size:12px;padding:4px 12px" onclick="app._inboxLoadAll=true;app.renderInbox()">Load all ${totalCount}</button>
+          </div>` : ''}
       `}
     `;
     // Apply auto-classification rules after render
