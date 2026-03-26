@@ -241,8 +241,7 @@ const app = {
     const period = this.getPeriodLabel(state.currentPeriod);
 
     // Update dynamic chart titles
-    const rcTitle = document.getElementById('revenueChartTitle');
-    if (rcTitle) rcTitle.textContent = `Daily Revenue — ${period}`;
+    // revenueChartTitle no longer exists — title is static in HTML with emoji
     const cfTitle = document.getElementById('cashflowTitle');
     if (cfTitle) cfTitle.textContent = `Cash Flow Statement — ${period}`;
 
@@ -964,6 +963,21 @@ const app = {
     if (!el) return;
     const fmt = n => '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
     const fmtK = n => (Math.abs(n) >= 1000 ? '$' + (Math.abs(n)/1000).toFixed(0) + 'K' : fmt(n));
+
+    // Seed bank accounts and CC payables
+    if (!window._bankAccounts) {
+      window._bankAccounts = [
+        { name:'WBP Operating',  entity:'WBP',    bank:'Huntington', balance:312450, status:'active' },
+        { name:'LP Checking',    entity:'LP',     bank:'Huntington', balance:187320, status:'active' },
+        { name:'KP Checking',    entity:'KP',     bank:'TFB',        balance:98740,  status:'active' },
+        { name:'BP Checking',    entity:'BP',     bank:'TFB',        balance:134280, status:'active' },
+        { name:'SWAG Operating', entity:'SWAG',   bank:'Huntington', balance:215680, status:'active' },
+        { name:'RUSH Operating', entity:'RUSH',   bank:'TFB',        balance:178930, status:'active' },
+        { name:'ONEOPS Mgmt',    entity:'ONEOPS', bank:'Huntington', balance:89600,  status:'active' },
+        { name:'SP1 Checking',   entity:'SP1',    bank:'TFB',        balance:30598,  status:'low'    },
+      ];
+    }
+    if (!window._ccPayables) { window._ccPayables = 555478; }
 
     // Seed weekly actuals (realistic WB Brands data)
     if (!window._weeklyActuals) {
@@ -3290,7 +3304,7 @@ const app = {
       if (el) el.textContent = val !== null ? fmt(val) : '—';
     };
 
-    ['m-revenue','m-income','m-gp','m-np','m-cash','m-adspend'].forEach(id => set(id, 0));
+    ['m-revenue','m-income','m-gp','m-np','m-adspend'].forEach(id => set(id, 0));
     if (!supabaseClient) return;
 
     const data = await this.fetchReportData(entity, period);
@@ -3309,20 +3323,37 @@ const app = {
     const np       = revenue - expenses;
 
     set('m-revenue', revenue);
-    set('m-income',  revenue);
+    set('m-income',  cogs);       // renamed to COGS in HTML
     set('m-gp',      gp);
     set('m-np',      np);
     set('m-adspend', adSpend);
-    set('m-cash',    0);
 
-    // Cash Runway KPI (inject into metric-card highlight if available)
+    // Margin deltas on KPI cards
+    const npEl = document.getElementById('m-np');
+    if (npEl && revenue > 0) {
+      const d = npEl.parentElement?.querySelector('.metric-delta');
+      if (d) d.textContent = ((np / revenue) * 100).toFixed(1) + '% margin';
+    }
+    const gpEl = document.getElementById('m-gp');
+    if (gpEl && revenue > 0) {
+      const d = gpEl.parentElement?.querySelector('.metric-delta');
+      if (d) d.textContent = ((gp / revenue) * 100).toFixed(1) + '% gross margin';
+    }
+    const cogsEl = document.getElementById('m-income');
+    if (cogsEl && revenue > 0) {
+      const d = cogsEl.parentElement?.querySelector('.metric-delta');
+      if (d) d.textContent = ((cogs / revenue) * 100).toFixed(1) + '% of revenue';
+    }
+
+    // Cash Runway KPI
+    let bankBalance = 0;
+    if (window._bankAccounts) bankBalance = window._bankAccounts.reduce((s, a) => s + a.balance, 0);
     const runwayKpi = document.getElementById('m-runway');
     if (runwayKpi && window._weeklyActuals) {
       const actualWeeks = window._weeklyActuals.filter(w => w.type === 'Actual');
       const totalOut = actualWeeks.reduce((s, w) => s + w.cogs + w.ads + w.oh + w.other, 0);
       const weeklyBurn = actualWeeks.length ? totalOut / actualWeeks.length : 0;
       const monthlyBurn = weeklyBurn * 4.33;
-      const bankBalance = 1247000;
       const runway = monthlyBurn > 0 ? bankBalance / monthlyBurn : 0;
       runwayKpi.textContent = runway.toFixed(1) + ' mo';
       const delta = runwayKpi.parentElement?.querySelector('.metric-delta');
@@ -3336,78 +3367,250 @@ const app = {
       npCard.classList.toggle('kpi-pulse-negative', np < 0);
     }
 
-    // Auto-generated insights
-    const insights = document.getElementById('insightsSection');
-    if (insights) {
-      if (data.txns.length === 0) {
-        insights.innerHTML = '<div class="insight-card" style="color:var(--text3)"><strong>No data for this period</strong><span>Import transactions in the Inbox to populate this dashboard.</span></div>';
-      } else {
-        const cards = [];
-        // Gross margin insight
-        const gpMargin = revenue > 0 ? gp / revenue * 100 : 0;
-        if (gpMargin < 35) cards.push({ type:'danger',  icon:'⚠', title:'Gross margin below 35%', body:`Gross margin is ${gpMargin.toFixed(1)}% — target is 40%+. Review COGS and pricing.` });
-        else if (gpMargin > 50) cards.push({ type:'success', icon:'✓', title:'Strong gross margin', body:`Gross margin is ${gpMargin.toFixed(1)}% — well above the 40% target.` });
-        // AR overdue
-        const overdueAR = DATA.invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + (Number(i.amount) - Number(i.amount_paid || 0)), 0);
-        if (overdueAR > 50000) cards.push({ type:'warning', icon:'⏰', title:`Overdue AR: ${fmt(overdueAR)}`, body:`${DATA.invoices.filter(i=>i.status==='overdue').length} invoice(s) past due. Follow up to protect cash flow.` });
-        // Ad spend ratio
-        if (revenue > 0 && adSpend / revenue > 0.35) cards.push({ type:'warning', icon:'📣', title:`Ad spend is ${(adSpend/revenue*100).toFixed(1)}% of revenue`, body:'Ad spend exceeds 35% of revenue. Review ROAS and campaign efficiency.' });
-        // Net loss
-        if (np < 0) cards.push({ type:'danger', icon:'📉', title:`Net loss this period: ${fmt(Math.abs(np))}`, body:'Review operating expenses and consider deferring discretionary spend.' });
-        // Cash runway from forecast
-        if (window._weeklyActuals) {
-          const actualWeeks = window._weeklyActuals.filter(w => w.type === 'Actual');
-          const weeklyBurn = actualWeeks.length ? actualWeeks.reduce((s,w)=>s+w.cogs+w.ads+w.oh+w.other,0)/actualWeeks.length : 0;
-          const runway = weeklyBurn > 0 ? (1247000 / (weeklyBurn * 4.33)) : 0;
-          if (runway > 0 && runway < 4) cards.push({ type:'warning', icon:'💰', title:`Cash runway: ${runway.toFixed(1)} months`, body:'Cash runway is under 4 months. Monitor weekly cash flow closely.' });
+    // ── Cash Position Row (navy cards) ──────────────────────────────────────
+    if (window._bankAccounts) {
+      const banks   = window._bankAccounts;
+      const total   = banks.reduce((s, a) => s + a.balance, 0);
+      const cc      = window._ccPayables || 0;
+      const netCash = total - cc;
+      const bankNames = [...new Set(banks.map(a => a.bank))].join(' + ');
+
+      const cpBank = document.getElementById('cp-bank');
+      const cpBankSub = document.getElementById('cp-bank-sub');
+      const cpCC   = document.getElementById('cp-cc');
+      const cpNet  = document.getElementById('cp-net');
+      const cpNetSub = document.getElementById('cp-net-sub');
+
+      if (cpBank) cpBank.textContent = fmt(total);
+      if (cpBankSub) cpBankSub.textContent = `${banks.length} accounts · All entities · ${bankNames}`;
+      if (cpCC) cpCC.textContent = fmt(cc);
+      if (cpNet) {
+        cpNet.textContent = (netCash < 0 ? '-' : '') + fmt(Math.abs(netCash));
+        cpNet.className = 'cash-pos-val ' + (netCash >= 0 ? 'g' : 'r');
+      }
+      if (cpNetSub) {
+        const actualWks = (window._weeklyActuals || []).filter(w => w.type === 'Actual');
+        const weeklyPft = actualWks.length ? actualWks.reduce((s,w)=>s+w.sales,0)/actualWks.length : 0;
+        if (netCash < 0 && weeklyPft > 0) {
+          const weeksToBreakeven = Math.ceil(Math.abs(netCash) / weeklyPft);
+          cpNetSub.textContent = `Clears in ~${weeksToBreakeven} weeks at current revenue pace`;
+        } else {
+          cpNetSub.textContent = 'Bank balance minus CC payables';
         }
-        insights.innerHTML = cards.length
-          ? cards.map(c => `<div class="insight-card insight-${c.type}"><strong>${c.icon} ${c.title}</strong><span>${c.body}</span></div>`).join('')
-          : '';
       }
     }
 
-    const npEl = document.getElementById('m-np');
-    if (npEl && revenue > 0) {
-      const delta = npEl.parentElement?.querySelector('.metric-delta');
-      if (delta) delta.textContent = ((np / revenue) * 100).toFixed(1) + '% margin';
+    // ── Bank Account Table ──────────────────────────────────────────────────
+    const tbody = document.getElementById('bankTableBody');
+    const tfoot = document.getElementById('bankTableTotal');
+    const tdate = document.getElementById('bankTableDate');
+    if (tbody && window._bankAccounts) {
+      const banks = window._bankAccounts;
+      const total = banks.reduce((s, a) => s + a.balance, 0);
+      if (tdate) tdate.textContent = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+      tbody.innerHTML = banks.map(a => {
+        const chip = a.status === 'low'
+          ? '<span style="background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;">Low</span>'
+          : '<span style="background:#DCFCE7;color:#166534;padding:2px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;">Active</span>';
+        return `<tr>
+          <td><strong>${a.name}</strong></td>
+          <td style="color:var(--text2)">${a.entity}</td>
+          <td style="color:var(--text2)">${a.bank}</td>
+          <td class="r" style="font-family:var(--mono);font-weight:600;color:${a.balance < 50000 ? 'var(--amber)' : 'var(--text)'}">${fmt(a.balance)}</td>
+          <td>${chip}</td>
+        </tr>`;
+      }).join('');
+      if (tfoot) tfoot.textContent = fmt(total);
     }
-    const gpEl = document.getElementById('m-gp');
-    if (gpEl && revenue > 0) {
-      const delta = gpEl.parentElement?.querySelector('.metric-delta');
-      if (delta) delta.textContent = ((gp / revenue) * 100).toFixed(1) + '% margin';
+
+    // ── Enterprise Narrative Insights (2×2 grid) ───────────────────────────
+    const insights = document.getElementById('insightsSection');
+    if (insights) {
+      if (data.txns.length === 0) {
+        insights.innerHTML = '<div class="ins risk" style="grid-column:span 2"><div class="ins-title">No data for this period</div><div class="ins-text">Import transactions in the Inbox to populate this dashboard.</div></div>';
+      } else {
+        const gpMargin   = revenue > 0 ? (gp / revenue * 100) : 0;
+        const npMargin   = revenue > 0 ? (np / revenue * 100) : 0;
+        const adPct      = revenue > 0 ? (adSpend / revenue * 100) : 0;
+        const overdueAmt = DATA.invoices.filter(i => i.status === 'overdue').reduce((s,i) => s + (Number(i.amount) - Number(i.amount_paid||0)), 0);
+        const overdueCount = DATA.invoices.filter(i => i.status === 'overdue').length;
+        const cc = window._ccPayables || 0;
+
+        // Baseline comparison (Jan 2025 ~-1% net margin, Jan 2026 ~+11.86%)
+        const baselineNPMargin = -1.0;
+        const marginSwing = npMargin - baselineNPMargin;
+
+        const cards = [];
+
+        // Card 1 — Margin / Profitability
+        if (npMargin > 8) {
+          cards.push({ cls:'opp', title:'🟢 Margin Performance', text:`Net margin is <span class="ins-num">${npMargin.toFixed(1)}%</span> this period. Gross margin at <span class="ins-num">${gpMargin.toFixed(1)}%</span> — COGS efficiency holding. YoY swing: <span class="ins-num">+${marginSwing.toFixed(1)} pp</span> vs prior year baseline.` });
+        } else if (npMargin > 0) {
+          cards.push({ cls:'risk', title:'🟠 Margin Watch', text:`Net margin is <span class="ins-num">${npMargin.toFixed(1)}%</span> — below the 8% target. Gross margin <span class="ins-num">${gpMargin.toFixed(1)}%</span>. Review COGS and ad spend efficiency.` });
+        } else {
+          cards.push({ cls:'warn', title:'🔴 Net Loss This Period', text:`Net loss of <span class="ins-num">${fmt(Math.abs(np))}</span> (margin: <span class="ins-num">${npMargin.toFixed(1)}%</span>). Gross margin <span class="ins-num">${gpMargin.toFixed(1)}%</span> — review operating expenses and pricing.` });
+        }
+
+        // Card 2 — Ad Spend / ROAS
+        if (adPct > 30) {
+          cards.push({ cls:'warn', title:'🔴 Ad Spend Ratio High', text:`Ad spend is <span class="ins-num">${adPct.toFixed(1)}%</span> of revenue (${fmt(adSpend)}). Target is under 28%. Review ROAS by channel — Amex Lanyard carries <span class="ins-num">~$346K</span> at 18–24% APR; reducing ad-funded credit reduces interest expense.` });
+        } else if (adPct > 22) {
+          cards.push({ cls:'risk', title:'🟠 Ad Spend Efficiency', text:`Ad spend at <span class="ins-num">${adPct.toFixed(1)}%</span> of revenue (${fmt(adSpend)}). Approaching the 28% ceiling. Monitor ROAS weekly; redirect underperforming campaigns.` });
+        } else {
+          cards.push({ cls:'opp', title:'🟢 Ad Spend Controlled', text:`Ad spend at <span class="ins-num">${adPct.toFixed(1)}%</span> of revenue (${fmt(adSpend)}) — within the 28% target. Efficient ad allocation supporting margin expansion.` });
+        }
+
+        // Card 3 — CC / Cash Position
+        if (cc > 300000) {
+          const bankTot = (window._bankAccounts || []).reduce((s,a)=>s+a.balance,0);
+          const actualWks = (window._weeklyActuals||[]).filter(w=>w.type==='Actual');
+          const avgMonthlyProfit = actualWks.length ? actualWks.reduce((s,w)=>s+(w.sales-w.cogs-w.ads-w.oh),0)/actualWks.length*4.33 : 0;
+          const monthsToClear = avgMonthlyProfit > 0 ? Math.ceil(cc / avgMonthlyProfit) : '?';
+          cards.push({ cls:'warn', title:'🔴 CC Balance Action Needed', text:`CC payables at <span class="ins-num">${fmt(cc)}</span> at ~18–24% APR. Use current profitability (avg <span class="ins-num">${fmt(avgMonthlyProfit)}/mo</span>) to begin reducing — saves ~<span class="ins-num">${fmt(cc*0.21/12)}/mo</span> in interest. Estimated clear in ${monthsToClear} months.` });
+        } else if (overdueAmt > 50000) {
+          cards.push({ cls:'risk', title:'🟠 Overdue AR Alert', text:`<span class="ins-num">${overdueCount} invoice(s)</span> past due totaling <span class="ins-num">${fmt(overdueAmt)}</span>. Prioritize collection on largest balances — accelerates cash position and reduces credit reliance.` });
+        } else {
+          cards.push({ cls:'opp', title:'🟢 Cash Position Stable', text:`Bank balance <span class="ins-num">${fmt((window._bankAccounts||[]).reduce((s,a)=>s+a.balance,0))}</span> across ${(window._bankAccounts||[]).length} accounts. CC payables <span class="ins-num">${fmt(cc)}</span> — manageable. Net position is ${(window._bankAccounts||[]).reduce((s,a)=>s+a.balance,0) > cc ? 'positive' : 'negative'}.` });
+        }
+
+        // Card 4 — Seasonality / Revenue Trend
+        const mo = parseInt((period||'').split('-')[1]||'3');
+        if (mo >= 10 || mo <= 2) {
+          cards.push({ cls:'risk', title:'🟠 Q4/Q1 Seasonality Risk', text:`Revenue typically falls <span class="ins-num">50–57%</span> from peak in Oct–Jan for promo products. Target <span class="ins-num">$500K+ reserve</span> by Sep to cover trough. Monitor weekly actuals vs forecast closely.` });
+        } else if (mo >= 3 && mo <= 6) {
+          cards.push({ cls:'opp', title:'🟢 Peak Season Ramp', text:`Q2 is the primary revenue ramp for promo products. Prioritize <span class="ins-num">lanyard and wristband inventory</span> build-up. Target gross margin above <span class="ins-num">48%</span> before Jul 4 spike.` });
+        } else {
+          cards.push({ cls:'opp', title:'🟢 Peak Revenue Window', text:`Jul–Sep is peak season for promo products. Maximize order capacity and pre-negotiate COGS with suppliers. Use peak profits to reduce Amex Lanyard balance (<span class="ins-num">~$346K</span>).` });
+        }
+
+        insights.innerHTML = cards.slice(0,4).map(c =>
+          `<div class="ins ${c.cls}"><div class="ins-title">${c.title}</div><div class="ins-text">${c.text}</div></div>`
+        ).join('');
+      }
     }
 
     await this.updateDashboardCharts(data, entity, period);
+  },
+
+  onDashChartControl() {
+    const entity = state.currentEntity;
+    const period = state.currentPeriod;
+    this.fetchReportData(entity, period).then(data => {
+      if (data) this.updateDashboardCharts(data, entity, period);
+    });
   },
 
   async updateDashboardCharts(data, entity, period) {
     if (!state.charts || !data) return;
     const txns = data.txns || [];
 
-    // --- Revenue bar chart: daily revenue vs expenses for current month ---
-    const daysInMonth = new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]), 0).getDate();
-    const dailyRevenue  = Array(daysInMonth).fill(0);
-    const dailyExpenses = Array(daysInMonth).fill(0);
-    for (const t of txns) {
-      const day = parseInt((t.acc_date || '').split('-')[2] || '0') - 1;
-      if (day < 0 || day >= daysInMonth) continue;
-      const type = t.accounts?.account_type;
-      const amt  = Number(t.amount);
-      if (type === 'revenue') dailyRevenue[day]  += amt;
-      else if (type === 'expense') dailyExpenses[day] += Math.abs(amt);
-    }
-    const dailyNet = dailyRevenue.map((r, i) => r - dailyExpenses[i]);
+    // Read chart control dropdown values
+    const periodSel = document.getElementById('dashPeriodSel')?.value || 'current';
+    const metricSel = document.getElementById('dashMetricSel')?.value || 'all';
+    const typeSel   = document.getElementById('dashTypeSel')?.value   || 'combo';
+
+    // Update subtitle
+    const sub = document.getElementById('dashChartSubtitle');
+    const periodLabel = { current:'Current month · daily', '6':'Last 6 months · monthly', '12':'Last 12 months · monthly', ytd:'YTD 2026 · monthly' };
+    if (sub) sub.textContent = (periodLabel[periodSel] || '') + (entity !== 'all' ? ` · ${entity}` : ' · All entities');
+
+    // ── Main Revenue/Profit Chart ────────────────────────────────────────────
     if (state.charts.revenue) {
-      const labels = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
-      state.charts.revenue.data.labels = labels;
-      state.charts.revenue.data.datasets[0].data = dailyRevenue;
-      state.charts.revenue.data.datasets[1].data = dailyExpenses;
-      state.charts.revenue.data.datasets[2].data = dailyNet;
-      state.charts.revenue.update();
+      const ch = state.charts.revenue;
+
+      if (periodSel === 'current') {
+        // Daily chart for current month
+        const daysInMonth = new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]), 0).getDate();
+        const dailyRevenue  = Array(daysInMonth).fill(0);
+        const dailyExpenses = Array(daysInMonth).fill(0);
+        for (const t of txns) {
+          const day = parseInt((t.acc_date || '').split('-')[2] || '0') - 1;
+          if (day < 0 || day >= daysInMonth) continue;
+          const type = t.accounts?.account_type;
+          const amt  = Number(t.amount);
+          if (type === 'revenue') dailyRevenue[day] += amt;
+          else if (type === 'expense') dailyExpenses[day] += Math.abs(amt);
+        }
+        const dailyNet = dailyRevenue.map((r, i) => r - dailyExpenses[i]);
+        const labels = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
+        ch.data.labels = labels;
+        ch.options.scales.x.stacked = false;
+        ch.options.scales.y.stacked = false;
+
+        if (metricSel === 'revenue') {
+          ch.data.datasets = [{ label:'Revenue', data: dailyRevenue, backgroundColor:'rgba(30,58,138,0.7)', type:'bar', borderRadius:2, order:2 }];
+        } else if (metricSel === 'profit') {
+          ch.data.datasets = [{ label:'Net Profit', data: dailyNet, backgroundColor: dailyNet.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'), type:'bar', borderRadius:2, order:2 }];
+        } else if (metricSel === 'margin') {
+          const marginPct = dailyRevenue.map((r, i) => r > 0 ? +((dailyNet[i] / r * 100).toFixed(1)) : 0);
+          ch.data.datasets = [{ label:'Net Margin %', data: marginPct, borderColor:'#6366F1', backgroundColor:'rgba(99,102,241,0.08)', type:'line', fill:true, tension:0.3, order:1 }];
+        } else {
+          ch.data.datasets = [
+            { label:'Revenue',  data: dailyRevenue,  backgroundColor:'rgba(30,58,138,0.65)', type: typeSel === 'line' ? 'line' : 'bar', borderRadius:2, tension:0.3, order:2 },
+            { label:'Expenses', data: dailyExpenses, backgroundColor:'rgba(13,107,116,0.45)', type: typeSel === 'line' ? 'line' : 'bar', borderRadius:2, tension:0.3, order:3 },
+            { label:'Net',      data: dailyNet, borderColor:'#10B981', backgroundColor:'rgba(16,185,129,0.08)', type:'line', fill: typeSel !== 'bar', tension:0.3, order:1 },
+          ];
+        }
+        ch.update();
+
+      } else if (supabaseClient) {
+        // Multi-month chart
+        const now = new Date();
+        let monthCount = 6;
+        let startDate = '';
+        if (periodSel === '6')   { monthCount = 6; }
+        else if (periodSel === '12') { monthCount = 12; }
+        else if (periodSel === 'ytd') {
+          monthCount = now.getMonth() + 1;
+          startDate = now.getFullYear() + '-01';
+        }
+
+        const monthLabels = [];
+        const mRevArr = [], mNPArr = [], mMarginArr = [];
+        const monthsToFetch = [];
+        for (let i = monthCount - 1; i >= 0; i--) {
+          const d  = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          monthsToFetch.push(d.toISOString().slice(0, 7));
+          monthLabels.push(d.toLocaleString('default', { month:'short', year:'2-digit' }));
+        }
+
+        for (const mo of monthsToFetch) {
+          let q = supabaseClient.from('transactions')
+            .select('amount, accounts(account_type, account_subtype)')
+            .gte('acc_date', mo + '-01').lte('acc_date', mo + '-31');
+          q = applyEntityFilter(q, entity);
+          const { data: mTxns } = await q;
+          const mRows = mTxns || [];
+          const mRev = mRows.filter(t => t.accounts?.account_type === 'revenue').reduce((s,t) => s + Number(t.amount), 0);
+          const mExp = mRows.filter(t => t.accounts?.account_type === 'expense').reduce((s,t) => s + Math.abs(Number(t.amount)), 0);
+          const mNP  = mRev - mExp;
+          mRevArr.push(Math.round(mRev));
+          mNPArr.push(Math.round(mNP));
+          mMarginArr.push(mRev > 0 ? +((mNP / mRev * 100).toFixed(1)) : 0);
+        }
+
+        ch.data.labels = monthLabels;
+        ch.options.scales.x.stacked = false;
+        ch.options.scales.y.stacked = false;
+        if (metricSel === 'revenue') {
+          ch.data.datasets = [{ label:'Revenue', data: mRevArr, backgroundColor:'rgba(30,58,138,0.7)', type: typeSel === 'line' ? 'line' : 'bar', tension:0.3 }];
+        } else if (metricSel === 'profit') {
+          ch.data.datasets = [{ label:'Net Profit', data: mNPArr, backgroundColor: mNPArr.map(v => v >= 0 ? 'rgba(16,185,129,0.7)' : 'rgba(239,68,68,0.7)'), type: typeSel === 'line' ? 'line' : 'bar', tension:0.3 }];
+        } else if (metricSel === 'margin') {
+          ch.data.datasets = [{ label:'Net Margin %', data: mMarginArr, borderColor:'#6366F1', backgroundColor:'rgba(99,102,241,0.08)', type:'line', fill:true, tension:0.3 }];
+        } else {
+          const revType  = (typeSel === 'line') ? 'line' : 'bar';
+          const profType = (typeSel === 'bar')  ? 'bar'  : 'line';
+          ch.data.datasets = [
+            { label:'Revenue',    data: mRevArr, backgroundColor:'rgba(30,58,138,0.65)', borderColor:'rgba(30,58,138,0.9)',  type: revType,  tension:0.3, order:2 },
+            { label:'Net Profit', data: mNPArr,  borderColor:'#10B981', backgroundColor:'rgba(16,185,129,0.08)', type: profType, fill: profType === 'line', tension:0.3, order:1 },
+          ];
+        }
+        ch.update();
+      }
     }
 
-    // --- Expense donut: by subtype ---
+    // ── Expense donut: by subtype ────────────────────────────────────────────
     const subtypeMap = { cogs:0, payroll:1, advertising:2, shipping:3, platform:4 };
     const expBySubtype = [0,0,0,0,0,0];
     for (const t of txns) {
@@ -3422,7 +3625,7 @@ const app = {
       state.charts.expenseDonut.update();
     }
 
-    // --- Entity bar: revenue per entity for current period ---
+    // ── Entity bar: revenue per entity for current period ────────────────────
     const entityCodes = ['LP','KP','BP','WBP','ONEOPS'];
     const entityRevenue = [0,0,0,0,0];
     if (entity === 'all' && supabaseClient) {
@@ -3444,7 +3647,7 @@ const app = {
       state.charts.entity.update();
     }
 
-    // --- Trend chart: last 6 months net profit + ad spend ---
+    // ── Trend chart: last 6 months net profit + ad spend ────────────────────
     if (supabaseClient) {
       const monthLabels = [];
       const trendNP     = [];
@@ -3472,6 +3675,22 @@ const app = {
         state.charts.trend.data.datasets[1].data = trendAd;
         state.charts.trend.update();
       }
+    }
+
+    // ── Cash-by-entity bars ─────────────────────────────────────────────────
+    const cashBars = document.getElementById('cashBars');
+    if (cashBars && window._bankAccounts) {
+      const banks = window._bankAccounts;
+      const maxBal = Math.max(...banks.map(a => a.balance), 1);
+      cashBars.innerHTML = banks.map(a => {
+        const pct = Math.round(a.balance / maxBal * 100);
+        const color = a.balance < 50000 ? 'var(--amber)' : 'var(--accent)';
+        return `<div class="cash-row">
+          <div class="cash-entity">${a.entity}</div>
+          <div class="cash-track"><div class="cash-fill" style="width:${pct}%;background:${color}"></div></div>
+          <div class="cash-amount">${fmt(a.balance)}</div>
+        </div>`;
+      }).join('');
     }
   },
 

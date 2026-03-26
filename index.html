@@ -183,7 +183,7 @@
 
     <!-- PAGES -->
     <div id="page-dashboard" class="page active">
-      <!-- Metrics row — 6 KPIs -->
+      <!-- KPI metrics row -->
       <div class="metrics-row">
         <div class="metric-card">
           <div class="metric-label">Gross Revenue</div>
@@ -191,7 +191,7 @@
           <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Total Income</div>
+          <div class="metric-label">COGS</div>
           <div class="metric-value" id="m-income">$0</div>
           <div class="metric-delta"></div>
         </div>
@@ -206,11 +206,6 @@
           <div class="metric-delta"></div>
         </div>
         <div class="metric-card">
-          <div class="metric-label">Total Cash</div>
-          <div class="metric-value" id="m-cash">$0</div>
-          <div class="metric-delta"></div>
-        </div>
-        <div class="metric-card">
           <div class="metric-label">Ad Spend</div>
           <div class="metric-value" id="m-adspend">$0</div>
           <div class="metric-delta"></div>
@@ -220,23 +215,58 @@
           <div class="metric-value" id="m-runway">—</div>
           <div class="metric-delta"></div>
         </div>
+        <div id="m-cash" style="display:none">0</div>
       </div>
 
-      <!-- Insights (populated dynamically) -->
-      <div class="insights-section" id="insightsSection"></div>
+      <!-- Cash position row (navy) -->
+      <div class="cash-pos-row">
+        <div class="cash-pos-card">
+          <div class="cash-pos-lbl">Total Bank Balance</div>
+          <div class="cash-pos-val g" id="cp-bank">$0</div>
+          <div class="cash-pos-sub" id="cp-bank-sub">Loading…</div>
+        </div>
+        <div class="cash-pos-card">
+          <div class="cash-pos-lbl">CC Payables</div>
+          <div class="cash-pos-val r" id="cp-cc">$0</div>
+          <div class="cash-pos-sub">Amex + Capital One · all entities</div>
+        </div>
+        <div class="cash-pos-card">
+          <div class="cash-pos-lbl">Net Cash Position</div>
+          <div class="cash-pos-val" id="cp-net">$0</div>
+          <div class="cash-pos-sub" id="cp-net-sub">Bank balance minus CC payables</div>
+        </div>
+      </div>
+
+      <!-- Insights 2×2 grid -->
+      <div class="dash-insight-grid" id="insightsSection"></div>
 
       <div class="dashboard-grid">
-        <!-- Revenue chart — full width -->
+        <!-- Revenue & Profit Trend chart with controls -->
         <div class="card span-3">
-          <div class="card-header">
-            <span class="card-title" id="revenueChartTitle">Daily Revenue</span>
-            <div class="card-legend">
-              <span><em style="background:#1B3A6B"></em>Revenue</span>
-              <span><em style="background:#0D6B74"></em>Expenses</span>
-              <span><em style="background:#1A7A4A"></em>Net</span>
+          <div class="card-header" style="flex-wrap:wrap;gap:8px;align-items:center;">
+            <span class="card-title">📊 Revenue &amp; Profit Trend</span>
+            <span class="card-sub" id="dashChartSubtitle">Current month · daily</span>
+            <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
+              <select id="dashPeriodSel" onchange="app.onDashChartControl()">
+                <option value="current" selected>Current month</option>
+                <option value="6">Last 6 months</option>
+                <option value="12">Last 12 months</option>
+                <option value="ytd">YTD 2026</option>
+              </select>
+              <select id="dashMetricSel" onchange="app.onDashChartControl()">
+                <option value="all" selected>Revenue + Profit</option>
+                <option value="revenue">Revenue only</option>
+                <option value="profit">Net Profit only</option>
+                <option value="margin">Margin % lines</option>
+              </select>
+              <select id="dashTypeSel" onchange="app.onDashChartControl()">
+                <option value="combo" selected>Bar + Line</option>
+                <option value="line">Lines only</option>
+                <option value="bar">Bars only</option>
+              </select>
             </div>
           </div>
-          <div class="chart-wrap" style="height:200px"><canvas id="revenueChart"></canvas></div>
+          <div class="chart-wrap" style="height:260px"><canvas id="revenueChart"></canvas></div>
         </div>
 
         <!-- Revenue by entity -->
@@ -264,10 +294,25 @@
           <div class="chart-wrap" style="height:180px"><canvas id="trendChart"></canvas></div>
         </div>
 
-        <!-- Cash balances -->
+        <!-- Cash balances (entity bars) -->
         <div class="card">
-          <div class="card-header"><span class="card-title">Cash Balances</span></div>
+          <div class="card-header"><span class="card-title">Cash by Entity</span></div>
           <div class="cash-bars" id="cashBars"></div>
+        </div>
+
+        <!-- Bank account balances table -->
+        <div class="card span-3" style="margin-top:4px;">
+          <div class="card-header">
+            <span class="card-title">🏦 Bank Account Balances</span>
+            <span class="card-sub" id="bankTableDate"></span>
+          </div>
+          <div class="tbl-wrap">
+            <table class="data-table">
+              <thead><tr><th>Account</th><th>Entity</th><th>Bank</th><th class="r">Balance</th><th>Status</th></tr></thead>
+              <tbody id="bankTableBody"></tbody>
+              <tfoot><tr><td colspan="3"><strong>Total Bank Balance</strong></td><td class="r" id="bankTableTotal"></td><td></td></tr></tfoot>
+            </table>
+          </div>
         </div>
       </div>
     </div>
