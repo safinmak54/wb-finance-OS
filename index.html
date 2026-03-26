@@ -334,9 +334,14 @@
         <div class="toolbar-left" style="flex-wrap:wrap;gap:6px;align-items:center">
           <span style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em">Entities:</span>
           <button class="pnl-entity-pill active" id="pnlPillAll" onclick="app.clearPnlEntities()">All</button>
-          ${['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
-            `<button class="pnl-entity-pill" id="pnlPill${e}" onclick="app.togglePnlEntity('${e}')">${e}</button>`
-          ).join('')}
+          <button class="pnl-entity-pill" id="pnlPillWBP" onclick="app.togglePnlEntity('WBP')">WBP</button>
+          <button class="pnl-entity-pill" id="pnlPillLP" onclick="app.togglePnlEntity('LP')">LP</button>
+          <button class="pnl-entity-pill" id="pnlPillKP" onclick="app.togglePnlEntity('KP')">KP</button>
+          <button class="pnl-entity-pill" id="pnlPillBP" onclick="app.togglePnlEntity('BP')">BP</button>
+          <button class="pnl-entity-pill" id="pnlPillSWAG" onclick="app.togglePnlEntity('SWAG')">SWAG</button>
+          <button class="pnl-entity-pill" id="pnlPillRUSH" onclick="app.togglePnlEntity('RUSH')">RUSH</button>
+          <button class="pnl-entity-pill" id="pnlPillONEOPS" onclick="app.togglePnlEntity('ONEOPS')">ONEOPS</button>
+          <button class="pnl-entity-pill" id="pnlPillSP1" onclick="app.togglePnlEntity('SP1')">SP1</button>
         </div>
         <div class="toolbar-right">
           <button class="btn-outline" id="pnlCmpBtn" onclick="app.openComparisonUpload()" style="font-size:12px">↑ Compare</button>
