@@ -1407,11 +1407,17 @@ const app = {
   // ---- INVOICES ----
   renderInvoices() {
     const filter = document.getElementById('invoiceStatusFilter')?.value || '';
-    const list = DATA.invoices.filter(i => !filter || i.status === filter);
+    const allInvoices = DATA.invoices.filter(i => !filter || i.status === filter);
+    const filtered = this._invBucketFilter
+      ? allInvoices.filter(inv => this.agingBucket(inv.due).cls === this._invBucketFilter)
+      : allInvoices;
     const tbody = document.getElementById('invoiceBody');
-    tbody.innerHTML = list.map(i => {
+    tbody.innerHTML = filtered.map(i => {
       const remaining = i.amount - i.paid;
       const daysOverdue = i.status === 'overdue' ? Math.round((new Date() - new Date(i.due)) / 86400000) : 0;
+      const aging = this.agingBucket(i.due);
+      const ageCell    = `<td class="r">${aging.days !== undefined && aging.days >= 0 ? aging.days : '—'}</td>`;
+      const bucketCell = `<td><span class="aging-chip ${aging.cls}">${aging.label}</span></td>`;
       return `<tr>
         <td style="font-family:var(--mono);font-size:11px">${i.invoiceNum}</td>
         <td style="font-weight:500">${i.vendor}</td>
@@ -1421,6 +1427,7 @@ const app = {
         <td class="amount-pos">${i.paid ? fmt(i.paid) : '—'}</td>
         <td class="amount ${remaining > 0 ? 'amount-neg' : ''}">${remaining > 0 ? fmt(remaining) : '—'}</td>
         <td><span class="badge badge-${i.status}">${i.status}</span></td>
+        ${ageCell}${bucketCell}
         <td>
           <div style="display:flex;gap:4px">
             ${i.status !== 'paid' ? `<button class="action-btn primary btn-sm" onclick="app.payInvoice('${i.id}')">Pay</button>` : ''}
@@ -1429,6 +1436,37 @@ const app = {
         </td>
       </tr>`;
     }).join('');
+    this._renderInvoiceAgingGrid(allInvoices);
+  },
+
+  _renderInvoiceAgingGrid(invoices) {
+    const BUCKET_LABELS = ['Current','1-30 Days','31-60 Days','61-90 Days','90+ Days'];
+    const BUCKET_CLS    = ['current','low','medium','high','critical'];
+    const totals = [0,0,0,0,0];
+    const counts = [0,0,0,0,0];
+    const clsToIdx = { current:0, low:1, medium:2, high:3, critical:4 };
+
+    invoices.forEach(inv => {
+      const aging = this.agingBucket(inv.due);
+      const idx = clsToIdx[aging.cls] ?? 0;
+      totals[idx] += (inv.amount || 0);
+      counts[idx]++;
+    });
+
+    const grid = document.getElementById('invAgingGrid');
+    if (grid) {
+      grid.innerHTML = BUCKET_LABELS.map((label, i) => `
+        <div class="aging-cell ${this._invBucketFilter===BUCKET_CLS[i]?'active':''}" onclick="app.filterInvoicesByBucket('${BUCKET_CLS[i]}')">
+          <div class="aging-cell-label">${label}</div>
+          <div class="aging-cell-val">${fmt(totals[i])}</div>
+          <div class="aging-cell-count">${counts[i]} invoice${counts[i]!==1?'s':''}</div>
+        </div>`).join('');
+    }
+  },
+
+  filterInvoicesByBucket(bucket) {
+    this._invBucketFilter = this._invBucketFilter === bucket ? null : bucket;
+    this.navigate('invoices');
   },
 
   async payInvoice(id) {
