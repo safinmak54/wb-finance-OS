@@ -916,3 +916,11 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 }
 .cf-summary-item { display: flex; flex-direction: column; gap: 2px; }
 .cf-summary-item strong { font-size: 1.1rem; font-weight: 700; }
+
+/* ---- RATIOS CHARTS ---- */
+.ratios-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+.ratios-chart-grid .span-2 { grid-column: span 2; }
+@media (max-width: 768px) {
+  .ratios-chart-grid { grid-template-columns: 1fr; }
+  .ratios-chart-grid .span-2 { grid-column: span 1; }
+}

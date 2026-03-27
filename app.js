@@ -969,6 +969,90 @@ const app = {
     }
   },
 
+  async renderRatioCharts(data, range) {
+    const summary = this._summarizePnlData(data);
+
+    // --- EBITDA Bridge (floating bar waterfall) ---
+    const ebitdaEl = document.getElementById('ebitdaChart');
+    if (ebitdaEl) {
+      const ebit  = (summary['Gross Profit'] || 0) - (summary['Operating Expenses'] || 0);
+      const da    = (data.txns || []).filter(t => t.accounts?.account_subtype === 'Depreciation').reduce((s,t) => s + Math.abs(t.amount), 0);
+      const ebitda = ebit + da;
+      if (state.charts.ebitda) state.charts.ebitda.destroy();
+      state.charts.ebitda = new Chart(ebitdaEl, {
+        type: 'bar',
+        data: {
+          labels: ['EBIT','D&A Add-back','EBITDA'],
+          datasets: [{ data: [[0,ebit],[ebit,ebit+da],[0,ebitda]], backgroundColor: ['#3b82f6','#22c55e','#7c3aed'], borderRadius: 4 }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: v => this.fmtM(v) } } }
+        }
+      });
+    }
+
+    // --- Budget vs Actual (horizontal bar) ---
+    const baEl = document.getElementById('budgetActualChart');
+    if (baEl && window._plBudget) {
+      const cats = ['revenue','cogs','gross_profit','operating_expenses','net_income'];
+      const labels = ['Revenue','COGS','Gross Profit','Op. Expenses','Net Income'];
+      const actuals = [summary.Revenue, summary.COGS, summary['Gross Profit'], summary['Operating Expenses'], summary['Net Income']].map(v => Math.abs(v||0));
+      const budgets = cats.map(k => Math.abs(window._plBudget[k] || 0));
+      if (state.charts.budgetActual) state.charts.budgetActual.destroy();
+      state.charts.budgetActual = new Chart(baEl, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Actual', data: actuals, backgroundColor: '#3b82f6', borderRadius: 4 },
+            { label: 'Budget', data: budgets, backgroundColor: 'rgba(148,163,184,0.4)', borderRadius: 4 }
+          ]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: { legend: { display: true } },
+          scales: { x: { ticks: { callback: v => this.fmtM(v) } } }
+        }
+      });
+    }
+
+    // --- 12-Month Margin Trend (3 lines) ---
+    const marginEl = document.getElementById('ratiosMarginChart');
+    if (marginEl) {
+      const months = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(range.to); d.setMonth(d.getMonth()-i);
+        const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0');
+        months.push({ label: `${y}-${m}`, from: `${y}-${m}-01`, to: `${y}-${m}-31` });
+      }
+      const monthData = await Promise.all(months.map(mo => this.fetchReportData(state.globalEntity, mo)));
+      const calcMargin = (d, type) => {
+        const s = this._summarizePnlData(d);
+        const rev = s.Revenue || 1;
+        if (type === 'gross') return (s['Gross Profit']||0)/rev*100;
+        if (type === 'operating') return ((s['Gross Profit']||0)-(s['Operating Expenses']||0))/rev*100;
+        return (s['Net Income']||0)/rev*100;
+      };
+      if (state.charts.ratiosMargin) state.charts.ratiosMargin.destroy();
+      state.charts.ratiosMargin = new Chart(marginEl, {
+        type: 'line',
+        data: {
+          labels: months.map(m => m.label),
+          datasets: [
+            { label: 'Gross Margin %',     data: monthData.map(d => calcMargin(d,'gross')),     borderColor:'#22c55e', fill:false, tension:0.3 },
+            { label: 'Operating Margin %', data: monthData.map(d => calcMargin(d,'operating')), borderColor:'#3b82f6', fill:false, tension:0.3 },
+            { label: 'Net Margin %',       data: monthData.map(d => calcMargin(d,'net')),       borderColor:'#7c3aed', fill:false, tension:0.3 }
+          ]
+        },
+        options: {
+          plugins: { legend: { display: true, position: 'top' } },
+          scales: { y: { ticks: { callback: v => v.toFixed(1)+'%' } } }
+        }
+      });
+    }
+  },
+
   async setPnlEntity(val) { await this.renderPnl(); },
 
   togglePnlEntity(code) {
@@ -1614,6 +1698,10 @@ const app = {
       </div>
       ${rev === 0 ? '<p style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No classified transactions for this period — ratios will calculate once transactions are posted.</p>' : ''}
     `;
+    if (supabaseClient) {
+      const data = await this.fetchReportData(entity, state.globalPeriodRange);
+      if (data) await this.renderRatioCharts(data, state.globalPeriodRange);
+    }
   },
 
   // ---- CFO NOTES ----
