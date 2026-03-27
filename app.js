@@ -4684,8 +4684,8 @@ ${context}`;
 
   async payApItem(id) {
     const { error } = await supabaseClient.from('ap_items').update({ paid: true }).eq('id', id);
-    if (error) { this.toast('Error updating payment'); return; }
-    this.toast('Invoice marked as paid');
+    if (error) { this.showToast('Error updating payment', 'error'); return; }
+    this.showToast('Invoice marked as paid', 'success');
     await this.renderAP();
   },
 
@@ -4693,8 +4693,8 @@ ${context}`;
     const note = prompt('Enter dispute note:');
     if (note === null) return;
     const { error } = await supabaseClient.from('ap_items').update({ dispute_note: note }).eq('id', id);
-    if (error) { this.toast('Error saving dispute'); return; }
-    this.toast('Dispute note saved');
+    if (error) { this.showToast('Error saving dispute', 'error'); return; }
+    this.showToast('Dispute note saved', 'success');
   },
 };
 
