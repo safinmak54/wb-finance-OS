@@ -535,13 +535,38 @@
 
     <!-- CASH FLOW PAGE -->
     <div id="page-cashflow" class="page">
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><span class="card-title" id="cashflowTitle">Cash Flow Statement</span></div>
-        <div class="chart-wrap" style="height:280px"><canvas id="cashflowChart"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><span class="card-title">Cash Flow Waterfall</span></div>
-        <div class="chart-wrap" style="height:260px"><canvas id="waterfallChart"></canvas></div>
+      <div id="cashflowTitle" class="page-title"></div>
+
+      <details class="cf-section" open>
+        <summary class="cf-section-title">Operating Activities</summary>
+        <div class="tbl-wrap"><table class="data-table" id="cfOperating">
+          <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+          <tbody id="cfOperatingBody"></tbody>
+          <tfoot><tr><td><strong>Net Operating</strong></td><td class="r" id="cfOperatingTotal"></td></tr></tfoot>
+        </table></div>
+      </details>
+
+      <details class="cf-section">
+        <summary class="cf-section-title">Investing Activities</summary>
+        <div class="tbl-wrap"><table class="data-table" id="cfInvesting">
+          <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+          <tbody id="cfInvestingBody"></tbody>
+          <tfoot><tr><td><strong>Net Investing</strong></td><td class="r" id="cfInvestingTotal"></td></tr></tfoot>
+        </table></div>
+      </details>
+
+      <details class="cf-section">
+        <summary class="cf-section-title">Financing Activities</summary>
+        <div class="tbl-wrap"><table class="data-table" id="cfFinancing">
+          <thead><tr><th>Item</th><th class="r">Amount</th></tr></thead>
+          <tbody id="cfFinancingBody"></tbody>
+          <tfoot><tr><td><strong>Net Financing</strong></td><td class="r" id="cfFinancingTotal"></td></tr></tfoot>
+        </table></div>
+      </details>
+
+      <div class="cf-summary-row">
+        <div class="cf-summary-item"><span>Net Change in Cash</span><strong id="cfNetChange">—</strong></div>
+        <div class="cf-summary-item"><span>Ending Cash Balance</span><strong id="cfEndingBalance">—</strong></div>
       </div>
     </div>
 

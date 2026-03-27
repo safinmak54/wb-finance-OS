@@ -2065,97 +2065,42 @@ const app = {
 
   // ---- CASH FLOW ----
   async renderCashflow() {
-    const entity = state.globalEntity;
-    const range = state.globalPeriodRange;
+    const data = await this.fetchReportData(state.globalEntity, state.globalPeriodRange);
+    if (!data) return;
 
-    // Destroy existing charts if re-rendering
-    if (state.charts?.cashflow) { state.charts.cashflow.destroy(); delete state.charts.cashflow; }
-    if (state.charts?.waterfall) { state.charts.waterfall.destroy(); delete state.charts.waterfall; }
+    const txns = data.txns || [];
 
-    const cfCanvas = document.getElementById('cashflowChart');
-    const wfCanvas = document.getElementById('waterfallChart');
+    // Categorize by account_type. Adjust type strings if your actual Supabase data differs.
+    const INVESTING_TYPES = new Set(['fixed asset','long-term asset','equipment']);
+    const FINANCING_TYPES = new Set(['long-term liability','notes payable','equity','owner distribution']);
 
-    if (!supabaseClient) return;
+    const investing = txns.filter(t => INVESTING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
+    const financing = txns.filter(t => FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
+    const operating = txns.filter(t => !INVESTING_TYPES.has(t.accounts?.account_type?.toLowerCase()) && !FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
 
-    let q = supabaseClient
-      .from('transactions')
-      .select('amount, acc_date, accounts(account_type)')
-      .gte('acc_date', range.from)
-      .lte('acc_date', range.to)
-      .order('acc_date', { ascending: true });
-    q = applyEntityFilter(q, entity);
+    const renderSection = (bodyId, totalId, items) => {
+      const body  = document.getElementById(bodyId);
+      const total = document.getElementById(totalId);
+      if (!body || !total) return 0;
+      const sum = items.reduce((s, t) => s + (t.amount || 0), 0);
+      body.innerHTML = items.map(t =>
+        `<tr><td>${t.accounts?.account_name || t.description || '—'}</td><td class="r">${fmt(t.amount)}</td></tr>`
+      ).join('') || '<tr><td colspan="2" style="color:var(--text3)">No activity</td></tr>';
+      total.textContent = fmt(sum);
+      return sum;
+    };
 
-    const { data: txns, error } = await q;
-    if (error) { console.error('Cashflow load error:', error); return; }
+    const netOp  = renderSection('cfOperatingBody',  'cfOperatingTotal',  operating);
+    const netInv = renderSection('cfInvestingBody',  'cfInvestingTotal',  investing);
+    const netFin = renderSection('cfFinancingBody',  'cfFinancingTotal',  financing);
 
-    const rows = txns || [];
-    const fromParts = range.from.split('-');
-    const daysInMonth = new Date(parseInt(fromParts[0]), parseInt(fromParts[1]), 0).getDate();
-    const labels    = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
-    const inflows   = Array(daysInMonth).fill(0);
-    const outflows  = Array(daysInMonth).fill(0);
+    const netChange = netOp + netInv + netFin;
+    const priorBank = (window._bankAccounts || []).reduce((s, a) => s + a.balance, 0);
+    const ending    = priorBank + netChange;
 
-    for (const t of rows) {
-      const day = parseInt((t.acc_date || '').split('-')[2] || '0') - 1;
-      if (day < 0 || day >= daysInMonth) continue;
-      const amt = Number(t.amount);
-      if (amt > 0) inflows[day]  += amt;
-      else         outflows[day] += Math.abs(amt);
-    }
-
-    const totalIn  = inflows.reduce((s, v) => s + v, 0);
-    const totalOut = outflows.reduce((s, v) => s + v, 0);
-    const netFlow  = totalIn - totalOut;
-
-    // Update card title with summary
-    const titleEl = document.getElementById('cashflowTitle');
-    if (titleEl) titleEl.textContent = rows.length === 0
-      ? 'Cash Flow Statement'
-      : `Cash Flow — In: ${fmt(totalIn)}  Out: (${fmt(totalOut)})  Net: ${netFlow >= 0 ? fmt(netFlow) : '(' + fmt(Math.abs(netFlow)) + ')'}`;
-
-    if (rows.length === 0) {
-      if (cfCanvas) cfCanvas.parentElement.innerHTML = '<canvas id="cashflowChart"></canvas><p style="padding:32px;text-align:center;color:var(--text3);font-size:13px">No classified transactions yet — inflow/outflow will appear here once transactions are classified.</p>';
-      if (wfCanvas) wfCanvas.parentElement.innerHTML = '';
-      return;
-    }
-
-    // Inflow / outflow bar chart
-    if (cfCanvas) {
-      state.charts = state.charts || {};
-      state.charts.cashflow = new Chart(cfCanvas, {
-        type:'bar',
-        data:{ labels, datasets:[
-          { label:'Inflows',  data:inflows,  backgroundColor:'rgba(22,163,74,0.75)',  borderRadius:2 },
-          { label:'Outflows', data:outflows, backgroundColor:'rgba(220,38,38,0.75)', borderRadius:2 }
-        ]},
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top',labels:{font:{size:11}}}}, scales:{
-          x:{ ticks:{maxTicksLimit:16,font:{size:10}}, grid:{display:false} },
-          y:{ ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'} }
-        }}
-      });
-    }
-
-    // Waterfall: running net cumulative
-    if (wfCanvas) {
-      const cumulative = [];
-      let running = 0;
-      for (let i = 0; i < daysInMonth; i++) {
-        running += inflows[i] - outflows[i];
-        cumulative.push(Math.round(running));
-      }
-      state.charts.waterfall = new Chart(wfCanvas, {
-        type:'line',
-        data:{ labels, datasets:[{
-          label:'Cumulative Net', data:cumulative,
-          borderColor:'#1B3A6B', backgroundColor:'rgba(27,58,107,0.07)',
-          fill:true, tension:0.4, pointRadius:2, pointBackgroundColor:'#1B3A6B'
-        }]},
-        options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{
-          x:{ ticks:{maxTicksLimit:16,font:{size:10}}, grid:{display:false} },
-          y:{ ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}, grid:{color:'rgba(0,0,0,0.04)'} }
-        }}
-      });
-    }
+    const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = fmt(val); };
+    setEl('cfNetChange',     netChange);
+    setEl('cfEndingBalance', ending);
   },
 
   // ---- MODALS ----

@@ -896,3 +896,23 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   .bs-ratio-row { grid-template-columns: 1fr 1fr; }
   .two-col-bs { grid-template-columns: 1fr; }
 }
+
+/* ---- CASH FLOW ---- */
+.cf-section {
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 12px; overflow: hidden;
+}
+.cf-section-title {
+  font-size: 0.85rem; font-weight: 700; padding: 12px 16px;
+  cursor: pointer; background: var(--surface2);
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.cf-section[open] .cf-section-title::before { content: '▾'; }
+.cf-section:not([open]) .cf-section-title::before { content: '▸'; }
+.cf-summary-row {
+  display: flex; gap: 20px; padding: 16px;
+  background: var(--surface2); border-radius: 8px;
+  font-size: 0.85rem;
+}
+.cf-summary-item { display: flex; flex-direction: column; gap: 2px; }
+.cf-summary-item strong { font-size: 1.1rem; font-weight: 700; }
