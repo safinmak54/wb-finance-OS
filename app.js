@@ -2714,6 +2714,7 @@ const app = {
         </div>
         <div class="toolbar-right">
           <span style="font-size:13px;color:var(--text3)">${txns.length} to classify</span>
+          <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="app.bulkClassifyAutoTagged()">⚡ Auto-Tagged</button>
           <button class="btn-primary" id="bulkClassifyBtn" style="display:none;background:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="app.bulkClassify()">Finalize Selected</button>
           <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
         </div>
@@ -2813,6 +2814,7 @@ const app = {
           if (btn) { btn.style.opacity = '1'; btn.style.background = 'var(--green,#16a34a)'; }
           // Subtle highlight to show auto-matched
           row.style.background = 'rgba(37,99,235,0.04)';
+          row.dataset.autoTagged = '1';
           break;
         }
       }
@@ -3033,6 +3035,26 @@ const app = {
     document.getElementById('bulkDeleteBtn').style.display = 'none';
     const badge = document.getElementById('reviewBadge');
     if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
+  },
+
+  // ---- BULK CLASSIFY AUTO-TAGGED ----
+  async bulkClassifyAutoTagged() {
+    const autoRows = [...document.querySelectorAll('tr[data-auto-tagged="1"]')];
+    if (!autoRows.length) {
+      this.showToast('No auto-tagged transactions found', 'info');
+      return;
+    }
+    const missing = autoRows.filter(r => !r.querySelector('.acct-sel')?.value);
+    if (missing.length) {
+      this.showToast(`${missing.length} auto-tagged rows missing account — check rules`, 'error');
+      return;
+    }
+    // Select all auto-tagged rows and call bulkClassify
+    autoRows.forEach(r => {
+      const cb = r.querySelector('.row-check');
+      if (cb) cb.checked = true;
+    });
+    await this.bulkClassify();
   },
 
   // ---- DELETE SINGLE ROW ----

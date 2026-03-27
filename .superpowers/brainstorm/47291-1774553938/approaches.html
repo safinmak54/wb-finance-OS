@@ -1,0 +1,87 @@
+<style>
+  body { font-family: 'Inter', -apple-system, sans-serif; }
+  .approach { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; cursor: pointer; transition: border-color 0.15s; }
+  .approach:hover { border-color: #475569; }
+  .approach.selected { border-color: #3b82f6; background: #1e3a5f; }
+  .approach-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .approach-letter { width: 32px; height: 32px; border-radius: 8px; background: #334155; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; color: #f1f5f9; flex-shrink: 0; }
+  .approach.selected .approach-letter { background: #2563eb; }
+  .approach-title { font-size: 0.95rem; font-weight: 700; color: #f1f5f9; }
+  .approach-subtitle { font-size: 0.75rem; color: #64748b; margin-top: 1px; }
+  .approach-body { font-size: 0.78rem; color: #94a3b8; line-height: 1.6; }
+  .tag { display: inline-block; font-size: 0.65rem; font-weight: 700; padding: 2px 8px; border-radius: 8px; margin-right: 6px; }
+  .tag-rec { background: #166534; color: #4ade80; }
+  .tag-fast { background: #1e40af; color: #93c5fd; }
+  .tag-risk { background: #7f1d1d; color: #f87171; }
+  .sprints { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .sprint { background: #0f172a; border-radius: 8px; padding: 10px 12px; }
+  .sprint-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .sprint-items { font-size: 0.72rem; color: #64748b; line-height: 1.7; }
+  .sprint-1 .sprint-label { color: #a78bfa; }
+  .sprint-2 .sprint-label { color: #60a5fa; }
+  .sprint-3 .sprint-label { color: #4ade80; }
+  .pro-con { display: flex; gap: 16px; margin-top: 12px; }
+  .pro, .con { flex: 1; border-radius: 6px; padding: 8px 10px; }
+  .pro { background: rgba(22,163,74,0.08); border: 1px solid rgba(22,163,74,0.2); }
+  .con { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); }
+  .pro-label { font-size: 0.65rem; font-weight: 700; color: #4ade80; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .con-label { font-size: 0.65rem; font-weight: 700; color: #f87171; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .pro-item, .con-item { font-size: 0.72rem; color: #94a3b8; line-height: 1.6; }
+</style>
+
+<h2>How should we build this?</h2>
+<p class="subtitle">Three approaches to implementing full COO parity — pick the one that fits best</p>
+
+<div class="options" style="display:block">
+
+  <div class="approach option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="approach-header">
+      <div class="approach-letter">A</div>
+      <div>
+        <div class="approach-title">Sprint Sequence <span class="tag tag-rec">RECOMMENDED</span></div>
+        <div class="approach-subtitle">Foundation → Report Depth → New Tabs. Each sprint pushes to QA independently.</div>
+      </div>
+    </div>
+    <div class="approach-body">Build in strict order: fix global infrastructure first (admin, filter bar, topbar KPIs), then deepen every report page, then build the new tabs (AP, Reconciliation) with Supabase. Three separate QA pushes — each is reviewable on its own.</div>
+    <div class="sprints">
+      <div class="sprint sprint-1"><div class="sprint-label">Sprint 1 — Foundation</div><div class="sprint-items">Admin role<br>Global filter bar<br>Topbar KPIs<br>Import modal</div></div>
+      <div class="sprint sprint-2"><div class="sprint-label">Sprint 2 — Reports</div><div class="sprint-items">P&L 5 views + charts<br>Balance Sheet 2-col<br>Cash Flow GAAP<br>Ratios charts</div></div>
+      <div class="sprint sprint-3"><div class="sprint-label">Sprint 3 — New Tabs</div><div class="sprint-items">AP/Payables tab<br>Reconciliation full<br>CFO Notes 6-notes<br>Sales + Product Mix</div></div>
+    </div>
+    <div class="pro-con">
+      <div class="pro"><div class="pro-label">Pros</div><div class="pro-item">Clean incremental review · Foundation touches every page once · Lower risk per sprint</div></div>
+      <div class="con"><div class="con-label">Cons</div><div class="con-item">New tabs (AP, Recon) land last — CPA/COO waits longest for them</div></div>
+    </div>
+  </div>
+
+  <div class="approach option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="approach-header">
+      <div class="approach-letter">B</div>
+      <div>
+        <div class="approach-title">Schema-First <span class="tag tag-fast">FASTEST VALUE</span></div>
+        <div class="approach-subtitle">New Supabase tables first, then all features together in one big build.</div>
+      </div>
+    </div>
+    <div class="approach-body">Create <code>ap_items</code> and <code>reconciliation_matches</code> tables first, seed them with WB data, then build AP and Reconciliation before touching the existing report pages. Existing pages get their upgrades in a single second pass covering everything.</div>
+    <div class="pro-con">
+      <div class="pro"><div class="pro-label">Pros</div><div class="pro-item">Gets real AP/Recon data live early · Schema migration done before UI depends on it</div></div>
+      <div class="con"><div class="con-label">Cons</div><div class="con-item">Report upgrades all land at once — harder to review a single large PR</div></div>
+    </div>
+  </div>
+
+  <div class="approach option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="approach-header">
+      <div class="approach-letter">C</div>
+      <div>
+        <div class="approach-title">Page-by-Page <span class="tag tag-risk">HIGHEST RISK</span></div>
+        <div class="approach-subtitle">Complete each page to full COO parity before moving on.</div>
+      </div>
+    </div>
+    <div class="approach-body">P&L to full parity → Balance Sheet → Cash Flow → Ratios → CFO Notes → AP → Reconciliation → Sales → Product Mix → Cash Forecast. Admin login and global filter bar come last as polish. Each page is a standalone commit.</div>
+    <div class="pro-con">
+      <div class="pro"><div class="pro-label">Pros</div><div class="pro-item">Each page is clearly "done" before moving on · Easy to stop mid-way and ship</div></div>
+      <div class="con"><div class="con-label">Cons</div><div class="con-item">Admin login deferred · Global filter bar built 9 pages in · Inconsistent state during review</div></div>
+    </div>
+  </div>
+
+</div>
