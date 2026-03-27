@@ -1948,6 +1948,11 @@ const app = {
         ],
       };
     }
+    if (window._productMix && !window._productMix.adSpend) {
+      window._productMix.adSpend   = { meta: 18400, google: 12700, tiktok: 6200 };
+      window._productMix.channels  = { online: 0.52, retail: 0.28, wholesale: 0.14, other: 0.06 };
+      window._productMix.adRevenue = { meta: 112000, google: 88000, tiktok: 34000 };
+    }
     const mx = window._productMix;
     const totalRev   = mx.categories.reduce((s,c) => s+c.revenue, 0);
     const totalCogs  = mx.categories.reduce((s,c) => s+c.cogs, 0);
@@ -2014,6 +2019,39 @@ const app = {
         });
       }
     }, 50);
+
+    const pm = window._productMix;
+    if (!pm) return;
+
+    // Ad platform chart
+    const adEl = document.getElementById('pmAdChart');
+    if (adEl && pm.adSpend) {
+      const platforms = ['Meta','Google','TikTok'];
+      const spend   = [pm.adSpend.meta, pm.adSpend.google, pm.adSpend.tiktok];
+      const revenue = [pm.adRevenue.meta, pm.adRevenue.google, pm.adRevenue.tiktok];
+      if (state.charts.pmAd) state.charts.pmAd.destroy();
+      state.charts.pmAd = new Chart(adEl, {
+        type: 'bar',
+        data: { labels: platforms, datasets: [
+          { label: 'Spend', data: spend, backgroundColor: '#ef4444', borderRadius: 4 },
+          { label: 'Revenue', data: revenue, backgroundColor: '#22c55e', borderRadius: 4 }
+        ]},
+        options: { plugins: { legend: { display: true, position: 'top' } }, scales: { y: { ticks: { callback: v=>this.fmtM(v) } } } }
+      });
+    }
+
+    // Channel mix donut
+    const chEl = document.getElementById('pmChannelChart');
+    if (chEl && pm.channels) {
+      const labels = ['Online','Retail','Wholesale','Other'];
+      const vals   = [pm.channels.online, pm.channels.retail, pm.channels.wholesale, pm.channels.other].map(v=>Math.round(v*100));
+      if (state.charts.pmChannel) state.charts.pmChannel.destroy();
+      state.charts.pmChannel = new Chart(chEl, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: vals, backgroundColor: ['#3b82f6','#22c55e','#f59e0b','#94a3b8'], borderWidth: 2 }] },
+        options: { plugins: { legend: { position: 'right' }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw}%` } } } }
+      });
+    }
   },
 
   _refreshProductMix() {
