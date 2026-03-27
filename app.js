@@ -3778,7 +3778,7 @@ const app = {
     const aiTab = document.getElementById('aiPanelTab');
     if (aiTab) aiTab.style.display = role === 'coo' ? '' : 'none';
     // Navigate to default page for role
-    const defaultPage = { coo: 'dashboard', bookkeeper: 'inbox', cpa: 'pnl' }[role] || 'dashboard';
+    const defaultPage = { coo: 'dashboard', bookkeeper: 'inbox', cpa: 'pnl', admin: 'dashboard' }[role] || 'dashboard';
     this.navigate(defaultPage);
   },
 
