@@ -212,8 +212,15 @@ async function loadDataFromSupabase() {
 // ---- APP STATE ----
 const state = {
   currentPage: 'dashboard',
-  currentEntity: 'all',
-  currentPeriod: new Date().toISOString().slice(0, 7),
+  globalEntity: 'all',
+  globalPeriod: 'month',
+  globalPeriodRange: (() => {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const from = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+    const to = now.toISOString().slice(0,10);
+    return { from, to };
+  })(),
   txnPage: 1,
   txnPageSize: 15,
   txnSort: { field: 'accDate', dir: 'desc' },
@@ -239,7 +246,7 @@ const app = {
     if (navEl) navEl.classList.add('active');
     state.currentPage = page;
 
-    const period = this.getPeriodLabel(state.currentPeriod);
+    const period = this.getPeriodLabel(state.globalPeriod);
 
     // Update dynamic chart titles
     // revenueChartTitle no longer exists — title is static in HTML with emoji
@@ -295,7 +302,7 @@ const app = {
   },
 
   async setEntity(val) {
-    state.currentEntity = val;
+    state.globalEntity = val;
     const pg = state.currentPage;
     if (pg === 'inbox')        await this.renderInbox();
     else if (pg === 'ledger') await this.renderLedger();
@@ -307,14 +314,60 @@ const app = {
   },
 
   setPeriod(val) {
-    state.currentPeriod = val;
+    state.globalPeriod = val;
+    state.globalPeriodRange = this.resolveGlobalPeriod(val);
     this.navigate(state.currentPage);
+  },
+
+  resolveGlobalPeriod(semantic, customFrom, customTo) {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    const today = ymd(now);
+
+    if (semantic === 'month') {
+      const from = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+      return { from, to: today };
+    }
+    if (semantic === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const last = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { from: ymd(d), to: ymd(last) };
+    }
+    if (semantic === 'qtd') {
+      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1);
+      return { from: ymd(qStart), to: today };
+    }
+    if (semantic === 'ytd') {
+      return { from: `${now.getFullYear()}-01-01`, to: today };
+    }
+    if (semantic === 'custom') {
+      return { from: customFrom || today, to: customTo || today };
+    }
+    // fallback: current month
+    return { from: `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`, to: today };
   },
 
   getPeriodLabel(val) {
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-    const [year, month] = val.split('-');
-    return `${months[parseInt(month, 10) - 1]} ${year}`;
+    if (!val) return 'Current Period';
+    if (val === 'month') {
+      const now = new Date();
+      return `${months[now.getMonth()]} ${now.getFullYear()}`;
+    }
+    if (val === 'last-month') {
+      const d = new Date(); d.setMonth(d.getMonth()-1);
+      return `${months[d.getMonth()]} ${d.getFullYear()}`;
+    }
+    if (val === 'qtd') return `Q${Math.ceil((new Date().getMonth()+1)/3)} ${new Date().getFullYear()} to date`;
+    if (val === 'ytd') return `YTD ${new Date().getFullYear()}`;
+    if (val === 'custom') return 'Custom Range';
+    // Legacy YYYY-MM format support
+    if (/^\d{4}-\d{2}$/.test(val)) {
+      const [year, month] = val.split('-');
+      return `${months[parseInt(month,10)-1]} ${year}`;
+    }
+    return val;
   },
 
   normalizeDate(str) {
@@ -333,8 +386,9 @@ const app = {
   },
 
   getActiveTxns() {
-    const p = state.currentPeriod;
-    return DATA.transactions.filter(t => t.accDate && t.accDate.startsWith(p));
+    const from = state.globalPeriodRange.from;
+    const to = state.globalPeriodRange.to;
+    return DATA.transactions.filter(t => t.accDate && t.accDate >= from && t.accDate <= to);
   },
 
   // ---- TRANSACTIONS ----
@@ -482,12 +536,14 @@ const app = {
   },
 
   // ---- REPORT DATA HELPERS ----
-  async fetchReportData(entity, period) {
+  async fetchReportData(entity, periodRange) {
+    // periodRange = { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+    const range = periodRange || state.globalPeriodRange;
     let txnQuery = supabaseClient
       .from('transactions')
       .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
-      .gte('acc_date', period + '-01')
-      .lte('acc_date', period + '-31');
+      .gte('acc_date', range.from)
+      .lte('acc_date', range.to);
     // entity can be a string (single/group/all) or an array of entity codes
     if (Array.isArray(entity) && entity.length > 0) txnQuery = txnQuery.in('entity', entity);
     else txnQuery = applyEntityFilter(txnQuery, entity);
@@ -497,7 +553,8 @@ const app = {
     const { data: journals } = await supabaseClient
       .from('journal_entries')
       .select('id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))')
-      .eq('period', period);
+      .gte('period', range.from.slice(0,7))
+      .lte('period', range.to.slice(0,7));
 
     const flatJournals = (journals || []).map(je => ({
       ...je,
@@ -521,8 +578,8 @@ const app = {
 
   // ---- P&L REPORT ----
   async renderPnL() {
-    const entity = state.pnlEntities.length > 0 ? state.pnlEntities : state.currentEntity;
-    const period = state.currentPeriod;
+    const entity = state.pnlEntities.length > 0 ? state.pnlEntities : state.globalEntity;
+    const period = state.globalPeriod;
     const el = document.getElementById('pnlReport');
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
 
@@ -532,8 +589,8 @@ const app = {
     if (_pnlCmp) el.classList.add('comparing'); else el.classList.remove('comparing');
 
     const [data, closedRow] = await Promise.all([
-      this.fetchReportData(entity, period),
-      supabaseClient.from('closed_periods').select('closed_at').eq('period', period).maybeSingle()
+      this.fetchReportData(entity, state.globalPeriodRange),
+      supabaseClient.from('closed_periods').select('closed_at').eq('period', state.globalPeriodRange.from.slice(0,7)).maybeSingle()
     ]);
     if (!data) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load report</div>'; return; }
     const isClosed = !!(closedRow?.data);
@@ -736,14 +793,14 @@ const app = {
   },
 
   async renderBalance() {
-    const entity = state.currentEntity;
-    const period = this.getPeriodLabel(state.currentPeriod);
+    const entity = state.globalEntity;
+    const period = this.getPeriodLabel(state.globalPeriod);
     const el = document.getElementById('balanceReport');
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
 
     const [bsTxns, pnlData] = await Promise.all([
       this.fetchBalanceSheetData(entity),
-      this.fetchReportData(entity, state.currentPeriod)
+      this.fetchReportData(entity, state.globalPeriodRange)
     ]);
     if (!bsTxns) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load</div>'; return; }
 
@@ -798,8 +855,8 @@ const app = {
   async renderJournals() {
     const el = document.getElementById('page-journals');
     if (!el) return;
-    const period = state.currentPeriod;
-    const periodLabel = this.getPeriodLabel(period);
+    const period = state.globalPeriodRange.from.slice(0,7);
+    const periodLabel = this.getPeriodLabel(state.globalPeriod);
 
     const { data: closedCheck } = await supabaseClient
       .from('closed_periods').select('id, closed_at').eq('period', period).maybeSingle();
@@ -808,7 +865,8 @@ const app = {
     const { data: journals, error } = await supabaseClient
       .from('journal_entries')
       .select('id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name))')
-      .eq('period', period)
+      .gte('period', state.globalPeriodRange.from.slice(0,7))
+      .lte('period', state.globalPeriodRange.to.slice(0,7))
       .order('accounting_date', { ascending: false });
     if (error) console.error('Journal load error:', error);
 
@@ -1077,15 +1135,14 @@ const app = {
     const pct = n => (n * 100).toFixed(1) + '%';
     const ratio = (n, decimals=2) => isFinite(n) ? n.toFixed(decimals) + 'x' : '—';
 
-    const period = state.currentPeriod;
-    const entity = state.currentEntity;
+    const entity = state.globalEntity;
 
     // Fetch P&L data
     let rev=0, cogs=0, adSpend=0, otherExp=0;
     if (supabaseClient) {
       let q = supabaseClient.from('transactions')
         .select('amount, accounts(account_type, account_subtype)')
-        .gte('acc_date', period+'-01').lte('acc_date', period+'-31');
+        .gte('acc_date', state.globalPeriodRange.from).lte('acc_date', state.globalPeriodRange.to);
       q = applyEntityFilter(q, entity);
       const { data: txns } = await q;
       for (const t of (txns||[])) {
@@ -1634,8 +1691,8 @@ const app = {
 
   // ---- CASH FLOW ----
   async renderCashflow() {
-    const entity = state.currentEntity;
-    const period = state.currentPeriod;
+    const entity = state.globalEntity;
+    const range = state.globalPeriodRange;
 
     // Destroy existing charts if re-rendering
     if (state.charts?.cashflow) { state.charts.cashflow.destroy(); delete state.charts.cashflow; }
@@ -1649,8 +1706,8 @@ const app = {
     let q = supabaseClient
       .from('transactions')
       .select('amount, acc_date, accounts(account_type)')
-      .gte('acc_date', period + '-01')
-      .lte('acc_date', period + '-31')
+      .gte('acc_date', range.from)
+      .lte('acc_date', range.to)
       .order('acc_date', { ascending: true });
     q = applyEntityFilter(q, entity);
 
@@ -1658,7 +1715,8 @@ const app = {
     if (error) { console.error('Cashflow load error:', error); return; }
 
     const rows = txns || [];
-    const daysInMonth = new Date(parseInt(period.split('-')[0]), parseInt(period.split('-')[1]), 0).getDate();
+    const fromParts = range.from.split('-');
+    const daysInMonth = new Date(parseInt(fromParts[0]), parseInt(fromParts[1]), 0).getDate();
     const labels    = Array.from({length: daysInMonth}, (_, i) => String(i + 1));
     const inflows   = Array(daysInMonth).fill(0);
     const outflows  = Array(daysInMonth).fill(0);
@@ -2526,8 +2584,8 @@ const app = {
     if (!el) return;
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
 
-    const entity = state.currentEntity;
-    const period = state.currentPeriod;
+    const entity = state.globalEntity;
+    const range = state.globalPeriodRange;
 
     let query = supabaseClient
       .from('transactions')
@@ -2535,7 +2593,7 @@ const app = {
       .order('acc_date', { ascending: false });
 
     query = applyEntityFilter(query, entity);
-    if (period) query = query.gte('acc_date', period + '-01').lte('acc_date', period + '-31');
+    if (range) query = query.gte('acc_date', range.from).lte('acc_date', range.to);
 
     const { data: txns, error } = await query;
     if (error) { this.toast('Failed to load ledger'); console.error(error); return; }
@@ -2544,7 +2602,7 @@ const app = {
 
     // Fallback: if period filter returned nothing, try without period to detect date format issues
     let showingAllPeriods = false;
-    if (rows.length === 0 && period) {
+    if (rows.length === 0 && range) {
       let fallbackQ = supabaseClient
         .from('transactions')
         .select('*, accounts(account_code, account_name, account_type)')
@@ -2557,7 +2615,7 @@ const app = {
       }
     }
     const entityLabel = entity === 'all' ? 'All Entities' : entity;
-    const periodLabel = this.getPeriodLabel(period);
+    const periodLabel = this.getPeriodLabel(state.globalPeriod);
     const toolbar = `
       <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg2)">
         <span style="font-size:12px;font-weight:600;background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px">${entityLabel}</span>
@@ -2863,7 +2921,7 @@ const app = {
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `wb-transactions-${state.currentPeriod}.csv`;
+    a.download = `wb-transactions-${state.globalPeriodRange.from.slice(0,7)}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
     this.toast('CSV downloaded');
@@ -3105,13 +3163,13 @@ const app = {
 
   // ---- CLOSE MONTH WORKFLOW ----
   async openCloseMonth() {
-    const period = state.currentPeriod;
-    const periodLabel = this.getPeriodLabel(period);
+    const period = state.globalPeriodRange.from.slice(0,7);
+    const periodLabel = this.getPeriodLabel(state.globalPeriod);
     const { data: txns, error } = await supabaseClient
       .from('transactions')
       .select('amount, accounts(account_type, account_subtype)')
-      .gte('acc_date', period + '-01')
-      .lte('acc_date', period + '-31');
+      .gte('acc_date', state.globalPeriodRange.from)
+      .lte('acc_date', state.globalPeriodRange.to);
     if (error) { this.toast('Failed to load period data'); return; }
 
     const rows = txns || [];
@@ -3238,7 +3296,7 @@ const app = {
     const { revenueAdj, cogsAdj, netAdj, memo } = this._adjustingEntry;
 
     if (Math.abs(revenueAdj) < 0.01 && Math.abs(cogsAdj) < 0.01) {
-      await supabaseClient.from('closed_periods').insert({ period, entity: state.currentEntity, closed_by: 'user' });
+      await supabaseClient.from('closed_periods').insert({ period, entity: state.globalEntity, closed_by: 'user' });
       this.toast(`${periodLabel} closed (no adjustments needed) ✓`);
       this.closeModal();
       await this.renderJournals();
@@ -3256,7 +3314,7 @@ const app = {
     const [yr, mo] = period.split('-').map(Number);
     const lastDay    = new Date(yr, mo, 0).getDate();
     const closingDate = `${period}-${String(lastDay).padStart(2, '0')}`;
-    const entityId    = state.currentEntity !== 'all' ? window._entityByCode?.[state.currentEntity] : null;
+    const entityId    = state.globalEntity !== 'all' ? window._entityByCode?.[state.globalEntity] : null;
 
     const { data: je, error: jeErr } = await supabaseClient
       .from('journal_entries')
@@ -3273,7 +3331,7 @@ const app = {
       if (lineErr) { this.toast('Failed to post ledger lines'); console.error(lineErr); return; }
     }
 
-    const { error: lockErr } = await supabaseClient.from('closed_periods').insert({ period, entity: state.currentEntity, closed_by: 'user' });
+    const { error: lockErr } = await supabaseClient.from('closed_periods').insert({ period, entity: state.globalEntity, closed_by: 'user' });
     if (lockErr && lockErr.code !== '23505') { this.toast('Failed to lock period'); console.error(lockErr); return; }
 
     this.toast(`${periodLabel} closed ✓`);
@@ -3297,8 +3355,7 @@ const app = {
 
   // ---- DASHBOARD KPIs ----
   async updateDashboardKPIs() {
-    const entity = state.currentEntity;
-    const period = state.currentPeriod;
+    const entity = state.globalEntity;
 
     const set = (id, val) => {
       const el = document.getElementById(id);
@@ -3308,7 +3365,7 @@ const app = {
     ['m-revenue','m-income','m-gp','m-np','m-adspend'].forEach(id => set(id, 0));
     if (!supabaseClient) return;
 
-    const data = await this.fetchReportData(entity, period);
+    const data = await this.fetchReportData(entity, state.globalPeriodRange);
     if (!data) return;
 
     const groups    = this.groupByAccount(data.txns);
@@ -3494,9 +3551,9 @@ const app = {
   },
 
   onDashChartControl() {
-    const entity = state.currentEntity;
-    const period = state.currentPeriod;
-    this.fetchReportData(entity, period).then(data => {
+    const entity = state.globalEntity;
+    const period = state.globalPeriodRange.from.slice(0,7);
+    this.fetchReportData(entity, state.globalPeriodRange).then(data => {
       if (data) this.updateDashboardCharts(data, entity, period);
     });
   },
@@ -3871,8 +3928,7 @@ ${context}`;
   },
 
   async buildFinancialContext() {
-    const period = state.currentPeriod;
-    const entity = state.currentEntity;
+    const entity = state.globalEntity;
     const fmt = n => '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
     const pct = n => (n * 100).toFixed(1) + '%';
 
@@ -3881,7 +3937,7 @@ ${context}`;
     if (supabaseClient) {
       let q = supabaseClient.from('transactions')
         .select('amount, accounts(account_type, account_subtype)')
-        .gte('acc_date', period + '-01').lte('acc_date', period + '-31');
+        .gte('acc_date', state.globalPeriodRange.from).lte('acc_date', state.globalPeriodRange.to);
       q = applyEntityFilter(q, entity);
       const { data: txns } = await q;
       for (const t of (txns || [])) {
@@ -3897,7 +3953,9 @@ ${context}`;
       // Journal adjustments
       const { data: jEntries } = await supabaseClient.from('journal_entries')
         .select('ledger_entries(debit_amount,credit_amount,accounts(account_type))')
-        .eq('entry_type', 'adjusting').eq('period', period);
+        .eq('entry_type', 'adjusting')
+        .gte('period', state.globalPeriodRange.from.slice(0,7))
+        .lte('period', state.globalPeriodRange.to.slice(0,7));
       for (const je of (jEntries || [])) {
         for (const le of (je.ledger_entries || [])) {
           if (le.accounts?.account_type === 'revenue') adjEntries += (Number(le.credit_amount) - Number(le.debit_amount));
@@ -3918,7 +3976,7 @@ ${context}`;
     // Top vendors
     const topVendors = [...DATA.vendors].sort((a, b) => Number(b.ytd) - Number(a.ytd)).slice(0, 3);
 
-    const periodLabel = this.getPeriodLabel(period);
+    const periodLabel = this.getPeriodLabel(state.globalPeriod);
     return [
       `Period: ${periodLabel} | Entity: ${entity === 'all' ? 'All Companies' : entity}`,
       `Revenue: ${fmt(rev)} | COGS: ${fmt(cogs)} | Gross Profit: ${fmt(grossProfit)} (${pct(gpMargin)})`,
@@ -4114,7 +4172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const opt = document.createElement('option');
       opt.value = val;
       opt.textContent = label;
-      if (val === state.currentPeriod) opt.selected = true;
+      if (val === state.globalPeriodRange.from.slice(0,7)) opt.selected = true;
       picker.appendChild(opt);
     }
   }
