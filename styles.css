@@ -882,3 +882,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   background: var(--accent); color: #fff;
   border-color: var(--accent);
 }
+
+/* ---- P&L CHARTS GRID ---- */
+.pnl-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+@media (max-width: 768px) { .pnl-charts-grid { grid-template-columns: 1fr; } }

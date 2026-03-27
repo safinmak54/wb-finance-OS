@@ -486,6 +486,16 @@
         <button class="pl-tab" data-mode="budget" onclick="app.setPnlMode(\'budget\')">vs Budget</button>
       </div>
       <div class="report-container" id="pnlReport"></div>
+      <div class="pnl-charts-grid">
+        <div class="card">
+          <div class="card-header"><span class="card-title">P&L Waterfall</span></div>
+          <div class="chart-wrap" style="height:240px"><canvas id="pnlWaterfallChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">12-Month Net Margin Trend</span></div>
+          <div class="chart-wrap" style="height:240px"><canvas id="pnlMarginChart"></canvas></div>
+        </div>
+      </div>
     </div>
 
     <!-- BALANCE SHEET PAGE -->

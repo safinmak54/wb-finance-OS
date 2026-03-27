@@ -883,7 +883,91 @@ const app = {
     container.innerHTML = html;
   },
 
-  async _renderPnlCharts(data, range) { /* Task 3 */ },
+  async _renderPnlCharts(data, range) {
+    const summary = this._summarizePnlData(data);
+
+    // --- Waterfall Chart ---
+    const wfEl = document.getElementById('pnlWaterfallChart');
+    if (wfEl) {
+      const rev  = summary.Revenue || 0;
+      const cogs = summary.COGS || 0;
+      const gp   = summary['Gross Profit'] || 0;
+      const opex = summary['Operating Expenses'] || 0;
+      const net  = summary['Net Income'] || 0;
+
+      // Floating bar waterfall: each bar is [bottom, top]
+      const wfData = [
+        [0, rev],      // Revenue rises 0 → rev
+        [gp, rev],     // COGS drops rev → gp
+        [gp, gp],      // Gross Profit — zero-height (label bar, invisible)
+        [net, gp],     // Op. Expenses drops gp → net
+        [0, net],      // Net Income
+      ];
+      const wfColors = [
+        '#3b82f6',
+        '#ef4444',
+        'rgba(0,0,0,0)',
+        '#f59e0b',
+        net >= 0 ? '#22c55e' : '#ef4444',
+      ];
+
+      if (state.charts.pnlWaterfall) state.charts.pnlWaterfall.destroy();
+      state.charts.pnlWaterfall = new Chart(wfEl, {
+        type: 'bar',
+        data: {
+          labels: ['Revenue','COGS','Gross Profit','Op. Expenses','Net Income'],
+          datasets: [{ data: wfData, backgroundColor: wfColors, borderRadius: 4 }]
+        },
+        options: {
+          plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => fmt(ctx.raw[1] - ctx.raw[0]) } }
+          },
+          scales: { y: { ticks: { callback: v => this.fmtM(v) } } }
+        }
+      });
+    }
+
+    // --- 12-Month Margin Trend Chart ---
+    const marginEl = document.getElementById('pnlMarginChart');
+    if (marginEl) {
+      const months = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(range.to);
+        d.setMonth(d.getMonth() - i);
+        const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0');
+        months.push({ label: `${y}-${m}`, from: `${y}-${m}-01`, to: `${y}-${m}-31` });
+      }
+
+      const marginData = await Promise.all(months.map(async mo => {
+        const d = await this.fetchReportData(state.globalEntity, mo);
+        const s = this._summarizePnlData(d);
+        const rev = s.Revenue || 0;
+        return rev > 0 ? ((s['Net Income'] || 0) / rev * 100) : 0;
+      }));
+
+      if (state.charts.pnlMargin) state.charts.pnlMargin.destroy();
+      state.charts.pnlMargin = new Chart(marginEl, {
+        type: 'line',
+        data: {
+          labels: months.map(m => m.label),
+          datasets: [{
+            label: 'Net Margin %',
+            data: marginData,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 3
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: v => v.toFixed(1)+'%' } } }
+        }
+      });
+    }
+  },
 
   async setPnlEntity(val) { await this.renderPnl(); },
 
