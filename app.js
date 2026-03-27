@@ -1499,9 +1499,9 @@ const app = {
       });
       const total = vals.reduce((s,{v})=>s+v,0);
       html += `<tr><td>${row}</td>${vals.map(({v},mo) =>
-        `<td class="r fc-cell" data-row="${row}" data-mo="${mo}">
-          <div contenteditable="true" class="fc-edit" onblur="app.saveForecastCell('${row}',${mo},this.textContent)">${v || ''}</div>
-        </td>`
+        `<td class="r fc-cell" data-row="${row}" data-mo="${mo}"
+            contenteditable="true"
+            onblur="app.saveForecastCell('${row}',${mo},this.textContent)">${v || ''}</td>`
       ).join('')}<td class="r"><strong>${fmt(total)}</strong></td></tr>`;
     });
 
