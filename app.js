@@ -2825,11 +2825,6 @@ const app = {
     const overlay = document.getElementById('modalOverlay');
     if (!modal || !overlay) return;
 
-    // Build account options for add-rule form
-    const acctOptHtml = (DATA.coa || []).map(a =>
-      `<option value="${a.id}">${a.code} — ${a.name}</option>`
-    ).join('');
-
     const defaultPatterns = [
       'Google Ads','Bing Ads','Meta Ads','Stripe','PayPal','US CBP','UPS','FedEx'
     ];
@@ -2839,16 +2834,23 @@ const app = {
       <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Rules auto-assign a category when a transaction description contains the pattern (case-insensitive). First match wins.</p>
 
       <div style="margin-bottom:16px">
+        <input id="ruleSearch" type="text" placeholder="Filter rules…"
+          style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);margin-bottom:8px"
+          oninput="app.filterRules()">
         <table class="data-table" style="font-size:12px">
-          <thead><tr><th>Includes</th><th>Account</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Includes</th><th>Account</th><th></th></tr></thead>
           <tbody id="rulesTableBody">
             ${rules.length === 0
-              ? `<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
-              : rules.map(r => `
-                <tr>
+              ? `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
+              : rules.map((r, i) => `
+                <tr data-rule-id="${r.id}">
+                  <td style="font-size:11px;color:var(--text3)">${i+1}</td>
                   <td><code style="font-size:11px;background:var(--surface2);padding:1px 4px;border-radius:3px">${r.pattern}</code></td>
                   <td style="font-size:11px;color:var(--text2)">${(DATA.coa || []).find(a => a.id === r.account_id)?.name || r.account_id?.slice(0,8)+'…'}</td>
-                  <td><button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button></td>
+                  <td>
+                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;margin-right:4px" onclick="app.editRule('${r.id}','${r.pattern.replace(/'/g,"\\'")}','${r.account_id}')">Edit</button>
+                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button>
+                  </td>
                 </tr>`).join('')
             }
           </tbody>
@@ -2864,12 +2866,13 @@ const app = {
           </div>
           <div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Account</div>
-            <select id="ruleAccountSelect" class="filter-select" style="width:100%;font-size:12px">
-              <option value="">— select —</option>
-              ${acctOptHtml}
-            </select>
+            <input list="ruleAcctList" id="ruleAccountInput" type="text" placeholder="Search accounts…"
+              style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+            <datalist id="ruleAcctList">
+              ${(DATA.coa || []).map(a => `<option value="${a.code} — ${a.name}"></option>`).join('')}
+            </datalist>
           </div>
-          <button class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="app.saveRule()">Save</button>
+          <button id="ruleSaveBtn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="app.saveRule()">Save</button>
         </div>
       </div>
 
@@ -2888,15 +2891,40 @@ const app = {
     overlay.classList.add('open');
   },
 
+  filterRules() {
+    const q = document.getElementById('ruleSearch')?.value?.toLowerCase() || '';
+    document.querySelectorAll('#rulesTableBody tr[data-rule-id]').forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = q === '' || text.includes(q) ? '' : 'none';
+    });
+  },
+
+  editRule(id, pattern, accountId) {
+    document.getElementById('rulePatternInput').value = pattern;
+    const acct = (DATA.coa || []).find(a => a.id === accountId);
+    if (acct) document.getElementById('ruleAccountInput').value = `${acct.code} — ${acct.name}`;
+    document.getElementById('ruleSaveBtn').dataset.editingId = id;
+  },
+
   async saveRule() {
-    const pattern   = document.getElementById('rulePatternInput')?.value?.trim();
-    const accountId = document.getElementById('ruleAccountSelect')?.value;
+    const pattern  = document.getElementById('rulePatternInput')?.value?.trim();
+    const inputVal = document.getElementById('ruleAccountInput')?.value?.trim();
+    const acct     = (DATA.coa || []).find(a => inputVal === a.code + ' — ' + a.name);
+    const accountId = acct?.id;
     if (!pattern || !accountId) { this.toast('Enter a keyword and select an account'); return; }
 
-    const { error } = await supabaseClient.from('classification_rules').insert({
-      name: pattern, pattern, account_id: accountId, is_active: true
-    });
-    if (error) { this.toast('Failed to save rule'); console.error(error); return; }
+    const editingId = document.getElementById('ruleSaveBtn')?.dataset?.editingId;
+    let error;
+    if (editingId) {
+      ({ error } = await supabaseClient.from('classification_rules')
+        .update({ name: pattern, pattern, account_id: accountId })
+        .eq('id', editingId));
+      delete document.getElementById('ruleSaveBtn').dataset.editingId;
+    } else {
+      ({ error } = await supabaseClient.from('classification_rules')
+        .insert({ name: pattern, pattern, account_id: accountId, is_active: true }));
+    }
+    if (error) { this.showToast('Failed to save rule: ' + (error.message || error.code), 'error'); console.error(error); return; }
 
     const { data: rules } = await supabaseClient.from('classification_rules').select('*').eq('is_active', true).order('created_at');
     DATA.classificationRules = rules || [];
