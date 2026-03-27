@@ -3047,6 +3047,99 @@ const app = {
     reader.readAsArrayBuffer(file);
   },
 
+  openImportModal() {
+    this.resetImportModal();
+    document.getElementById('importModal').showModal();
+  },
+
+  resetImportModal() {
+    document.getElementById('importStep1').style.display = '';
+    document.getElementById('importStep2').style.display = 'none';
+    document.getElementById('importStep3').style.display = 'none';
+    const fi = document.getElementById('importFileInput');
+    if (fi) fi.value = '';
+    this._importData = null;
+  },
+
+  handleImportDrop(e) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) this._processImportFile(file);
+  },
+
+  handleImportFile(input) {
+    const file = input.files[0];
+    if (file) this._processImportFile(file);
+  },
+
+  _processImportFile(file) {
+    // Reuse existing readSpreadsheetFile() — handles .xlsx and .csv via SheetJS
+    this.readSpreadsheetFile(file, (headers, rows) => {
+      this._importData = { headers, rows };
+      this._renderImportStep2(headers, rows);
+    });
+  },
+
+  _renderImportStep2(headers, rows) {
+    document.getElementById('importStep1').style.display = 'none';
+    document.getElementById('importStep2').style.display = '';
+
+    // Column mapping UI
+    const TXN_FIELDS = ['date', 'description', 'amount', 'entity', 'account_id'];
+    const mappingUI = document.getElementById('importMappingUI');
+    mappingUI.innerHTML = TXN_FIELDS.map(f => {
+      const bestGuess = headers.findIndex(h => h.toLowerCase().includes(f));
+      const guessIdx = bestGuess >= 0 ? bestGuess : 0;
+      const opts = headers.map((h,i) => `<option value="${i}" ${i===guessIdx?'selected':''}>${h}</option>`).join('');
+      return `<div class="import-mapping-row">
+        <span>${f}</span><span>←</span>
+        <select id="map_${f}" class="import-map-sel">${opts}</select>
+      </div>`;
+    }).join('');
+
+    // Preview table (first 10 rows)
+    const preview = document.getElementById('importPreviewTable');
+    const sample = rows.slice(0, 10);
+    preview.innerHTML = `
+      <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${sample.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  },
+
+  async submitImport() {
+    if (!this._importData) return;
+    const { headers, rows } = this._importData;
+    const TXN_FIELDS = ['date', 'description', 'amount', 'entity', 'account_id'];
+    const mapping = {};
+    TXN_FIELDS.forEach(f => {
+      const sel = document.getElementById(`map_${f}`);
+      if (sel) mapping[f] = parseInt(sel.value, 10);
+    });
+
+    const records = rows.map(row => ({
+      acc_date:    row[mapping.date]        || null,
+      description: row[mapping.description] || '',
+      amount:      parseFloat(row[mapping.amount]) || 0,
+      entity:      row[mapping.entity]      || '',
+      account_id:  row[mapping.account_id]  || null,
+      status:      'unclassified',
+    })).filter(r => r.acc_date && r.amount !== 0);
+
+    document.getElementById('importStep2').style.display = 'none';
+    document.getElementById('importStep3').style.display = '';
+    document.getElementById('importResult').innerHTML = '<p>Importing…</p>';
+
+    const { data, error } = await supabaseClient
+      .from('transactions')
+      .insert(records);
+
+    if (error) {
+      document.getElementById('importResult').innerHTML = `<p style="color:var(--red)">Error: ${error.message}</p>`;
+    } else {
+      document.getElementById('importResult').innerHTML = `<p style="color:var(--green)">✓ Imported ${records.length} transactions successfully.</p>`;
+      this.showToast(`${records.length} transactions imported`, 'success');
+    }
+  },
+
   autoDetectCSVColumns(headers, rows) {
     const map = {};
     const n = s => s.toLowerCase().replace(/[^a-z]/g, '');
