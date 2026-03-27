@@ -1097,14 +1097,19 @@ const app = {
   async renderBalance() {
     const entity = state.globalEntity;
     const period = this.getPeriodLabel(state.globalPeriod);
-    const el = document.getElementById('balanceReport');
-    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+    const assetsCol   = document.getElementById('bsAssetsCol');
+    const liabEqCol   = document.getElementById('bsLiabEquityCol');
+    if (assetsCol) assetsCol.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+    if (liabEqCol) liabEqCol.innerHTML = '';
 
     const [bsTxns, pnlData] = await Promise.all([
       this.fetchBalanceSheetData(entity),
       this.fetchReportData(entity, state.globalPeriodRange)
     ]);
-    if (!bsTxns) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load</div>'; return; }
+    if (!bsTxns) {
+      if (assetsCol) assetsCol.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load</div>';
+      return;
+    }
 
     const groups = this.groupByAccount(bsTxns);
     const byType = (type) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination);
@@ -1132,14 +1137,21 @@ const app = {
     const totalLiabEquity = totalLiab + totalEquity;
     const balanced        = Math.abs(totalAssets - totalLiabEquity) < 1;
 
-    el.innerHTML = `
+    const header = `
       <div class="report-header">
         <h2>Balance Sheet</h2>
         <p>WB Brands LLC — ${entity === 'all' ? 'Consolidated' : entity} · As of ${period}</p>
-      </div>
+      </div>`;
+
+    const assetsHTML = `
+      ${header}
       ${pnlSection('Assets')}
       ${renderLines(assetLines)}
       ${pnlTotal('Total Assets', totalAssets, 'pos')}
+      ${totalAssets === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No asset transactions classified yet.</div>` : ''}
+    `;
+
+    const liabEqHTML = `
       ${pnlSection('Liabilities')}
       ${renderLines(liabLines, true)}
       ${pnlTotal('Total Liabilities', totalLiab)}
@@ -1149,8 +1161,62 @@ const app = {
       ${pnlTotal('Total Equity', totalEquity, totalEquity >= 0 ? 'pos' : 'neg')}
       ${pnlGrand('Total Liabilities + Equity', totalLiabEquity, 'pos')}
       ${!balanced && (totalAssets > 0 || totalLiab > 0) ? `<div style="color:var(--red);padding:8px;font-size:13px">⚠ Out of balance by ${fmt(Math.abs(totalAssets - totalLiabEquity))}</div>` : ''}
-      ${totalAssets === 0 && totalLiab === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified yet.</div>` : ''}
     `;
+
+    if (assetsCol) assetsCol.innerHTML = assetsHTML;
+    if (liabEqCol) liabEqCol.innerHTML = liabEqHTML;
+
+    // --- Balance Sheet Ratio Cards ---
+    const bsTxnData = { txns: bsTxns };
+    const bsData = this._parseBsData(bsTxnData);
+    // Override netIncome with the already-computed value
+    bsData.netIncome = netProfit;
+    const setRatio = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    const safeDivide = (a, b) => b !== 0 ? (a/b).toFixed(2) : '—';
+
+    setRatio('bsCurrentRatio', safeDivide(bsData.currentAssets, bsData.currentLiabilities));
+    setRatio('bsDebtEquity',   safeDivide(bsData.totalLiabilities, bsData.totalEquity || totalEquity));
+    setRatio('bsQuickRatio',   safeDivide(bsData.currentAssets - bsData.inventory, bsData.currentLiabilities));
+
+    // --- Retained Earnings Waterfall ---
+    const reEl = document.getElementById('bsReChart');
+    if (reEl) {
+      const priorRE   = bsData.priorRE || 0;
+      const netIncome = netProfit;
+      const distrib   = bsData.distributions || 0;
+      const currentRE = priorRE + netIncome - distrib;
+      if (state.charts.bsRe) state.charts.bsRe.destroy();
+      state.charts.bsRe = new Chart(reEl, {
+        type: 'bar',
+        data: {
+          labels: ['Prior RE','Net Income','Distributions','Current RE'],
+          datasets: [{
+            data: [[0,priorRE],[priorRE,priorRE+netIncome],[priorRE+netIncome-distrib,priorRE+netIncome],[0,currentRE]],
+            backgroundColor: ['#3b82f6','#22c55e','#ef4444','#7c3aed'], borderRadius: 4
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: v => this.fmtM(v) } } }
+        }
+      });
+    }
+  },
+
+  _parseBsData(data) {
+    if (!data) return { currentAssets:0, currentLiabilities:0, totalLiabilities:0, totalEquity:0, inventory:0, priorRE:0, netIncome:0, distributions:0 };
+    const txns = data.txns || [];
+    const sum = type => txns.filter(t=>t.accounts?.account_type===type).reduce((s,t)=>s+Math.abs(t.amount),0);
+    return {
+      currentAssets:      sum('current asset'),
+      currentLiabilities: sum('current liability'),
+      totalLiabilities:   sum('current liability') + sum('long-term liability'),
+      totalEquity:        sum('equity'),
+      inventory:          txns.filter(t=>t.accounts?.account_subtype==='inventory').reduce((s,t)=>s+Math.abs(t.amount),0),
+      priorRE:            0,
+      netIncome:          sum('revenue') - sum('cogs') - sum('expense'),
+      distributions:      txns.filter(t=>t.accounts?.account_subtype==='owner distribution').reduce((s,t)=>s+Math.abs(t.amount),0),
+    };
   },
 
   // ---- JOURNALS ----

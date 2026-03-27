@@ -886,3 +886,13 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 /* ---- P&L CHARTS GRID ---- */
 .pnl-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
 @media (max-width: 768px) { .pnl-charts-grid { grid-template-columns: 1fr; } }
+
+/* ---- BALANCE SHEET ---- */
+.bs-ratio-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;
+}
+.two-col-bs { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) {
+  .bs-ratio-row { grid-template-columns: 1fr 1fr; }
+  .two-col-bs { grid-template-columns: 1fr; }
+}

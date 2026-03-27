@@ -506,7 +506,31 @@
           <button class="btn-outline" onclick="app.exportCSV()">↓ Export</button>
         </div>
       </div>
-      <div class="report-container" id="balanceReport"></div>
+      <div class="bs-ratio-row" id="bsRatioRow">
+        <div class="metric-card">
+          <div class="metric-label">Current Ratio</div>
+          <div class="metric-value" id="bsCurrentRatio">—</div>
+          <div class="metric-delta">Current Assets ÷ Current Liabilities</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Debt-to-Equity</div>
+          <div class="metric-value" id="bsDebtEquity">—</div>
+          <div class="metric-delta">Total Liabilities ÷ Total Equity</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Quick Ratio</div>
+          <div class="metric-value" id="bsQuickRatio">—</div>
+          <div class="metric-delta">(Current Assets − Inventory) ÷ Current Liabilities</div>
+        </div>
+      </div>
+      <div class="two-col-bs" id="bsTwoCol">
+        <div id="bsAssetsCol"></div>
+        <div id="bsLiabEquityCol"></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><span class="card-title">Retained Earnings Waterfall</span></div>
+        <div class="chart-wrap" style="height:200px"><canvas id="bsReChart"></canvas></div>
+      </div>
     </div>
 
     <!-- CASH FLOW PAGE -->
