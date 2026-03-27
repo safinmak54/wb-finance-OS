@@ -3081,6 +3081,12 @@ const app = {
   },
 
   _renderImportStep2(headers, rows) {
+    if (!headers || headers.length === 0) {
+      document.getElementById('importStep1').style.display = '';
+      this.showToast('Could not read file headers — check the file format', 'error');
+      return;
+    }
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     document.getElementById('importStep1').style.display = 'none';
     document.getElementById('importStep2').style.display = '';
 
@@ -3090,7 +3096,7 @@ const app = {
     mappingUI.innerHTML = TXN_FIELDS.map(f => {
       const bestGuess = headers.findIndex(h => h.toLowerCase().includes(f));
       const guessIdx = bestGuess >= 0 ? bestGuess : 0;
-      const opts = headers.map((h,i) => `<option value="${i}" ${i===guessIdx?'selected':''}>${h}</option>`).join('');
+      const opts = headers.map((h,i) => `<option value="${i}" ${i===guessIdx?'selected':''}>${esc(h)}</option>`).join('');
       return `<div class="import-mapping-row">
         <span>${f}</span><span>←</span>
         <select id="map_${f}" class="import-map-sel">${opts}</select>
@@ -3101,8 +3107,8 @@ const app = {
     const preview = document.getElementById('importPreviewTable');
     const sample = rows.slice(0, 10);
     preview.innerHTML = `
-      <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-      <tbody>${sample.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+      <thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${sample.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
   },
 
   async submitImport() {
@@ -3133,7 +3139,11 @@ const app = {
       .insert(records);
 
     if (error) {
-      document.getElementById('importResult').innerHTML = `<p style="color:var(--red)">Error: ${error.message}</p>`;
+      const errP = document.createElement('p');
+      errP.style.color = 'var(--red)';
+      errP.textContent = `Error: ${error.message}`;
+      document.getElementById('importResult').innerHTML = '';
+      document.getElementById('importResult').appendChild(errP);
     } else {
       document.getElementById('importResult').innerHTML = `<p style="color:var(--green)">✓ Imported ${records.length} transactions successfully.</p>`;
       this.showToast(`${records.length} transactions imported`, 'success');
