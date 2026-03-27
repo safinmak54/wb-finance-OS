@@ -22,6 +22,7 @@ const ROLES = {
   coo:        { pass: 'wb-coo-2026',   label: 'COO View'        },
   bookkeeper: { pass: 'wb-books-2026', label: 'Bookkeeper View' },
   cpa:        { pass: 'wb-cpa-2026',   label: 'CPA View'        },
+  admin:      { pass: 'wb-admin-2026', label: 'Admin'           },
 };
 
 // ---- ENTITY GROUPS ----
