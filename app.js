@@ -302,7 +302,7 @@ const app = {
       if (page === 'cashflow')     await this.renderCashflow();
       if (page === 'forecast')     this.renderCashForecast();
       if (page === 'ratios')       await this.renderRatios();
-      if (page === 'cfnotes')      await this.renderCFONotes();
+      if (page === 'cfnotes')      this.renderCfoNotes();
       if (page === 'sales')        this.renderSalesMetrics();
       if (page === 'productmix')   this.renderProductMix();
       if (page === 'ap')           await this.renderAP();
@@ -1707,70 +1707,52 @@ const app = {
   },
 
   // ---- CFO NOTES ----
-  async renderCFONotes() {
-    const el = document.getElementById('cfnotesContent');
-    if (!el) return;
-    const fmt = n => n >= 0 ? '$' + Math.round(n).toLocaleString('en-US') : '($' + Math.round(Math.abs(n)).toLocaleString('en-US') + ')';
+  renderCfoNotes() {
+    const container = document.getElementById('cfnotesContent');
+    if (!container) return;
 
-    const flags = [
-      { sev:'🚨', title:'Credit Card Interest — Material Item', asc:'IRC §163', desc:'Outstanding CC balances ~$555K at 20% APR = ~$111K/yr interest expense. Priority: pay down highest-rate balances before dividend distributions.' },
-      { sev:'⚠️', title:'Allowance for Doubtful Accounts Required', asc:'ASC 310', desc:'AR >60 days overdue exceeds $80K. GAAP requires an allowance estimate. Recommend: reserve 50% of 90+ day AR.' },
-      { sev:'⚠️', title:'Fixed Asset Register Incomplete', asc:'ASC 360', desc:'No fixed asset schedule on file. Equipment, software licenses, and leasehold improvements must be capitalized and depreciated.' },
-      { sev:'⚠️', title:'Revenue Recognition — Disputed Invoices', asc:'ASC 606', desc:'Disputed customer invoices should not be recognized as revenue until resolved. Review open disputes monthly.' },
-      { sev:'🚨', title:'Intercompany Eliminations Required', asc:'ASC 810', desc:'Intercompany transactions between entities (WBP↔LP↔KP↔BP) must be eliminated in consolidated financials.' },
-      { sev:'ℹ️', title:'IRC §199A QBI Deduction Planning', asc:'IRC §199A', desc:'As a pass-through entity, eligible for 20% QBI deduction. Estimated savings: $25K–$35K. Coordinate with CPA before year-end.' },
-      { sev:'ℹ️', title:'Quarterly Estimated Tax Payments', asc:'IRC §6654', desc:'Q2 2026 due: Jun 15. Q3: Sep 15. Q4: Jan 15, 2027. Recommend distributing 30–35% of monthly net income for tax reserves.' },
-      { sev:'ℹ️', title:'Owner Distributions — Equity Classification', asc:'ASC 505', desc:'All owner draws/distributions must be classified as equity reduction, not operating expenses, to avoid P&L distortion.' },
+    const entity = state.globalEntity === 'all' ? 'All Entities' : state.globalEntity;
+    const period = this.getPeriodLabel(state.globalPeriod);
+    const year   = state.globalPeriodRange.from.slice(0,4);
+    const sem    = state.globalPeriod;
+
+    const noteKey = (i) => `cfnote_${state.globalEntity}_${sem}_${year}_${i}`;
+
+    const NOTES = [
+      'Revenue Recognition',
+      'Significant Transactions',
+      'Contingent Liabilities',
+      'Related Party Transactions',
+      'Subsequent Events',
+      'Going Concern / Liquidity',
     ];
 
-    const policies = [
-      { title:'Revenue Recognition', body:'Revenue recognized at point-in-time when control transfers to customer (ASC 606). No long-term contracts requiring percentage-of-completion.' },
-      { title:'Inventory Valuation', body:'FIFO method recommended (ASC 330). Physical count required quarterly. Standard cost variance to be reviewed annually.' },
-      { title:'Depreciation', body:'Estimated D&A: ~$36K/yr. Useful lives: equipment 5–7 yr, computers 3 yr, leasehold improvements over lease term.' },
-      { title:'Accounts Receivable', body:'AR aging reviewed monthly. 90+ day balances flagged for collection. Allowance for doubtful accounts to be established per ASC 310.' },
-      { title:'Cash & Equivalents', body:'11 accounts across Huntington Bank and Third Federal. All accounts reconciled monthly. No restricted cash balances.' },
-      { title:'Credit Card Liabilities', body:'CC balances classified as current liabilities. ~20% APR. Minimum payments tracked; interest expense classified as Other Expense.' },
-      { title:'Owner Distributions', body:'Distributions classified as equity reduction (debit Retained Earnings). Not deductible as business expense for C-Corp; pass-through for LLC.' },
-      { title:'Expense Classification', body:'COGS: direct material + production labor. SG&A: advertising, payroll (non-production), platform fees, office overhead.' },
-    ];
-
-    el.innerHTML = `
-      <div class="cfnotes-section">
-        <div class="cfnotes-section-title">CPA Compliance Flags</div>
-        ${flags.map(f => `<div class="cpa-flag">
-          <div class="cpa-flag-icon">${f.sev}</div>
-          <div class="cpa-flag-body">
-            <div class="cpa-flag-title">${f.title}</div>
-            <div class="cpa-flag-desc">${f.desc}</div>
-            <div class="cpa-flag-asc">${f.asc}</div>
-          </div>
-        </div>`).join('')}
+    container.innerHTML = `
+      <div class="cfnotes-banner">
+        <div>
+          <div class="cfnotes-banner-title">${entity} — Financial Statement Notes</div>
+          <div class="cfnotes-banner-meta">Reporting Period: ${period} · Prepared by: Finance Team</div>
+          <div class="cfnotes-disclaimer">These notes are an integral part of the financial statements and should be read in conjunction with the accompanying balance sheet, income statement, and cash flow statement.</div>
+        </div>
+        <button class="btn-outline cfnotes-print-btn" onclick="window.print()">⬜ Print / PDF</button>
       </div>
-      <div class="cfnotes-section">
-        <div class="cfnotes-section-title">Accounting Policies</div>
-        <div class="policy-grid">
-          ${policies.map(p => `<div class="policy-card">
-            <div class="policy-card-title">${p.title}</div>
-            <div class="policy-card-body">${p.body}</div>
+      <div class="cfnotes-grid">
+        ${NOTES.map((title, i) => `
+          <div class="cfr-note-card">
+            <div class="cfr-note-title">Note ${i+1} — ${title}</div>
+            <div class="cfr-note-body" contenteditable="true" id="cfNote${i}"
+                 onblur="app.saveCfoNote(${i})">${localStorage.getItem(noteKey(i)) || ''}</div>
           </div>`).join('')}
-        </div>
-      </div>
-      <div class="cfnotes-section">
-        <div class="cfnotes-section-title">Tax Notes — 2026</div>
-        <div class="card" style="max-width:560px">
-          <table style="width:100%;font-size:13px;border-collapse:collapse">
-            <tr><td style="padding:8px 0;color:var(--text2)">Estimated 2026 YTD Net Income</td><td style="text-align:right;font-weight:600">— (see P&L)</td></tr>
-            <tr><td style="padding:8px 0;color:var(--text2)">Est. Federal Tax (32% bracket)</td><td style="text-align:right;color:var(--red);font-weight:600">Consult CPA</td></tr>
-            <tr><td style="padding:8px 0;color:var(--text2)">Est. State Tax (~5%)</td><td style="text-align:right;color:var(--red);font-weight:600">Consult CPA</td></tr>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:8px 0;font-weight:700">IRC §199A QBI Deduction (20%)</td><td style="text-align:right;color:var(--green);font-weight:700">Est. $25K–$35K savings</td></tr>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:8px 0;color:var(--text2)">Q2 Est. Tax Due</td><td style="text-align:right;font-weight:600">Jun 15, 2026</td></tr>
-            <tr><td style="padding:8px 0;color:var(--text2)">Q3 Est. Tax Due</td><td style="text-align:right;font-weight:600">Sep 15, 2026</td></tr>
-            <tr><td style="padding:8px 0;color:var(--text2)">Q4 Est. Tax Due</td><td style="text-align:right;font-weight:600">Jan 15, 2027</td></tr>
-          </table>
-          <p style="font-size:11px;color:var(--text3);margin-top:12px;border-top:1px solid var(--border);padding-top:10px">Recommendation: distribute 30–35% of monthly net income into a dedicated tax reserve account.</p>
-        </div>
-      </div>
-    `;
+      </div>`;
+  },
+
+  saveCfoNote(i) {
+    const el = document.getElementById(`cfNote${i}`);
+    if (!el) return;
+    const entity = state.globalEntity;
+    const year   = state.globalPeriodRange.from.slice(0,4);
+    const sem    = state.globalPeriod;
+    localStorage.setItem(`cfnote_${entity}_${sem}_${year}_${i}`, el.innerHTML);
   },
 
   // ---- SALES METRICS ----

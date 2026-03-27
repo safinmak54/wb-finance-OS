@@ -967,3 +967,37 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   margin-bottom: 16px; flex-wrap: wrap;
 }
 .recon-summary .metric-card { flex: 1; min-width: 120px; }
+
+/* ---- CFO NOTES ---- */
+.cfnotes-banner {
+  background: #1E3A5F; color: #fff; border-radius: 10px;
+  padding: 16px 20px; margin-bottom: 16px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.cfnotes-banner-title { font-size: 1rem; font-weight: 700; }
+.cfnotes-banner-meta { font-size: 0.72rem; opacity: 0.75; margin-top: 4px; }
+.cfnotes-disclaimer { font-size: 0.65rem; opacity: 0.6; margin-top: 8px; max-width: 400px; }
+.cfnotes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 768px) { .cfnotes-grid { grid-template-columns: 1fr; } }
+.cfr-note-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px;
+}
+[data-theme="dark"] .cfr-note-card { background: var(--surface2); }
+.cfr-note-title {
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text3); margin-bottom: 8px;
+}
+.cfr-note-body {
+  min-height: 80px; font-size: 0.82rem; color: var(--text);
+  line-height: 1.6; outline: none;
+  border-bottom: 1px solid var(--border); padding-bottom: 6px;
+}
+.cfr-note-body:empty::before { content: 'Click to add notes…'; color: var(--text3); font-style: italic; }
+.cfnotes-print-btn { font-size: 0.75rem; padding: 6px 14px; }
+
+@media print {
+  #topbar, #sidebar, #globalFilterBar, .cfnotes-print-btn { display: none !important; }
+  #page-cfnotes { padding: 0 !important; }
+  .cfnotes-banner { -webkit-print-color-adjust: exact; }
+}
