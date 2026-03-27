@@ -831,3 +831,10 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   font-size: 0.75rem; padding: 4px 8px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
 }
+
+/* ---- TOPBAR KPI PILLS ---- */
+.topbar-kpi {
+  font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
+  border-radius: 6px; background: var(--border2); color: var(--text2);
+  white-space: nowrap;
+}

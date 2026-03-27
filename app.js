@@ -1410,14 +1410,13 @@ const app = {
     const target  = 3000000;
     const vsTarget = latestSales - target;
 
-    const fmtM = n => '$' + (n/1000000).toFixed(2) + 'M';
     const fmtK = n => '$' + (n/1000).toFixed(0) + 'K';
 
     el.innerHTML = `
       <div class="sales-kpi-row">
         <div class="sales-kpi" style="border-top-color:#2563eb">
           <div class="sales-kpi-label">Latest Month Net Sales</div>
-          <div class="sales-kpi-value">${fmtM(latestSales)}</div>
+          <div class="sales-kpi-value">${app.fmtM(latestSales)}</div>
           <div class="sales-kpi-sub">${pd.months[latestIdx]}</div>
         </div>
         <div class="sales-kpi" style="border-top-color:${vsTarget>=0?'var(--green)':'var(--red)'}">
@@ -1530,7 +1529,6 @@ const app = {
     const totalCogs  = mx.categories.reduce((s,c) => s+c.cogs, 0);
     const totalAds   = mx.categories.reduce((s,c) => s+c.ads, 0);
     const totalGP    = totalRev - totalCogs - totalAds;
-    const fmtM = n => '$' + (n/1000).toFixed(0) + 'K';
     const pct  = (n,d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
 
     const colors = ['#2563eb','#16a34a','#d97706','#7c3aed','#0891b2'];
@@ -1541,10 +1539,10 @@ const app = {
         <button class="btn-outline" style="font-size:12px;border-color:var(--purple);color:var(--purple)" onclick="app._refreshProductMix()">🔄 Refresh</button>
       </div>
       <div class="sales-kpi-row">
-        <div class="sales-kpi" style="border-top-color:#2563eb"><div class="sales-kpi-label">MTD Revenue</div><div class="sales-kpi-value">${fmtM(totalRev)}</div></div>
+        <div class="sales-kpi" style="border-top-color:#2563eb"><div class="sales-kpi-label">MTD Revenue</div><div class="sales-kpi-value">${app.fmtM(totalRev)}</div></div>
         <div class="sales-kpi" style="border-top-color:#d97706"><div class="sales-kpi-label">Avg COGS %</div><div class="sales-kpi-value">${pct(totalCogs,totalRev)}</div></div>
         <div class="sales-kpi" style="border-top-color:#7c3aed"><div class="sales-kpi-label">Avg Ads %</div><div class="sales-kpi-value">${pct(totalAds,totalRev)}</div></div>
-        <div class="sales-kpi" style="border-top-color:#16a34a"><div class="sales-kpi-label">Gross Margin $</div><div class="sales-kpi-value">${fmtM(totalGP)}</div></div>
+        <div class="sales-kpi" style="border-top-color:#16a34a"><div class="sales-kpi-label">Gross Margin $</div><div class="sales-kpi-value">${app.fmtM(totalGP)}</div></div>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-header"><span class="card-title">Category Breakdown</span></div>
@@ -1556,7 +1554,7 @@ const app = {
               const share = totalRev > 0 ? (c.revenue/totalRev*100).toFixed(1) : '0.0';
               return `<tr>
                 <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[i]};margin-right:6px"></span>${c.name}</td>
-                <td class="amount">${fmtM(c.revenue)}</td>
+                <td class="amount">${app.fmtM(c.revenue)}</td>
                 <td class="amount">${pct(c.cogs,c.revenue)}</td>
                 <td class="amount">${pct(c.ads,c.revenue)}</td>
                 <td class="amount" style="color:${parseFloat(gm)>=30?'var(--green)':'var(--amber)'}">${gm}%</td>
@@ -3910,6 +3908,7 @@ const app = {
     const defaultPage = { coo: 'dashboard', bookkeeper: 'inbox', cpa: 'pnl', admin: 'dashboard' }[role] || 'dashboard';
     this.navigate(defaultPage);
     this.renderGfbChips();
+    this.updateTopbarKPIs();
   },
 
   // ---- AI ADVISOR PANEL ----
@@ -4083,6 +4082,52 @@ ${context}`;
     msgs.appendChild(div);
     msgs.scrollTop = msgs.scrollHeight;
     return div;
+  },
+
+  fmtM(n) {
+    if (Math.abs(n) >= 1e6) return `$${(n/1e6).toFixed(2)}M`;
+    if (Math.abs(n) >= 1e3) return `$${Math.round(n/1e3)}K`;
+    return `$${Math.round(n)}`;
+  },
+
+  showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+      position:fixed; bottom:20px; right:20px; z-index:9999;
+      background:${type==='success'?'#16a34a':type==='error'?'#dc2626':'#334155'};
+      color:#fff; padding:10px 18px; border-radius:8px; font-size:0.82rem;
+      box-shadow:0 4px 16px rgba(0,0,0,0.2); animation:fadeIn 0.2s;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  },
+
+  updateTopbarKPIs() {
+    const bankEl = document.getElementById('topbarBank');
+    const netEl  = document.getElementById('topbarNet');
+    if (!bankEl || !netEl || !window._bankAccounts) return;
+
+    const entity = state.globalEntity;
+    const accounts = entity === 'all'
+      ? window._bankAccounts
+      : window._bankAccounts.filter(a => a.entity === entity);
+
+    const bankTotal = accounts.reduce((s, a) => s + a.balance, 0);
+    bankEl.textContent = `Bank: ${this.fmtM(bankTotal)}`;
+    bankEl.style.display = '';
+
+    if (entity === 'all') {
+      const net = bankTotal - (window._ccPayables || 0);
+      netEl.textContent = `Net: ${this.fmtM(net)}`;
+      netEl.style.color = net < 0 ? 'var(--red)' : '';
+    } else {
+      netEl.textContent = 'Net: —';
+      netEl.title = 'CC payables shown for consolidated view only';
+      netEl.style.color = '';
+    }
+    netEl.style.display = '';
   },
 
   toggleDarkMode() {
