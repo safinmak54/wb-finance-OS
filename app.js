@@ -303,7 +303,7 @@ const app = {
       if (page === 'forecast')     this.renderCashForecast();
       if (page === 'ratios')       await this.renderRatios();
       if (page === 'cfnotes')      this.renderCfoNotes();
-      if (page === 'sales')        this.renderSalesMetrics();
+      if (page === 'sales')        this.renderSales();
       if (page === 'productmix')   this.renderProductMix();
       if (page === 'ap')           await this.renderAP();
     }, 10);
@@ -1882,6 +1882,54 @@ const app = {
     }, 50);
   },
 
+  async renderSales() {
+    // Live banner — current month revenue
+    const now = new Date();
+    const thisMonthFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+    const today = now.toISOString().slice(0,10);
+    const { data: revTxns } = await supabaseClient.from('transactions').select('amount, accounts(account_type)')
+      .gte('acc_date', thisMonthFrom).lte('acc_date', today);
+    const monthRev = (revTxns || []).filter(t=>t.accounts?.account_type==='revenue').reduce((s,t)=>s+t.amount,0);
+    const setEl = (id, val) => { const e=document.getElementById(id); if(e) e.textContent=val; };
+    setEl('salesLiveVal', fmt(monthRev));
+    setEl('salesLiveSub', `${this.getPeriodLabel(state.globalPeriod)} · ${state.globalEntity==='all'?'All Entities':state.globalEntity}`);
+
+    // Weekly chart — last 7 days
+    const days = [];
+    for (let i=6; i>=0; i--) { const d=new Date(); d.setDate(d.getDate()-i); days.push(d.toISOString().slice(0,10)); }
+    const { data: weekTxns } = await supabaseClient.from('transactions').select('amount, acc_date, accounts(account_type)')
+      .gte('acc_date', days[0]).lte('acc_date', days[6]);
+    const dayTotals = days.map(day => (weekTxns||[]).filter(t=>t.acc_date===day&&t.accounts?.account_type==='revenue').reduce((s,t)=>s+t.amount,0));
+
+    const weekEl = document.getElementById('salesWeeklyChart');
+    if (weekEl) {
+      if (state.charts.salesWeekly) state.charts.salesWeekly.destroy();
+      state.charts.salesWeekly = new Chart(weekEl, {
+        type: 'bar',
+        data: { labels: days.map(d=>d.slice(5)), datasets: [{ data: dayTotals, backgroundColor: '#3b82f6', borderRadius: 4 }] },
+        options: { plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v=>this.fmtM(v) } } } }
+      });
+    }
+
+    // Monthly table — current vs prior month vs budget
+    const lastMonthD = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const lastMonthFrom = `${lastMonthD.getFullYear()}-${String(lastMonthD.getMonth()+1).padStart(2,'0')}-01`;
+    const lastMonthTo   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0,10);
+    const { data: priorTxns } = await supabaseClient.from('transactions').select('amount, accounts(account_type)')
+      .gte('acc_date', lastMonthFrom).lte('acc_date', lastMonthTo);
+    const priorRev  = (priorTxns||[]).filter(t=>t.accounts?.account_type==='revenue').reduce((s,t)=>s+t.amount,0);
+    const budget    = (window._plBudget?.revenue || 0) / 12;
+    const varBgt    = budget > 0 ? ((monthRev-budget)/budget*100).toFixed(1) : '—';
+
+    const tbl = document.getElementById('salesMonthlyTable');
+    if (tbl) {
+      tbl.innerHTML = `<thead><tr><th>Metric</th><th class="r">Current</th><th class="r">Prior Mo.</th><th class="r">Budget</th><th class="r">vs Budget</th></tr></thead>
+      <tbody>
+        <tr><td>Revenue</td><td class="r">${fmt(monthRev)}</td><td class="r">${fmt(priorRev)}</td><td class="r">${fmt(budget)}</td><td class="r ${varBgt !== '—' && parseFloat(varBgt)>=0 ? 'g' : 'r'}">${varBgt !== '—' ? varBgt+'%' : '—'}</td></tr>
+      </tbody>`;
+    }
+  },
+
   // ---- PRODUCT MIX ----
   renderProductMix() {
     const el = document.getElementById('productmixContent');
@@ -2068,7 +2116,7 @@ const app = {
       if (cfg.plSheetId) {
         const rows = await this.gvizFetch(cfg.plSheetId, cfg.plSheetName || 'Sheet1');
         await this.parsePLSheet(rows);
-        if (state.currentPage === 'sales') this.renderSalesMetrics();
+        if (state.currentPage === 'sales') this.renderSales();
         check();
       }
     } catch (e) { console.warn('PL sheet sync failed', e); check(); }

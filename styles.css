@@ -1001,3 +1001,12 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   #page-cfnotes { padding: 0 !important; }
   .cfnotes-banner { -webkit-print-color-adjust: exact; }
 }
+
+/* ---- SALES ---- */
+.sales-live-banner {
+  background: linear-gradient(135deg, #1E3A5F, #2563eb);
+  color: #fff; border-radius: 12px; padding: 20px 24px; margin-bottom: 16px;
+}
+.sales-banner-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.75; }
+.sales-banner-val { font-size: 2rem; font-weight: 800; margin: 6px 0 2px; }
+.sales-banner-sub { font-size: 0.78rem; opacity: 0.75; }

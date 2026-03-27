@@ -643,7 +643,21 @@
 
     <!-- SALES METRICS PAGE -->
     <div id="page-sales" class="page">
-      <div id="salesContent"></div>
+      <div class="sales-live-banner" id="salesBanner">
+        <div class="sales-banner-label">Revenue This Month</div>
+        <div class="sales-banner-val" id="salesLiveVal">Loading…</div>
+        <div class="sales-banner-sub" id="salesLiveSub"></div>
+      </div>
+      <div class="dash-grid" style="margin-top:16px">
+        <div class="card span-2">
+          <div class="card-header"><span class="card-title">Last 7 Days Revenue</span></div>
+          <div class="chart-wrap" style="height:200px"><canvas id="salesWeeklyChart"></canvas></div>
+        </div>
+        <div class="card span-1">
+          <div class="card-header"><span class="card-title">Monthly Performance</span></div>
+          <div class="tbl-wrap"><table class="data-table" id="salesMonthlyTable"></table></div>
+        </div>
+      </div>
     </div>
 
     <!-- PRODUCT MIX PAGE -->
