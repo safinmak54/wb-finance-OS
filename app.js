@@ -292,7 +292,7 @@ const app = {
       if (page === 'ledger')       await this.renderLedger();
       if (page === 'vendors')      this.renderVendors();
       if (page === 'invoices')     this.renderInvoices();
-      if (page === 'pnl')          await this.renderPnL();
+      if (page === 'pnl')          await this.renderPnl();
       if (page === 'balance')      await this.renderBalance();
       if (page === 'journals')     await this.renderJournals();
       if (page === 'coa')          this.renderCOA();
@@ -314,7 +314,7 @@ const app = {
     else if (pg === 'ledger') await this.renderLedger();
     else if (pg === 'vendors')  this.renderVendors();
     else if (pg === 'invoices') this.renderInvoices();
-    else if (pg === 'pnl')      await this.renderPnL();
+    else if (pg === 'pnl')      await this.renderPnl();
     else if (pg === 'balance')  await this.renderBalance();
     else if (pg === 'dashboard') await this.updateDashboardKPIs();
   },
@@ -650,8 +650,35 @@ const app = {
   },
 
   // ---- P&L REPORT ----
-  async renderPnL() {
-    const entity = state.pnlEntities.length > 0 ? state.pnlEntities : state.globalEntity;
+  async renderPnl() {
+    const mode = state.pnlMode || 'summary';
+    const entity = state.pnlEntities && state.pnlEntities.length > 0 ? state.pnlEntities : state.globalEntity;
+    const range = state.globalPeriodRange;
+
+    const data = await this.fetchReportData(entity, range);
+    if (!data) {
+      const el = document.getElementById('pnlReport');
+      if (el) el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load report</div>';
+      return;
+    }
+
+    if (mode === 'summary') {
+      this._renderPnlSummary(data);
+    } else if (mode === 'detail') {
+      this._renderPnlDetail(data);
+    } else if (mode === 'entity') {
+      await this._renderPnlByEntity(range);
+    } else if (mode === 'prior') {
+      await this._renderPnlVsPrior(data, range);
+    } else if (mode === 'budget') {
+      this._renderPnlVsBudget(data);
+    }
+
+    await this._renderPnlCharts(data, range);
+  },
+
+  _renderPnlSummary(data) {
+    const entity = state.pnlEntities && state.pnlEntities.length > 0 ? state.pnlEntities : state.globalEntity;
     const period = state.globalPeriod;
     const el = document.getElementById('pnlReport');
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
@@ -661,94 +688,197 @@ const app = {
     catch(e) { _pnlCmp = null; }
     if (_pnlCmp) el.classList.add('comparing'); else el.classList.remove('comparing');
 
-    const [data, closedRow] = await Promise.all([
-      this.fetchReportData(entity, state.globalPeriodRange),
-      supabaseClient.from('closed_periods').select('closed_at').eq('period', state.globalPeriodRange.from.slice(0,7)).maybeSingle()
-    ]);
-    if (!data) { el.innerHTML = '<div style="padding:32px;color:var(--red)">Failed to load report</div>'; return; }
-    const isClosed = !!(closedRow?.data);
+    supabaseClient.from('closed_periods').select('closed_at').eq('period', state.globalPeriodRange.from.slice(0,7)).maybeSingle()
+      .then(closedRow => {
+        const isClosed = !!(closedRow?.data);
 
-    const groups = this.groupByAccount(data.txns);
-    const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
-    const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
-    const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
-    const renderLines = (lines, isExpense = false) => lines.map(g =>
-      pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2)
-    ).join('');
+        const groups = this.groupByAccount(data.txns);
+        const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
+        const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
+        const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
+        const renderLines = (lines, isExpense = false) => lines.map(g =>
+          pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2)
+        ).join('');
 
-    const revenueLines = byType('revenue', ['contra']);
-    const contraLines  = bySubtype('contra');
-    const cogsLines    = bySubtype('cogs');
-    const adLines      = bySubtype('advertising');
-    const payrollLines = bySubtype('payroll');
-    const platformLines= bySubtype('platform');
-    const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission']);
+        const revenueLines = byType('revenue', ['contra']);
+        const contraLines  = bySubtype('contra');
+        const cogsLines    = bySubtype('cogs');
+        const adLines      = bySubtype('advertising');
+        const payrollLines = bySubtype('payroll');
+        const platformLines= bySubtype('platform');
+        const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission']);
 
-    const totalRevenue  = sumLines(revenueLines);
-    const totalContra   = Math.abs(sumLines(contraLines));
-    const totalIncome   = totalRevenue - totalContra;
-    const totalCogs     = Math.abs(sumLines(cogsLines));
-    const grossProfit   = totalIncome - totalCogs;
-    const totalAd       = Math.abs(sumLines(adLines));
-    const totalPayroll  = Math.abs(sumLines(payrollLines));
-    const totalPlatform = Math.abs(sumLines(platformLines));
-    const totalOpex     = Math.abs(sumLines(opexLines));
-    const totalExpenses = totalCogs + totalAd + totalPayroll + totalPlatform + totalOpex;
-    const noi           = totalIncome - totalExpenses;
+        const totalRevenue  = sumLines(revenueLines);
+        const totalContra   = Math.abs(sumLines(contraLines));
+        const totalIncome   = totalRevenue - totalContra;
+        const totalCogs     = Math.abs(sumLines(cogsLines));
+        const grossProfit   = totalIncome - totalCogs;
+        const totalAd       = Math.abs(sumLines(adLines));
+        const totalPayroll  = Math.abs(sumLines(payrollLines));
+        const totalPlatform = Math.abs(sumLines(platformLines));
+        const totalOpex     = Math.abs(sumLines(opexLines));
+        const totalExpenses = totalCogs + totalAd + totalPayroll + totalPlatform + totalOpex;
+        const noi           = totalIncome - totalExpenses;
 
-    const adjusting = (data.journals || []).filter(j => j.entry_type === 'adjusting');
-    const totalAdj  = adjusting.reduce((s, j) => s + (j.netAmount || 0), 0);
-    const netProfit = noi + totalAdj;
-    const marginPct = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '—';
-    const grossPct  = totalIncome > 0 ? ((grossProfit / totalIncome) * 100).toFixed(1) : '—';
+        const adjusting = (data.journals || []).filter(j => j.entry_type === 'adjusting');
+        const totalAdj  = adjusting.reduce((s, j) => s + (j.netAmount || 0), 0);
+        const netProfit = noi + totalAdj;
+        const marginPct = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '—';
+        const grossPct  = totalIncome > 0 ? ((grossProfit / totalIncome) * 100).toFixed(1) : '—';
 
-    const entityLabel = Array.isArray(entity) ? entity.join(', ') : (entity === 'all' ? 'Consolidated' : entity);
-    const cmpMeta = _pnlCmp ? JSON.parse(localStorage.getItem('pnlComparison') || '{}') : null;
-    el.innerHTML = `
-      <div class="report-header">
-        <h2>Profit & Loss Statement</h2>
-        <p>WB Brands LLC — ${entityLabel} · ${this.getPeriodLabel(period)} · Accrual basis</p>
-        ${cmpMeta ? `<p style="font-size:11px;color:var(--accent);margin-top:4px">Comparing vs: ${cmpMeta.label || 'Prior period'} · <button class="btn-outline" style="font-size:11px;padding:1px 8px" onclick="app.clearComparison()">Clear</button></p>` : ''}
-      </div>
-      ${_pnlCmp ? `<div class="report-cmp-header"><span>Account</span><span>${this.getPeriodLabel(period)}</span><span>${cmpMeta?.label || 'Prior'}</span><span>Variance</span></div>` : ''}
-      ${pnlSection('Gross Revenue')}
-      ${renderLines(revenueLines)}
-      ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
-      ${pnlTotal('Total Revenue', totalIncome, 'pos')}
-      ${pnlSection('Cost of Goods Sold')}
-      ${renderLines(cogsLines, true)}
-      ${pnlTotal('Gross Profit', grossProfit, grossProfit >= 0 ? 'pos' : 'neg')}
-      ${pnlLine(`Gross margin: ${grossPct}%`, null, 1, 'muted')}
-      ${pnlSection('Operating Expenses')}
-      ${adLines.length ? pnlLine('Advertisement', null, 1, 'group') + renderLines(adLines, true) : ''}
-      ${payrollLines.length ? pnlLine('Wages & Payroll', null, 1, 'group') + renderLines(payrollLines, true) : ''}
-      ${platformLines.length ? pnlLine('Platform fees', null, 1, 'group') + renderLines(platformLines, true) : ''}
-      ${opexLines.length ? pnlLine('Other operating expenses', null, 1, 'group') + renderLines(opexLines, true) : ''}
-      ${pnlTotal('Total Operating Expenses', totalExpenses)}
-      ${pnlGrand('Net Operating Income', noi, noi >= 0 ? 'pos' : 'neg')}
-      ${adjusting.length ? `
-        ${pnlSection('Adjusting Entries')}
-        ${adjusting.map(j => pnlLine(j.description || 'Adjustment', j.netAmount, 1)).join('')}
-        ${pnlTotal('Total Adjustments', totalAdj, totalAdj >= 0 ? 'pos' : 'neg')}
-      ` : ''}
-      ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
-      ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
-      ${isClosed && totalAdj !== 0 ? `
-        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px">
-          <p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px">Period Comparison</p>
-          <table style="width:100%;font-size:13px">
-            <tr><td>Cash basis net income</td><td style="text-align:right">${fmt(noi)}</td></tr>
-            <tr><td>Adjusting entries</td><td style="text-align:right">${totalAdj >= 0 ? fmt(totalAdj) : '(' + fmt(Math.abs(totalAdj)) + ')'}</td></tr>
-            <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Accrual basis net income</td><td style="text-align:right">${fmt(netProfit)}</td></tr>
-          </table>
-        </div>
-      ` : ''}
-      ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
-      ${totalIncome === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
-    `;
+        const entityLabel = Array.isArray(entity) ? entity.join(', ') : (entity === 'all' ? 'Consolidated' : entity);
+        const cmpMeta = _pnlCmp ? JSON.parse(localStorage.getItem('pnlComparison') || '{}') : null;
+        el.innerHTML = `
+          <div class="report-header">
+            <h2>Profit & Loss Statement</h2>
+            <p>WB Brands LLC — ${entityLabel} · ${this.getPeriodLabel(period)} · Accrual basis</p>
+            ${cmpMeta ? `<p style="font-size:11px;color:var(--accent);margin-top:4px">Comparing vs: ${cmpMeta.label || 'Prior period'} · <button class="btn-outline" style="font-size:11px;padding:1px 8px" onclick="app.clearComparison()">Clear</button></p>` : ''}
+          </div>
+          ${_pnlCmp ? `<div class="report-cmp-header"><span>Account</span><span>${this.getPeriodLabel(period)}</span><span>${cmpMeta?.label || 'Prior'}</span><span>Variance</span></div>` : ''}
+          ${pnlSection('Gross Revenue')}
+          ${renderLines(revenueLines)}
+          ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
+          ${pnlTotal('Total Revenue', totalIncome, 'pos')}
+          ${pnlSection('Cost of Goods Sold')}
+          ${renderLines(cogsLines, true)}
+          ${pnlTotal('Gross Profit', grossProfit, grossProfit >= 0 ? 'pos' : 'neg')}
+          ${pnlLine(`Gross margin: ${grossPct}%`, null, 1, 'muted')}
+          ${pnlSection('Operating Expenses')}
+          ${adLines.length ? pnlLine('Advertisement', null, 1, 'group') + renderLines(adLines, true) : ''}
+          ${payrollLines.length ? pnlLine('Wages & Payroll', null, 1, 'group') + renderLines(payrollLines, true) : ''}
+          ${platformLines.length ? pnlLine('Platform fees', null, 1, 'group') + renderLines(platformLines, true) : ''}
+          ${opexLines.length ? pnlLine('Other operating expenses', null, 1, 'group') + renderLines(opexLines, true) : ''}
+          ${pnlTotal('Total Operating Expenses', totalExpenses)}
+          ${pnlGrand('Net Operating Income', noi, noi >= 0 ? 'pos' : 'neg')}
+          ${adjusting.length ? `
+            ${pnlSection('Adjusting Entries')}
+            ${adjusting.map(j => pnlLine(j.description || 'Adjustment', j.netAmount, 1)).join('')}
+            ${pnlTotal('Total Adjustments', totalAdj, totalAdj >= 0 ? 'pos' : 'neg')}
+          ` : ''}
+          ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
+          ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
+          ${isClosed && totalAdj !== 0 ? `
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px">
+              <p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px">Period Comparison</p>
+              <table style="width:100%;font-size:13px">
+                <tr><td>Cash basis net income</td><td style="text-align:right">${fmt(noi)}</td></tr>
+                <tr><td>Adjusting entries</td><td style="text-align:right">${totalAdj >= 0 ? fmt(totalAdj) : '(' + fmt(Math.abs(totalAdj)) + ')'}</td></tr>
+                <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Accrual basis net income</td><td style="text-align:right">${fmt(netProfit)}</td></tr>
+              </table>
+            </div>
+          ` : ''}
+          ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
+          ${totalIncome === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
+        `;
+      });
   },
 
-  async setPnlEntity(val) { await this.renderPnL(); },
+  _renderPnlDetail(data) {
+    const container = document.getElementById('pnlReport');
+    const groups = {};
+    (data.txns || []).forEach(t => {
+      const type = t.accounts?.account_type || 'Other';
+      const sub  = t.accounts?.account_subtype || 'General';
+      if (!groups[type]) groups[type] = {};
+      if (!groups[type][sub]) groups[type][sub] = 0;
+      groups[type][sub] += t.amount || 0;
+    });
+
+    let html = '<table class="data-table"><thead><tr><th>Category</th><th>Sub-category</th><th class="r">Amount</th><th class="r">% Rev</th></tr></thead><tbody>';
+    const revenue = Object.values(groups.revenue || groups.Revenue || {}).reduce((s,v)=>s+v,0) || 1;
+
+    Object.entries(groups).forEach(([type, subs]) => {
+      const typeTotal = Object.values(subs).reduce((s,v)=>s+v,0);
+      html += `<tr class="section-header"><td colspan="2"><strong>${type}</strong></td><td class="r"><strong>${this.fmt(typeTotal)}</strong></td><td class="r">${(typeTotal/revenue*100).toFixed(1)}%</td></tr>`;
+      Object.entries(subs).forEach(([sub, amt]) => {
+        html += `<tr><td></td><td>${sub}</td><td class="r">${this.fmt(amt)}</td><td class="r">${(amt/revenue*100).toFixed(1)}%</td></tr>`;
+      });
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  },
+
+  _summarizePnlData(data) {
+    if (!data) return {};
+    const txns = data.txns || [];
+    // account_type values are lowercase in Supabase ('revenue', 'cogs', 'expense')
+    const rev  = txns.filter(t=>t.accounts?.account_type==='revenue').reduce((s,t)=>s+t.amount,0);
+    const cogs = txns.filter(t=>t.accounts?.account_type==='cogs').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const opex = txns.filter(t=>t.accounts?.account_type==='expense').reduce((s,t)=>s+Math.abs(t.amount),0);
+    const gp   = rev - cogs;
+    return { Revenue: rev, COGS: cogs, 'Gross Profit': gp, 'Operating Expenses': opex, 'Net Income': gp - opex };
+  },
+
+  async _renderPnlByEntity(range) {
+    const ENTITIES = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS'];
+    const container = document.getElementById('pnlReport');
+    container.innerHTML = '<p style="color:var(--text3)">Loading by-entity data…</p>';
+
+    const results = await Promise.all(ENTITIES.map(e => this.fetchReportData(e, range)));
+    const cats = ['Revenue','COGS','Gross Profit','Operating Expenses','Net Income'];
+    const entityTotals = {};
+    ENTITIES.forEach((e, i) => { entityTotals[e] = this._summarizePnlData(results[i]); });
+
+    let html = `<table class="data-table"><thead><tr><th>Category</th>${ENTITIES.map(e=>`<th class="r">${e}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>`;
+    cats.forEach(cat => {
+      const row = ENTITIES.map(e => entityTotals[e]?.[cat] || 0);
+      const total = row.reduce((s,v)=>s+v,0);
+      html += `<tr><td>${cat}</td>${row.map(v=>`<td class="r">${this.fmt(v)}</td>`).join('')}<td class="r"><strong>${this.fmt(total)}</strong></td></tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  },
+
+  async _renderPnlVsPrior(data, range) {
+    const container = document.getElementById('pnlReport');
+    container.innerHTML = '<p style="color:var(--text3)">Loading prior year…</p>';
+
+    const shift = d => { const dt = new Date(d); dt.setFullYear(dt.getFullYear()-1); return dt.toISOString().slice(0,10); };
+    const priorRange = { from: shift(range.from), to: shift(range.to) };
+    const priorData = await this.fetchReportData(state.globalEntity, priorRange);
+
+    const curr = this._summarizePnlData(data);
+    const prior = this._summarizePnlData(priorData);
+    const cats = ['Revenue','COGS','Gross Profit','Operating Expenses','Net Income'];
+
+    let html = '<table class="data-table"><thead><tr><th>Category</th><th class="r">Current</th><th class="r">Prior Yr</th><th class="r">$ Var</th><th class="r">% Var</th></tr></thead><tbody>';
+    cats.forEach(cat => {
+      const c = curr[cat] || 0, p = prior[cat] || 0, varD = c - p;
+      const varP = p !== 0 ? (varD/Math.abs(p)*100).toFixed(1)+'%' : '—';
+      const cls = varD >= 0 ? 'g' : 'r';
+      html += `<tr><td>${cat}</td><td class="r">${this.fmt(c)}</td><td class="r">${this.fmt(p)}</td><td class="r ${cls}">${this.fmt(varD)}</td><td class="r ${cls}">${varP}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  },
+
+  _renderPnlVsBudget(data) {
+    const container = document.getElementById('pnlReport');
+    const curr = this._summarizePnlData(data);
+    const bgt = window._plBudget || {};
+    const cats = [
+      { label:'Revenue',            key:'Revenue',            bKey:'revenue'            },
+      { label:'COGS',               key:'COGS',               bKey:'cogs'               },
+      { label:'Gross Profit',       key:'Gross Profit',       bKey:'gross_profit'       },
+      { label:'Operating Expenses', key:'Operating Expenses', bKey:'operating_expenses' },
+      { label:'Net Income',         key:'Net Income',         bKey:'net_income'         },
+    ];
+    let html = '<table class="data-table"><thead><tr><th>Category</th><th class="r">Actual</th><th class="r">Budget</th><th class="r">$ Var</th><th class="r">% Var</th></tr></thead><tbody>';
+    cats.forEach(({ label, key, bKey }) => {
+      const actual = curr[key] || 0;
+      const budget = bgt[bKey] ?? null;
+      const varD = budget !== null ? actual - budget : null;
+      const varP = (budget && varD !== null) ? (varD/Math.abs(budget)*100).toFixed(1)+'%' : '—';
+      const cls  = varD !== null ? (varD >= 0 ? 'g' : 'r') : '';
+      html += `<tr><td>${label}</td><td class="r">${this.fmt(actual)}</td><td class="r">${budget !== null ? this.fmt(budget) : '—'}</td><td class="r ${cls}">${varD !== null ? this.fmt(varD) : '—'}</td><td class="r ${cls}">${varP}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  },
+
+  async _renderPnlCharts(data, range) { /* Task 3 */ },
+
+  async setPnlEntity(val) { await this.renderPnl(); },
 
   togglePnlEntity(code) {
     const idx = state.pnlEntities.indexOf(code);
@@ -761,14 +891,14 @@ const app = {
     } else {
       state.pnlEntities.forEach(c => document.getElementById('pnlPill' + c)?.classList.add('active'));
     }
-    this.renderPnL();
+    this.renderPnl();
   },
 
   clearPnlEntities() {
     state.pnlEntities = [];
     document.querySelectorAll('.pnl-entity-pill').forEach(b => b.classList.remove('active'));
     document.getElementById('pnlPillAll')?.classList.add('active');
-    this.renderPnL();
+    this.renderPnl();
   },
 
   setPnlMode(mode) {
@@ -852,14 +982,14 @@ const app = {
     localStorage.setItem('pnlComparison', JSON.stringify({ label, data }));
     this.toast(`Comparison "${label}" loaded`);
     this.closeModal();
-    this.renderPnL();
+    this.renderPnl();
   },
 
   clearComparison() {
     localStorage.removeItem('pnlComparison');
     _pnlCmp = null;
     document.getElementById('pnlReport')?.classList.remove('comparing');
-    this.renderPnL();
+    this.renderPnl();
   },
 
   // ---- BALANCE SHEET ----
