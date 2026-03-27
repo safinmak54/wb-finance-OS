@@ -3795,6 +3795,16 @@ const app = {
     const inserts = [];
     let skipped = 0;
 
+    const TX_DIRECTION_MAP = {
+      'CHECK PAID':               'DEBIT',
+      'DEPOSIT CORRECTION DB':    'DEBIT',
+      'MISCELLANEOUS FEES':       'DEBIT',
+      'RETURNED CASH ITEM DEBIT': 'DEBIT',
+      'ACH OFFSET DEBIT':         'DEBIT',
+      'ADJUSTMENT DEBIT':         'DEBIT',
+      'REGULAR DEPOSIT':          'CREDIT',
+    };
+
     rows.forEach(row => {
       const accDate = this.normalizeDate(row[mapping.accDate]?.replace(/"/g, '').trim());
       // Clean description: strip trailing \EFFDAT and normalize whitespace
@@ -3807,9 +3817,10 @@ const app = {
         amount = Math.abs(val);
         // Use type column to determine direction if available (e.g. "ACH CREDIT", "MISCELLANEOUS DEBIT")
         if (mapping.type >= 0) {
-          const typeStr = (row[mapping.type] || '').toUpperCase();
-          if (typeStr.includes('CREDIT')) direction = 'CREDIT';
-          else if (typeStr.includes('DEBIT')) direction = 'DEBIT';
+          const typeStr = (row[mapping.type] || '').toUpperCase().trim();
+          if (TX_DIRECTION_MAP[typeStr]) direction = TX_DIRECTION_MAP[typeStr];
+          else if (typeStr.includes('CREDIT')) direction = 'CREDIT';
+          else if (typeStr.includes('DEBIT'))  direction = 'DEBIT';
         }
         // Fallback: positive = credit, negative = debit
         if (!direction) direction = val >= 0 ? 'CREDIT' : 'DEBIT';
