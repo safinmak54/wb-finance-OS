@@ -924,3 +924,39 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   .ratios-chart-grid { grid-template-columns: 1fr; }
   .ratios-chart-grid .span-2 { grid-column: span 1; }
 }
+
+/* ---- AP / PAYABLES ---- */
+.ap-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 768px) { .ap-kpi-row { grid-template-columns: 1fr 1fr; } }
+
+.aging-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.aging-cell {
+  background: var(--surface2); border-radius: 8px; padding: 10px 12px;
+  cursor: pointer; text-align: center; transition: background 0.12s;
+  border: 2px solid transparent;
+}
+.aging-cell:hover { border-color: var(--accent); }
+.aging-cell.active { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+.aging-cell-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 4px; }
+.aging-cell-val { font-size: 1rem; font-weight: 700; color: var(--text); }
+.aging-cell-count { font-size: 0.68rem; color: var(--text3); margin-top: 2px; }
+
+.aging-chip {
+  display: inline-block; font-size: 0.65rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 6px; text-transform: uppercase;
+}
+.aging-chip.current  { background: rgba(34,197,94,0.12);  color: #16a34a; }
+.aging-chip.low      { background: rgba(245,158,11,0.12); color: #b45309; }
+.aging-chip.medium   { background: rgba(249,115,22,0.12); color: #c2410c; }
+.aging-chip.high     { background: rgba(239,68,68,0.12);  color: #dc2626; }
+.aging-chip.critical { background: rgba(127,29,29,0.15);  color: #991b1b; }
+
+.ap-action-btn {
+  font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--text2);
+}
+.ap-action-btn:hover { background: var(--border2); }
+.ap-action-btn.pay { color: #16a34a; border-color: #16a34a; }
+.ap-action-btn.pay:hover { background: rgba(22,163,74,0.08); }

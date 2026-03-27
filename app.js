@@ -277,6 +277,7 @@ const app = {
       cfnotes:    ['CFO Notes', 'GAAP compliance & tax planning'],
       sales:      ['Sales Metrics', 'Revenue performance'],
       productmix: ['Product Mix', 'Category & channel breakdown'],
+      ap:         ['AP / Payables', 'Outstanding payables & aging'],
     };
     const [title, sub] = titles[page] || ['—', ''];
     document.getElementById('pageTitle').textContent = title;
@@ -304,6 +305,7 @@ const app = {
       if (page === 'cfnotes')      await this.renderCFONotes();
       if (page === 'sales')        this.renderSalesMetrics();
       if (page === 'productmix')   this.renderProductMix();
+      if (page === 'ap')           await this.renderAP();
     }, 10);
   },
 
@@ -4586,7 +4588,114 @@ ${context}`;
     t.textContent = msg;
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2600);
-  }
+  },
+
+  agingBucket(dueDateStr) {
+    if (!dueDateStr) return { label: '—', cls: '' };
+    const days = Math.floor((Date.now() - new Date(dueDateStr)) / 86400000);
+    if (days < 0)   return { label: 'Current',   cls: 'current',  days };
+    if (days <= 30) return { label: '1-30 Days',  cls: 'low',      days };
+    if (days <= 60) return { label: '31-60 Days', cls: 'medium',   days };
+    if (days <= 90) return { label: '61-90 Days', cls: 'high',     days };
+    return            { label: '90+ Days',    cls: 'critical', days };
+  },
+
+  async renderAP() {
+    const entity = state.globalEntity;
+    let query = supabaseClient.from('ap_items').select('*').eq('paid', false).order('due_date');
+    if (entity !== 'all') query = query.eq('entity', entity);
+    const { data: items, error } = await query;
+    if (error) { console.error('AP fetch:', error); return; }
+    this._apItems = items || [];
+    this._apBucketFilter = null;
+    this._renderApUI(this._apItems);
+  },
+
+  _renderApUI(items) {
+    const now = Date.now();
+    const weekMs = 7 * 86400000;
+
+    const total   = items.reduce((s,i) => s + i.amount, 0);
+    const overdue = items.filter(i => new Date(i.due_date) < new Date()).reduce((s,i) => s+i.amount, 0);
+    const dueWeek = items.filter(i => { const d=new Date(i.due_date); return d>=new Date() && d<=new Date(now+weekMs); }).reduce((s,i)=>s+i.amount,0);
+    const avgDays = items.length ? Math.round(items.reduce((s,i)=>s+(this.agingBucket(i.due_date).days||0),0)/items.length) : 0;
+
+    const set = (id, val) => { const el=document.getElementById(id); if (el) el.textContent=val; };
+    set('apTotal',   fmt(total));
+    set('apOverdue', fmt(overdue));
+    set('apDueWeek', fmt(dueWeek));
+    set('apAvgDays', avgDays + ' days');
+
+    const buckets = ['current','low','medium','high','critical'];
+    const labels  = ['Current','1-30 Days','31-60 Days','61-90 Days','90+ Days'];
+    const bktData = {};
+    buckets.forEach(b => { bktData[b] = { count: 0, total: 0 }; });
+    items.forEach(i => { const b = this.agingBucket(i.due_date); if (bktData[b.cls]) { bktData[b.cls].count++; bktData[b.cls].total += i.amount; } });
+
+    const agingGrid = document.getElementById('apAgingGrid');
+    if (agingGrid) {
+      agingGrid.innerHTML = buckets.map((b, i) => `
+        <div class="aging-cell ${b === this._apBucketFilter ? 'active' : ''}" onclick="app.filterApByBucket('${b}')">
+          <div class="aging-cell-label">${labels[i]}</div>
+          <div class="aging-cell-val">${fmt(bktData[b].total)}</div>
+          <div class="aging-cell-count">${bktData[b].count} invoice${bktData[b].count!==1?'s':''}</div>
+        </div>`).join('');
+    }
+
+    const vendorSel = document.getElementById('apVendorFilter');
+    if (vendorSel) {
+      const vendors = [...new Set(items.map(i=>i.vendor))].sort();
+      vendorSel.innerHTML = '<option value="">All Vendors</option>' + vendors.map(v=>`<option value="${v}">${v}</option>`).join('');
+    }
+
+    const body = document.getElementById('apTableBody');
+    if (!body) return;
+    if (!items.length) { body.innerHTML = '<tr><td colspan="7" style="color:var(--text3);text-align:center;padding:24px">No outstanding payables</td></tr>'; return; }
+    body.innerHTML = items.map(item => {
+      const aging = this.agingBucket(item.due_date);
+      return `<tr>
+        <td>${item.vendor}</td>
+        <td>${item.entity}</td>
+        <td>${item.invoice_date || '—'}</td>
+        <td>${item.due_date}</td>
+        <td class="r">${fmt(item.amount)}</td>
+        <td><span class="aging-chip ${aging.cls}">${aging.label}</span></td>
+        <td>
+          <button class="ap-action-btn pay" onclick="app.payApItem('${item.id}')">Pay</button>
+          <button class="ap-action-btn" onclick="app.disputeApItem('${item.id}')">Dispute</button>
+        </td>
+      </tr>`;
+    }).join('');
+  },
+
+  filterApByBucket(bucket) {
+    this._apBucketFilter = this._apBucketFilter === bucket ? null : bucket;
+    const filtered = this._apBucketFilter
+      ? this._apItems.filter(i => this.agingBucket(i.due_date).cls === this._apBucketFilter)
+      : this._apItems;
+    this._renderApUI(filtered);
+  },
+
+  filterApTable() {
+    const vendor = document.getElementById('apVendorFilter')?.value;
+    const filtered = vendor ? this._apItems.filter(i=>i.vendor===vendor) : this._apItems;
+    this._renderApUI(filtered);
+  },
+
+  async payApItem(id) {
+    const { error } = await supabaseClient.from('ap_items').update({ paid: true }).eq('id', id);
+    if (error) { this.toast('Error updating payment'); return; }
+    this.toast('Invoice marked as paid');
+    await this.renderAP();
+  },
+
+  async disputeApItem(id) {
+    const note = prompt('Enter dispute note:');
+    if (note === null) return;
+    const { error } = await supabaseClient.from('ap_items').update({ dispute_note: note }).eq('id', id);
+    if (error) { this.toast('Error saving dispute'); return; }
+    this.toast('Dispute note saved');
+  },
 };
 
 // ---- REPORT HELPERS ----
