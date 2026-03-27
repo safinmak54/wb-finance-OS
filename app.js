@@ -344,6 +344,12 @@ const app = {
     if (semantic === 'custom') {
       return { from: customFrom || today, to: customTo || today };
     }
+    // YYYY-MM format from legacy period picker
+    if (/^\d{4}-\d{2}$/.test(semantic)) {
+      const [year, month] = semantic.split('-').map(Number);
+      const lastDay = new Date(year, month, 0).getDate();
+      return { from: `${semantic}-01`, to: `${semantic}-${String(lastDay).padStart(2,'0')}` };
+    }
     // fallback: current month
     return { from: `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`, to: today };
   },
@@ -356,7 +362,7 @@ const app = {
       return `${months[now.getMonth()]} ${now.getFullYear()}`;
     }
     if (val === 'last-month') {
-      const d = new Date(); d.setMonth(d.getMonth()-1);
+      const d = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
       return `${months[d.getMonth()]} ${d.getFullYear()}`;
     }
     if (val === 'qtd') return `Q${Math.ceil((new Date().getMonth()+1)/3)} ${new Date().getFullYear()} to date`;
