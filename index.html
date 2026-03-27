@@ -478,6 +478,13 @@
           <button class="btn-outline" onclick="app.exportCSV()">↓ Export</button>
         </div>
       </div>
+      <div class="pl-mode-tabs" id="plModeTabs">
+        <button class="pl-tab active" data-mode="summary" onclick="app.setPnlMode(\'summary\')">Summary</button>
+        <button class="pl-tab" data-mode="detail" onclick="app.setPnlMode(\'detail\')">Detail</button>
+        <button class="pl-tab" data-mode="entity" onclick="app.setPnlMode(\'entity\')">By Entity</button>
+        <button class="pl-tab" data-mode="prior" onclick="app.setPnlMode(\'prior\')">vs Prior Year</button>
+        <button class="pl-tab" data-mode="budget" onclick="app.setPnlMode(\'budget\')">vs Budget</button>
+      </div>
       <div class="report-container" id="pnlReport"></div>
     </div>
 

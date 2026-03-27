@@ -227,6 +227,7 @@ const state = {
   filteredTxns: [...DATA.transactions],
   charts: {},
   pnlEntities: [],   // empty = all/consolidated; filled = selected entity codes
+  pnlMode: 'summary',
 };
 
 // P&L comparison data (from localStorage, set at render time)
@@ -770,6 +771,14 @@ const app = {
     this.renderPnL();
   },
 
+  setPnlMode(mode) {
+    state.pnlMode = mode;
+    document.querySelectorAll('.pl-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.mode === mode);
+    });
+    this.navigate('pnl');
+  },
+
   openComparisonUpload() {
     const title = document.getElementById('modalTitle');
     const body  = document.getElementById('modalBody');
@@ -1128,6 +1137,14 @@ const app = {
         { week: '2026-03-23', wkn:12, type:'Forecast', sales:820000, cogs:372300, ads:254200, oh:95000, other:0,      notes:'Mar W4 forecast' },
         { week: '2026-03-30', wkn:13, type:'Forecast', sales:790000, cogs:358650, ads:244900, oh:95000, other:0,      notes:'Apr W1 forecast' },
       ];
+    }
+
+    // Seed P&L Budget data
+    if (!window._plBudget) {
+      window._plBudget = {
+        revenue: 850000, cogs: 510000, gross_profit: 340000,
+        operating_expenses: 178000, net_income: 162000
+      };
     }
 
     const actuals = window._weeklyActuals;
