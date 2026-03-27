@@ -237,6 +237,11 @@ function _pnlNorm(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const app = {
   // Navigation
   navigate(page) {
+    // Show filter bar only on report/data pages
+    const FILTER_BAR_PAGES = new Set(['dashboard','inbox','ledger','journals','pnl','balance','cashflow','ratios','cfnotes','ap','reconcile','sales','productmix','forecast','invoices']);
+    const bar = document.getElementById('globalFilterBar');
+    if (bar) bar.style.display = FILTER_BAR_PAGES.has(page) ? 'flex' : 'none';
+
     if (page !== 'inbox') this._inboxLoadAll = false; // reset pagination on nav away
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -374,6 +379,67 @@ const app = {
       return `${months[parseInt(month,10)-1]} ${year}`;
     }
     return val;
+  },
+
+  setGlobalPeriod(semantic) {
+    // Toggle active button
+    document.querySelectorAll('.gfb-btn[data-period]').forEach(b => {
+      b.classList.toggle('active', b.dataset.period === semantic);
+    });
+    if (semantic === 'custom') {
+      const pop = document.getElementById('gfbCustomPopover');
+      if (pop) pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
+      return; // don't fire change yet — wait for applyCustomRange()
+    }
+    document.getElementById('gfbCustomPopover').style.display = 'none';
+    state.globalPeriod = semantic;
+    state.globalPeriodRange = this.resolveGlobalPeriod(semantic);
+    this.onGlobalFilterChange();
+  },
+
+  applyCustomRange() {
+    const from = document.getElementById('gfbFromDate').value;
+    const to   = document.getElementById('gfbToDate').value;
+    if (!from || !to) return;
+    document.getElementById('gfbCustomPopover').style.display = 'none';
+    state.globalPeriod = 'custom';
+    state.globalPeriodRange = { from, to };
+    this.onGlobalFilterChange();
+  },
+
+  onGlobalFilterChange() {
+    // Sync entity from dropdown
+    const entitySel = document.getElementById('gfbEntitySel');
+    if (entitySel) state.globalEntity = entitySel.value;
+
+    // Update chips
+    this.renderGfbChips();
+
+    // Update topbar pills
+    if (typeof this.updateTopbarKPIs === 'function') this.updateTopbarKPIs();
+
+    // Re-render active page
+    this.navigate(state.currentPage);
+  },
+
+  renderGfbChips() {
+    const chips = document.getElementById('gfbChips');
+    if (!chips) return;
+    const parts = [];
+    if (state.globalPeriod !== 'month') {
+      parts.push(`<span class="gfb-chip" onclick="app.setGlobalPeriod('month')">${this.getPeriodLabel(state.globalPeriod)} ×</span>`);
+    }
+    if (state.globalEntity !== 'all') {
+      parts.push(`<span class="gfb-chip" onclick="app.resetGlobalEntity()">${state.globalEntity} ×</span>`);
+    }
+    chips.innerHTML = parts.join('');
+  },
+
+  resetGlobalEntity() {
+    state.globalEntity = 'all';
+    const sel = document.getElementById('gfbEntitySel');
+    if (sel) sel.value = 'all';
+    this.onGlobalFilterChange();
   },
 
   normalizeDate(str) {
@@ -3843,6 +3909,7 @@ const app = {
     // Navigate to default page for role
     const defaultPage = { coo: 'dashboard', bookkeeper: 'inbox', cpa: 'pnl', admin: 'dashboard' }[role] || 'dashboard';
     this.navigate(defaultPage);
+    this.renderGfbChips();
   },
 
   // ---- AI ADVISOR PANEL ----
