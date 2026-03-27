@@ -1010,3 +1010,13 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .sales-banner-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.75; }
 .sales-banner-val { font-size: 2rem; font-weight: 800; margin: 6px 0 2px; }
 .sales-banner-sub { font-size: 0.78rem; opacity: 0.75; }
+
+/* ---- CASH FORECAST ---- */
+.forecast-table td[contenteditable="true"] {
+  cursor: text; outline: none;
+  border-bottom: 1px dashed var(--border2); min-width: 80px;
+}
+.forecast-table td[contenteditable="true"]:focus { background: rgba(59,130,246,0.06); }
+.forecast-table .fc-delta { font-size: 0.72rem; }
+.forecast-table .fc-over { color: #b45309; background: rgba(245,158,11,0.08); }
+.forecast-table tfoot td { font-weight: 700; background: var(--surface2); }

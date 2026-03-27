@@ -1472,120 +1472,65 @@ const app = {
 
   // ---- CASH FORECAST ----
   renderCashForecast() {
-    const el = document.getElementById('forecastContent');
-    if (!el) return;
-    const fmt = n => '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
-    const fmtK = n => (Math.abs(n) >= 1000 ? '$' + (Math.abs(n)/1000).toFixed(0) + 'K' : fmt(n));
+    this.renderForecast();
+  },
 
-    // Seed bank accounts and CC payables
-    if (!window._bankAccounts) {
-      window._bankAccounts = [
-        { name:'WBP Operating',  entity:'WBP',    bank:'Huntington', balance:312450, status:'active' },
-        { name:'LP Checking',    entity:'LP',     bank:'Huntington', balance:187320, status:'active' },
-        { name:'KP Checking',    entity:'KP',     bank:'TFB',        balance:98740,  status:'active' },
-        { name:'BP Checking',    entity:'BP',     bank:'TFB',        balance:134280, status:'active' },
-        { name:'SWAG Operating', entity:'SWAG',   bank:'Huntington', balance:215680, status:'active' },
-        { name:'RUSH Operating', entity:'RUSH',   bank:'TFB',        balance:178930, status:'active' },
-        { name:'ONEOPS Mgmt',    entity:'ONEOPS', bank:'Huntington', balance:89600,  status:'active' },
-        { name:'SP1 Checking',   entity:'SP1',    bank:'TFB',        balance:30598,  status:'low'    },
-      ];
-    }
-    if (!window._ccPayables) { window._ccPayables = 555478; }
+  renderForecast() {
+    const entity = state.globalEntity;
+    const key    = `forecast_${entity}_2026`;
+    const stored = JSON.parse(localStorage.getItem(key) || '{}');
+    const el     = document.getElementById('forecastEntity');
+    if (el) el.textContent = entity === 'all' ? 'All Entities' : entity;
 
-    // Seed weekly actuals (realistic WB Brands data)
-    if (!window._weeklyActuals) {
-      const now = new Date();
-      window._weeklyActuals = [
-        { week: '2026-01-05', wkn:1,  type:'Actual',   sales:751951, cogs:341169, ads:232669, oh:95000, other:0,      notes:'Jan W1' },
-        { week: '2026-01-12', wkn:2,  type:'Actual',   sales:812340, cogs:368834, ads:251826, oh:95000, other:0,      notes:'Jan W2' },
-        { week: '2026-01-19', wkn:3,  type:'Actual',   sales:698200, cogs:317091, ads:216342, oh:95000, other:0,      notes:'Jan W3' },
-        { week: '2026-01-26', wkn:4,  type:'Actual',   sales:789510, cogs:358626, ads:244548, oh:95000, other:225000, notes:'Jan W4 + Div' },
-        { week: '2026-02-02', wkn:5,  type:'Actual',   sales:774800, cogs:351993, ads:239888, oh:95000, other:0,      notes:'Feb W1' },
-        { week: '2026-02-09', wkn:6,  type:'Actual',   sales:821300, cogs:372890, ads:254403, oh:95000, other:0,      notes:'Feb W2' },
-        { week: '2026-02-16', wkn:7,  type:'Actual',   sales:756900, cogs:343736, ads:234639, oh:95000, other:0,      notes:'Feb W3' },
-        { week: '2026-02-23', wkn:8,  type:'Actual',   sales:803100, cogs:364608, ads:248961, oh:95000, other:300000, notes:'Feb W4 + Div' },
-        { week: '2026-03-02', wkn:9,  type:'Actual',   sales:832600, cogs:378012, ads:257806, oh:95000, other:0,      notes:'Mar W1' },
-        { week: '2026-03-09', wkn:10, type:'Partial',  sales:621784, cogs:282344, ads:192553, oh:95000, other:0,      notes:'Mar W2 (partial)' },
-        { week: '2026-03-16', wkn:11, type:'Forecast', sales:810000, cogs:367740, ads:250800, oh:95000, other:0,      notes:'Mar W3 forecast' },
-        { week: '2026-03-23', wkn:12, type:'Forecast', sales:820000, cogs:372300, ads:254200, oh:95000, other:0,      notes:'Mar W4 forecast' },
-        { week: '2026-03-30', wkn:13, type:'Forecast', sales:790000, cogs:358650, ads:244900, oh:95000, other:0,      notes:'Apr W1 forecast' },
-      ];
-    }
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const ROWS   = ['Revenue','COGS','Gross Profit','Operating Expenses','Net Income'];
 
-    // Seed P&L Budget data
-    if (!window._plBudget) {
-      window._plBudget = {
-        revenue: 850000, cogs: 510000, gross_profit: 340000,
-        operating_expenses: 178000, net_income: 162000
-      };
-    }
+    const tbl = document.getElementById('forecastTable');
+    if (!tbl) return;
 
-    const actuals = window._weeklyActuals;
-    // Calculate burn rate from Actual weeks
-    const actualWeeks = actuals.filter(w => w.type === 'Actual');
-    const totalOut = actualWeeks.reduce((s, w) => s + w.cogs + w.ads + w.oh + w.other, 0);
-    const weeklyBurn = actualWeeks.length ? totalOut / actualWeeks.length : 0;
-    const monthlyBurn = weeklyBurn * 4.33;
-    // Use a seed bank balance (will be replaced by live data when bank connections exist)
-    const bankBalance = 1247000;
-    const runway = monthlyBurn > 0 ? bankBalance / monthlyBurn : 0;
+    const getVal = (row, mo) => stored[`${row}_${mo}`] ?? '';
 
-    const healthClass = closing => closing >= 300000 ? 'healthy' : closing >= 150000 ? 'watch' : 'low';
-    const healthLabel = closing => closing >= 300000 ? 'Healthy' : closing >= 150000 ? 'Watch' : 'Low';
+    let html = `<thead><tr><th>Category</th>${MONTHS.map(m=>`<th class="r">${m}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>`;
 
-    // Build 13-week table rows
-    let opening = bankBalance;
-    const rows = actuals.map(w => {
-      const cashIn  = w.sales;
-      const cashOut = w.cogs + w.ads + w.oh + w.other;
-      const net     = cashIn - cashOut;
-      const closing = opening + net;
-      const row = { ...w, opening, cashIn, cashOut, net, closing };
-      opening = closing;
-      return row;
+    ROWS.forEach(row => {
+      const vals = MONTHS.map((_,mo) => {
+        const v = parseFloat(getVal(row, mo)) || 0;
+        return { v };
+      });
+      const total = vals.reduce((s,{v})=>s+v,0);
+      html += `<tr><td>${row}</td>${vals.map(({v},mo) =>
+        `<td class="r fc-cell" data-row="${row}" data-mo="${mo}">
+          <div contenteditable="true" class="fc-edit" onblur="app.saveForecastCell('${row}',${mo},this.textContent)">${v || ''}</div>
+        </td>`
+      ).join('')}<td class="r"><strong>${fmt(total)}</strong></td></tr>`;
     });
 
-    const runwayColor = runway >= 6 ? 'var(--green)' : runway >= 3 ? 'var(--amber)' : 'var(--red)';
+    html += `</tbody><tfoot><tr><td>Total</td>${MONTHS.map((_,mo) => {
+      const colTotal = ROWS.reduce((s,row)=>s+(parseFloat(getVal(row,mo))||0),0);
+      return `<td class="r">${fmt(colTotal)}</td>`;
+    }).join('')}<td></td></tr></tfoot>`;
 
-    el.innerHTML = `
-      <div class="forecast-kpi-row">
-        <div class="metric-card"><div class="metric-label">Bank Balance</div><div class="metric-value">${fmt(bankBalance)}</div><div class="metric-delta" style="color:var(--text2)">Seed estimate</div></div>
-        <div class="metric-card"><div class="metric-label">Monthly Burn</div><div class="metric-value">${fmtK(monthlyBurn)}</div><div class="metric-delta" style="color:var(--text2)">Avg outflows/mo</div></div>
-        <div class="metric-card"><div class="metric-label">Cash Runway</div><div class="metric-value" style="color:${runwayColor}">${runway.toFixed(1)} mo</div><div class="metric-delta" style="color:var(--text2)">At current burn</div></div>
-        <div class="metric-card"><div class="metric-label">Weeks Tracked</div><div class="metric-value">${actualWeeks.length}</div><div class="metric-delta" style="color:var(--text2)">Actual weeks</div></div>
-      </div>
-      <div class="card">
-        <div class="card-header"><span class="card-title">13-Week Cash Model</span>
-          <div style="display:flex;gap:10px;font-size:11px">
-            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:rgba(5,150,105,0.15);border-radius:2px;display:inline-block"></em>Actual</span>
-            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:rgba(217,119,6,0.12);border-radius:2px;display:inline-block"></em>Partial</span>
-            <span style="display:flex;align-items:center;gap:4px"><em style="width:10px;height:10px;background:var(--surface2);border:1px solid var(--border);border-radius:2px;display:inline-block"></em>Forecast</span>
-          </div>
-        </div>
-        <div class="forecast-table-wrap">
-          <table class="forecast-table">
-            <thead><tr>
-              <th style="text-align:left">Week</th>
-              <th>Opening</th><th>Cash In</th><th>COGS</th><th>Ads</th><th>Overhead</th><th>Other</th><th>Net</th><th>Closing</th><th>Status</th>
-            </tr></thead>
-            <tbody>
-              ${rows.map(r => `<tr class="type-${r.type.toLowerCase()}">
-                <td><div style="font-weight:500">${r.week}</div><div style="font-size:10px;color:var(--text3)">${r.notes}</div></td>
-                <td>${fmtK(r.opening)}</td>
-                <td style="color:var(--green)">${fmtK(r.cashIn)}</td>
-                <td style="color:var(--red)">(${fmtK(r.cogs)})</td>
-                <td style="color:var(--red)">(${fmtK(r.ads)})</td>
-                <td style="color:var(--red)">(${fmtK(r.oh)})</td>
-                <td style="color:var(--red)">${r.other ? '(' + fmtK(r.other) + ')' : '—'}</td>
-                <td style="color:${r.net>=0?'var(--green)':'var(--red)'};font-weight:600">${r.net>=0?'+':''}${fmtK(r.net)}</td>
-                <td style="font-weight:700">${fmtK(r.closing)}</td>
-                <td><span class="forecast-health ${healthClass(r.closing)}">${healthLabel(r.closing)}</span></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
+    tbl.innerHTML = html;
+  },
+
+  saveForecastCell(row, mo, rawVal) {
+    const entity = state.globalEntity;
+    const key    = `forecast_${entity}_2026`;
+    const stored = JSON.parse(localStorage.getItem(key) || '{}');
+    const val    = parseFloat(rawVal.replace(/[^0-9.\-]/g,'')) || 0;
+    stored[`${row}_${mo}`] = val;
+    localStorage.setItem(key, JSON.stringify(stored));
+    this.renderForecast();
+  },
+
+  resetForecast() {
+    if (!confirm('Reset all forecast data for this entity?')) return;
+    localStorage.removeItem(`forecast_${state.globalEntity}_2026`);
+    this.renderForecast();
+  },
+
+  exportForecast() {
+    this.showToast('Export coming soon', 'success');
   },
 
   // ---- RATIOS & KPIs ----
