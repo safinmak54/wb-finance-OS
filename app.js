@@ -298,7 +298,7 @@ const app = {
       if (page === 'journals')     await this.renderJournals();
       if (page === 'coa')          this.renderCOA();
       if (page === 'banks')        this.renderBanks();
-      if (page === 'reconcile')    this.renderReconcile();
+      if (page === 'reconcile')    await this.renderReconcile();
       if (page === 'cashflow')     await this.renderCashflow();
       if (page === 'forecast')     this.renderCashForecast();
       if (page === 'ratios')       await this.renderRatios();
@@ -2143,14 +2143,142 @@ const app = {
   },
 
   // ---- RECONCILE ----
-  renderReconcile() {
+  async renderReconcile() {
     const reconStats = document.getElementById('reconStats');
     if (reconStats) reconStats.innerHTML = '';
+
+    // --- Fetch existing reconciliation matches ---
+    const entity = state.globalEntity;
+    const range  = state.globalPeriodRange;
+
+    let matchQ = supabaseClient.from('reconciliation_matches').select('id, statement_txn_id, book_txn_id, match_status, amount');
+    if (entity !== 'all') matchQ = matchQ.eq('entity', entity);
+    const { data: matches } = await matchQ;
+    const matchList = matches || [];
+
+    const counts = { matched:0, unmatched:0, pending:0, disputed:0 };
+    matchList.forEach(m => { if (counts[m.match_status] !== undefined) counts[m.match_status]++; });
+
+    const setCard = (id, val) => { const el=document.getElementById(id); if(el) el.textContent=val; };
+    setCard('reconMatched',   counts.matched);
+    setCard('reconUnmatched', counts.unmatched);
+    setCard('reconPending',   counts.pending);
+    setCard('reconDisputed',  counts.disputed);
+
+    const bankMatchMap = {};
+    matchList.forEach(m => { bankMatchMap[m.statement_txn_id] = m; });
+
+    // --- Fetch bank (raw) and book transactions for the current period ---
     const bankBody = document.getElementById('bankBody');
     const bookBody = document.getElementById('bookBody');
-    const placeholder = `<tr><td colspan="4" style="padding:48px;text-align:center;color:var(--text3);font-size:13px">Reconciliation requires bank connections — coming in a future update.</td></tr>`;
-    if (bankBody) bankBody.innerHTML = placeholder;
-    if (bookBody) bookBody.innerHTML = '';
+
+    let bankQ = supabaseClient.from('raw_transactions').select('id, acc_date, description, amount, entity')
+      .gte('acc_date', range.from).lte('acc_date', range.to);
+    if (entity !== 'all') bankQ = bankQ.eq('entity', entity);
+    const { data: bankTxns } = await bankQ;
+
+    let bookQ = supabaseClient.from('transactions').select('id, acc_date, description, amount, entity')
+      .gte('acc_date', range.from).lte('acc_date', range.to);
+    if (entity !== 'all') bookQ = bookQ.eq('entity', entity);
+    const { data: bookTxns } = await bookQ;
+
+    const matchedBookIds = new Set(matchList.filter(m => m.match_status === 'matched').map(m => m.book_txn_id));
+
+    if (bankBody) {
+      if (!bankTxns || bankTxns.length === 0) {
+        bankBody.innerHTML = `<tr><td colspan="4" style="padding:48px;text-align:center;color:var(--text3);font-size:13px">No bank transactions for this period.</td></tr>`;
+      } else {
+        bankBody.innerHTML = bankTxns.map(bank => {
+          const match = bankMatchMap[String(bank.id)];
+          const matchCell = match
+            ? match.match_status === 'matched'
+              ? `<span style="color:var(--green)">✓ Matched</span>`
+              : match.match_status === 'pending'
+              ? `<button class="ap-action-btn" onclick="app.confirmMatch('${match.id}')">Confirm</button>
+                 <button class="ap-action-btn" onclick="app.disputeMatch('${match.id}')">Dispute</button>`
+              : match.match_status === 'disputed'
+              ? `<span style="color:var(--red)">Disputed</span>`
+              : '—'
+            : '—';
+          return `<tr><td>${bank.acc_date||'—'}</td><td>${bank.description||'—'}</td><td class="r">${fmt(bank.amount)}</td><td>${matchCell}</td></tr>`;
+        }).join('');
+      }
+    }
+
+    if (bookBody) {
+      if (!bookTxns || bookTxns.length === 0) {
+        bookBody.innerHTML = `<tr><td colspan="4" style="padding:48px;text-align:center;color:var(--text3);font-size:13px">No book transactions for this period.</td></tr>`;
+      } else {
+        bookBody.innerHTML = bookTxns.map(book => {
+          const isMatched = matchedBookIds.has(book.id);
+          const matchCell = isMatched ? `<span style="color:var(--green)">✓ Matched</span>` : '—';
+          return `<tr><td>${book.acc_date||'—'}</td><td>${book.description||'—'}</td><td class="r">${fmt(book.amount)}</td><td>${matchCell}</td></tr>`;
+        }).join('');
+      }
+    }
+  },
+
+  async autoMatch() {
+    const entity = state.globalEntity;
+    const range  = state.globalPeriodRange;
+
+    let bankQ = supabaseClient.from('raw_transactions').select('id, acc_date, description, amount, entity')
+      .gte('acc_date', range.from).lte('acc_date', range.to);
+    if (entity !== 'all') bankQ = bankQ.eq('entity', entity);
+    const { data: bankTxns } = await bankQ;
+
+    let bookQ = supabaseClient.from('transactions').select('id, acc_date, description, amount, entity')
+      .gte('acc_date', range.from).lte('acc_date', range.to);
+    if (entity !== 'all') bookQ = bookQ.eq('entity', entity);
+    const { data: bookTxns } = await bookQ;
+
+    if (!bankTxns || !bookTxns) return;
+
+    const used = new Set();
+    const inserts = [];
+
+    bankTxns.forEach(bank => {
+      const bankDate = new Date(bank.acc_date);
+      const candidates = bookTxns.filter(book => {
+        if (used.has(book.id)) return false;
+        const bookDate = new Date(book.acc_date);
+        const daysDiff = Math.abs((bankDate - bookDate) / 86400000);
+        return Math.abs(bank.amount - book.amount) < 0.01 && daysDiff <= 3;
+      });
+
+      if (candidates.length === 1) {
+        used.add(candidates[0].id);
+        inserts.push({ statement_txn_id: String(bank.id), book_txn_id: candidates[0].id, entity: bank.entity || entity, amount: bank.amount, match_status: 'matched', matched_at: new Date().toISOString() });
+      } else if (candidates.length > 1) {
+        inserts.push({ statement_txn_id: String(bank.id), book_txn_id: null, entity: bank.entity || entity, amount: bank.amount, match_status: 'pending' });
+      }
+    });
+
+    if (inserts.length) {
+      const { error } = await supabaseClient.from('reconciliation_matches').upsert(inserts, { onConflict: 'statement_txn_id' });
+      if (error) { this.showToast('Auto-match error: ' + error.message, 'error'); return; }
+    }
+
+    this.showToast(`Auto-matched ${inserts.filter(i=>i.match_status==='matched').length} transactions`, 'success');
+    await this.renderReconcile();
+  },
+
+  async confirmMatch(matchId) {
+    const { error } = await supabaseClient.from('reconciliation_matches')
+      .update({ match_status: 'matched', matched_at: new Date().toISOString() })
+      .eq('id', matchId);
+    if (error) { this.showToast('Error confirming match', 'error'); return; }
+    this.showToast('Match confirmed', 'success');
+    await this.renderReconcile();
+  },
+
+  async disputeMatch(matchId) {
+    const { error } = await supabaseClient.from('reconciliation_matches')
+      .update({ match_status: 'disputed' })
+      .eq('id', matchId);
+    if (error) { this.showToast('Error disputing match', 'error'); return; }
+    this.showToast('Match disputed', 'success');
+    await this.renderReconcile();
   },
 
   // ---- CASH FLOW ----

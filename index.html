@@ -389,6 +389,13 @@
       <div class="reconcile-header">
         <div class="recon-stats" id="reconStats"></div>
       </div>
+      <div class="recon-summary" id="reconSummary">
+        <div class="metric-card"><div class="metric-label">Matched</div><div class="metric-value g" id="reconMatched">—</div></div>
+        <div class="metric-card"><div class="metric-label">Unmatched</div><div class="metric-value r" id="reconUnmatched">—</div></div>
+        <div class="metric-card"><div class="metric-label">Pending Review</div><div class="metric-value" id="reconPending">—</div></div>
+        <div class="metric-card"><div class="metric-label">Disputed</div><div class="metric-value" id="reconDisputed">—</div></div>
+        <button class="btn-primary" style="margin-left:auto" onclick="app.autoMatch()">⚡ Auto-Match</button>
+      </div>
       <div class="reconcile-grid">
         <div class="card">
           <div class="card-header"><span class="card-title">Bank statement items</span></div>

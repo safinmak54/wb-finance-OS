@@ -960,3 +960,10 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .ap-action-btn:hover { background: var(--border2); }
 .ap-action-btn.pay { color: #16a34a; border-color: #16a34a; }
 .ap-action-btn.pay:hover { background: rgba(22,163,74,0.08); }
+
+/* ---- RECONCILIATION ---- */
+.recon-summary {
+  display: flex; gap: 12px; align-items: center;
+  margin-bottom: 16px; flex-wrap: wrap;
+}
+.recon-summary .metric-card { flex: 1; min-width: 120px; }
