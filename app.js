@@ -789,9 +789,9 @@ const app = {
 
     Object.entries(groups).forEach(([type, subs]) => {
       const typeTotal = Object.values(subs).reduce((s,v)=>s+v,0);
-      html += `<tr class="section-header"><td colspan="2"><strong>${type}</strong></td><td class="r"><strong>${this.fmt(typeTotal)}</strong></td><td class="r">${(typeTotal/revenue*100).toFixed(1)}%</td></tr>`;
+      html += `<tr class="section-header"><td colspan="2"><strong>${type}</strong></td><td class="r"><strong>${fmt(typeTotal)}</strong></td><td class="r">${(typeTotal/revenue*100).toFixed(1)}%</td></tr>`;
       Object.entries(subs).forEach(([sub, amt]) => {
-        html += `<tr><td></td><td>${sub}</td><td class="r">${this.fmt(amt)}</td><td class="r">${(amt/revenue*100).toFixed(1)}%</td></tr>`;
+        html += `<tr><td></td><td>${sub}</td><td class="r">${fmt(amt)}</td><td class="r">${(amt/revenue*100).toFixed(1)}%</td></tr>`;
       });
     });
     html += '</tbody></table>';
@@ -817,13 +817,14 @@ const app = {
     const results = await Promise.all(ENTITIES.map(e => this.fetchReportData(e, range)));
     const cats = ['Revenue','COGS','Gross Profit','Operating Expenses','Net Income'];
     const entityTotals = {};
-    ENTITIES.forEach((e, i) => { entityTotals[e] = this._summarizePnlData(results[i]); });
+    ENTITIES.forEach((e, i) => { if (results[i] !== null) entityTotals[e] = this._summarizePnlData(results[i]); });
 
     let html = `<table class="data-table"><thead><tr><th>Category</th>${ENTITIES.map(e=>`<th class="r">${e}</th>`).join('')}<th class="r">Total</th></tr></thead><tbody>`;
     cats.forEach(cat => {
-      const row = ENTITIES.map(e => entityTotals[e]?.[cat] || 0);
-      const total = row.reduce((s,v)=>s+v,0);
-      html += `<tr><td>${cat}</td>${row.map(v=>`<td class="r">${this.fmt(v)}</td>`).join('')}<td class="r"><strong>${this.fmt(total)}</strong></td></tr>`;
+      const row = ENTITIES.map((e, i) => results[i] === null ? null : (entityTotals[e]?.[cat] || 0));
+      const validVals = row.filter(v => v !== null);
+      const total = validVals.reduce((s,v) => s+v, 0);
+      html += `<tr><td>${cat}</td>${row.map(v => `<td class="r">${v === null ? '<span style="color:var(--text3)">—</span>' : fmt(v)}</td>`).join('')}<td class="r"><strong>${fmt(total)}</strong></td></tr>`;
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -835,7 +836,13 @@ const app = {
 
     const shift = d => { const dt = new Date(d); dt.setFullYear(dt.getFullYear()-1); return dt.toISOString().slice(0,10); };
     const priorRange = { from: shift(range.from), to: shift(range.to) };
-    const priorData = await this.fetchReportData(state.globalEntity, priorRange);
+    const entity = state.pnlEntities && state.pnlEntities.length > 0 ? state.pnlEntities : state.globalEntity;
+    const priorData = await this.fetchReportData(entity, priorRange);
+
+    if (!priorData) {
+      container.innerHTML = '<div style="padding:16px;color:var(--text3)">Prior year data unavailable for this period.</div>';
+      return;
+    }
 
     const curr = this._summarizePnlData(data);
     const prior = this._summarizePnlData(priorData);
@@ -846,7 +853,7 @@ const app = {
       const c = curr[cat] || 0, p = prior[cat] || 0, varD = c - p;
       const varP = p !== 0 ? (varD/Math.abs(p)*100).toFixed(1)+'%' : '—';
       const cls = varD >= 0 ? 'g' : 'r';
-      html += `<tr><td>${cat}</td><td class="r">${this.fmt(c)}</td><td class="r">${this.fmt(p)}</td><td class="r ${cls}">${this.fmt(varD)}</td><td class="r ${cls}">${varP}</td></tr>`;
+      html += `<tr><td>${cat}</td><td class="r">${fmt(c)}</td><td class="r">${fmt(p)}</td><td class="r ${cls}">${fmt(varD)}</td><td class="r ${cls}">${varP}</td></tr>`;
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -870,7 +877,7 @@ const app = {
       const varD = budget !== null ? actual - budget : null;
       const varP = (budget && varD !== null) ? (varD/Math.abs(budget)*100).toFixed(1)+'%' : '—';
       const cls  = varD !== null ? (varD >= 0 ? 'g' : 'r') : '';
-      html += `<tr><td>${label}</td><td class="r">${this.fmt(actual)}</td><td class="r">${budget !== null ? this.fmt(budget) : '—'}</td><td class="r ${cls}">${varD !== null ? this.fmt(varD) : '—'}</td><td class="r ${cls}">${varP}</td></tr>`;
+      html += `<tr><td>${label}</td><td class="r">${fmt(actual)}</td><td class="r">${budget !== null ? fmt(budget) : '—'}</td><td class="r ${cls}">${varD !== null ? fmt(varD) : '—'}</td><td class="r ${cls}">${varP}</td></tr>`;
     });
     html += '</tbody></table>';
     container.innerHTML = html;
