@@ -2911,7 +2911,7 @@ const app = {
     const inputVal = document.getElementById('ruleAccountInput')?.value?.trim();
     const acct     = (DATA.coa || []).find(a => inputVal === a.code + ' — ' + a.name);
     const accountId = acct?.id;
-    if (!pattern || !accountId) { this.toast('Enter a keyword and select an account'); return; }
+    if (!pattern || !accountId) { this.showToast('Enter a keyword and select an account', 'error'); return; }
 
     const editingId = document.getElementById('ruleSaveBtn')?.dataset?.editingId;
     let error;
@@ -3189,6 +3189,24 @@ const app = {
       else { this.toast('Failed — see console'); console.error(error); }
       return;
     }
+
+    // Reload DATA.coa so new account appears in rules/classification dropdowns immediately
+    const { data: freshAccounts } = await supabaseClient
+      .from('accounts')
+      .select('id, account_code, account_name, account_type, account_subtype, is_elimination');
+    if (freshAccounts) {
+      DATA.coa = freshAccounts.map(a => ({
+        id: a.id,
+        code: a.account_code,
+        name: a.account_name,
+        type: a.account_type,
+        subtype: a.account_subtype,
+        balance: 0,
+        elimination: a.is_elimination || false
+      }));
+      freshAccounts.forEach(a => { window._accountById[a.id] = a.account_name; });
+    }
+
     this.toast(`Account ${code} created`);
     this.closeModal();
     await this.renderInbox();
