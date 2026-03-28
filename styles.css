@@ -1020,3 +1020,17 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .forecast-table .fc-delta { font-size: 0.72rem; }
 .forecast-table .fc-over { color: #b45309; background: rgba(245,158,11,0.08); }
 .forecast-table tfoot td { font-weight: 700; background: var(--surface2); }
+
+/* Topbar menu toggle button */
+.topbar-menu-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  color: var(--text2);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.topbar-menu-btn:hover { background: var(--surface2); color: var(--text); }

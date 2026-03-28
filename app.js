@@ -5136,3 +5136,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+// Sidebar toggle keyboard shortcut
+document.addEventListener('keydown', function(e) {
+  if (e.key === '[' && !e.target.matches('input,textarea,select,[contenteditable]')) {
+    app.toggleSidebar();
+  }
+});
