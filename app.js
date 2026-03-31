@@ -1576,7 +1576,7 @@ const app = {
     const el = document.getElementById('ratiosContent');
     if (!el) return;
     el.innerHTML = '<div style="padding:32px;color:var(--text3)">Calculating…</div>';
-    const fmt = n => '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
+    const fmt = n => '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const pct = n => (n * 100).toFixed(1) + '%';
     const ratio = (n, decimals=2) => isFinite(n) ? n.toFixed(decimals) + 'x' : '—';
 
@@ -5000,7 +5000,7 @@ function pnlGrand(label, amount, style = '') {
 // ---- UTILS ----
 function fmt(n) {
   if (n === null || n === undefined) return '';
-  return '$' + Math.abs(Math.round(n)).toLocaleString();
+  return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function today() {
   return new Date().toISOString().split('T')[0];
