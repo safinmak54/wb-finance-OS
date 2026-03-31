@@ -699,7 +699,7 @@ const app = {
         const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
         const renderLines = (lines, isExpense = false) => lines.map(g =>
-          pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2)
+          pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2, '', g.account.id)
         ).join('');
 
         const revenueLines = byType('revenue', ['contra']);
@@ -1201,7 +1201,7 @@ const app = {
     const byType = (type) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination);
     const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
     const renderLines = (lines, isLiab = false) => lines.map(g =>
-      pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isLiab ? Math.abs(g.total) : g.total, 2)
+      pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isLiab ? Math.abs(g.total) : g.total, 2, '', g.account.id)
     ).join('');
 
     const assetLines  = byType('asset');
@@ -2673,6 +2673,74 @@ const app = {
   },
 
   closeModal() { document.getElementById('modalOverlay').classList.remove('open'); },
+
+  async drillDown(accountId, label) {
+    const range = state.globalPeriodRange;
+    let q = supabaseClient
+      .from('transactions')
+      .select('id, acc_date, description, entity, amount, account_id')
+      .eq('account_id', accountId)
+      .order('acc_date', { ascending: false });
+    if (range) q = q.gte('acc_date', range.from).lte('acc_date', range.to);
+    const { data: txns, error } = await q;
+    if (error) { this.showToast('Failed to load transactions', 'error'); return; }
+
+    const acctOpts = (DATA.coa || []).map(a =>
+      `<option value="${a.id}">${a.code} — ${a.name}</option>`
+    ).join('');
+
+    const rows = (txns || []).map(t => {
+      const amt = Number(t.amount);
+      const color = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+      const amtStr = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
+      return `<tr>
+        <td style="white-space:nowrap">${t.acc_date || ''}</td>
+        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</td>
+        <td>${t.entity || ''}</td>
+        <td style="color:${color};font-weight:600;font-variant-numeric:tabular-nums;text-align:right">${amtStr}</td>
+        <td>
+          <select onchange="app.reTag('${t.id}',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
+            <option value="">— keep —</option>${acctOpts}
+          </select>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const total = (txns || []).reduce((s, t) => s + Number(t.amount), 0);
+    const totalColor = total >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+    const totalStr = total < 0 ? `(${fmt(Math.abs(total))})` : fmt(total);
+
+    document.getElementById('modalTitle').textContent = label;
+    document.getElementById('modalBody').innerHTML = `
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px">
+        ${(txns||[]).length} transaction${(txns||[]).length !== 1 ? 's' : ''} · ${this.getPeriodLabel(state.globalPeriod)}
+        <span style="float:right;font-weight:600;color:${totalColor}">Total: ${totalStr}</span>
+      </div>
+      <div class="tbl-wrap" style="max-height:420px;overflow-y:auto">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr>
+            <th>Date</th><th>Description</th><th>Entity</th>
+            <th style="text-align:right">Amount</th><th>Re-tag</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3)">No transactions in this period</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn-outline" onclick="app.closeModal()">Close</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async reTag(txnId, newAccountId) {
+    if (!newAccountId) return;
+    const { error } = await supabaseClient
+      .from('transactions')
+      .update({ account_id: newAccountId })
+      .eq('id', txnId);
+    if (error) { this.showToast('Re-tag failed', 'error'); return; }
+    this.showToast('Transaction re-tagged — refresh report to see updated totals', 'success');
+  },
 
   // ---- INBOX ----
   async renderInbox() {
@@ -4970,14 +5038,17 @@ function _cmpCols(label, curAmt) {
   const varStr = varAmt === 0 ? '—' : (varAmt > 0 ? `+${fmt(varAmt)}` : `(${fmt(Math.abs(varAmt))})`);
   return `<span class="report-amount-cmp">${cmpAmt < 0 ? `(${fmt(Math.abs(cmpAmt))})` : fmt(cmpAmt)}</span><span class="report-amount-var" style="color:${varColor}">${varStr}</span>`;
 }
-function pnlLine(label, amount, indent, style = '') {
+function pnlLine(label, amount, indent, style = '', accountId = null) {
   const cls = indent === 2 ? 'indent2' : 'indent1';
   if (!amount && amount !== 0) return `<div class="report-line ${cls}"><span style="font-weight:${style==='group'?'500':'400'}">${label}</span>${_pnlCmp ? '<span></span><span></span><span></span>' : ''}</div>`;
   const muted = style === 'muted';
   const amtStr = amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount);
+  const drillAttr = (accountId && amount !== null && amount !== undefined)
+    ? `onclick="app.drillDown('${accountId}','${label.replace(/'/g,"\\'")}')" style="cursor:pointer;text-decoration:underline dotted var(--text3)"`
+    : '';
   return `<div class="report-line ${cls}">
     <span style="color:${muted?'var(--text3)':'inherit'};font-size:${muted?'11px':'13px'}">${label}</span>
-    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':''}">${amtStr}</span>${_cmpCols(label, amount)}` : `${_pnlCmp ? '<span></span><span></span><span></span>' : ''}`}
+    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':''}" ${drillAttr}>${amtStr}</span>${_cmpCols(label, amount)}` : `${_pnlCmp ? '<span></span><span></span><span></span>' : ''}`}
   </div>`;
 }
 function pnlTotal(label, amount, style = '') {
