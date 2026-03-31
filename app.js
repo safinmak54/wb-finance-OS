@@ -454,9 +454,9 @@ const app = {
     // MM/DD/YYYY
     const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-    // DD-MM-YYYY
+    // MM-DD-YYYY or M-D-YYYY (US bank format; treat first component as month, second as day)
     const m2 = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (m2) return `${m2[3]}-${m2[2].padStart(2,'0')}-${m2[1].padStart(2,'0')}`;
+    if (m2) return `${m2[3]}-${m2[1].padStart(2,'0')}-${m2[2].padStart(2,'0')}`;
     return str;
   },
 
@@ -3323,10 +3323,24 @@ const app = {
     if (error) { this.toast('Failed to load ledger'); console.error(error); return; }
 
     let rows = txns || [];
+    let unclassifiedCount = 0;
 
     // Fallback: if period filter returned nothing, try without period to detect date format issues
     let showingAllPeriods = false;
     if (rows.length === 0 && range) {
+      // Count unclassified raw transactions for this period
+      try {
+        const { count } = await supabaseClient
+          .from('raw_transactions')
+          .select('*', { count: 'exact', head: true })
+          .eq('classified', false)
+          .gte('transaction_date', range.from)
+          .lte('transaction_date', range.to);
+        unclassifiedCount = count || 0;
+      } catch (e) {
+        unclassifiedCount = 0;
+      }
+
       let fallbackQ = supabaseClient
         .from('transactions')
         .select('*, accounts(account_code, account_name, account_type)')
@@ -3340,11 +3354,14 @@ const app = {
     }
     const entityLabel = entity === 'all' ? 'All Entities' : entity;
     const periodLabel = this.getPeriodLabel(state.globalPeriod);
+    const emptyPeriodWarning = unclassifiedCount > 0
+      ? `<span style="font-size:11px;color:var(--amber,#d97706);background:rgba(217,119,6,0.1);padding:4px 10px;border-radius:4px;flex:1">⚠ No classified transactions in ${periodLabel}. ${unclassifiedCount} unclassified transaction${unclassifiedCount !== 1 ? 's' : ''} pending — <span onclick="app.navigate('inbox')" style="cursor:pointer;text-decoration:underline;color:var(--accent)">Go to Classification →</span></span>`
+      : (showingAllPeriods ? `<span style="font-size:11px;color:var(--amber,#d97706);background:rgba(217,119,6,0.1);padding:2px 8px;border-radius:4px">⚠ No transactions in selected period — showing all</span>` : '');
     const toolbar = `
       <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg2)">
         <span style="font-size:12px;font-weight:600;background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px">${entityLabel}</span>
         <span style="font-size:13px;color:var(--text2)">${showingAllPeriods ? 'All periods' : periodLabel}</span>
-        ${showingAllPeriods ? `<span style="font-size:11px;color:var(--amber,#d97706);background:rgba(217,119,6,0.1);padding:2px 8px;border-radius:4px">⚠ No transactions in selected period — showing all</span>` : ''}
+        ${emptyPeriodWarning}
         <span style="font-size:12px;color:var(--text3);margin-left:auto">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
       </div>
     `;
