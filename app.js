@@ -4346,18 +4346,18 @@ const app = {
     await this.renderJournals();
   },
 
-  // ---- SIDEBAR (mobile) ----
+  // ---- SIDEBAR ----
   toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
-    document.getElementById('sidebarBackdrop').classList.toggle('open');
+    if (window.innerWidth <= 768) {
+      document.getElementById('sidebar').classList.toggle('open');
+      document.getElementById('sidebarBackdrop').classList.toggle('open');
+    } else {
+      document.getElementById('app').classList.toggle('sidebar-collapsed');
+    }
   },
   closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('sidebarBackdrop').classList.remove('open');
-  },
-
-  toggleSidebar() {
-    document.getElementById('app').classList.toggle('sidebar-collapsed');
   },
 
   // ---- DASHBOARD KPIs ----
