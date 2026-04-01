@@ -787,9 +787,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 
 /* ---- GLOBAL FILTER BAR ---- */
 #globalFilterBar {
-  position: sticky;
-  top: var(--topbar-h, 58px);
-  z-index: 90;
+  flex-shrink: 0;
   min-height: 48px;
   display: flex;
   align-items: center;

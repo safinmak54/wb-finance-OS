@@ -160,34 +160,6 @@
   <!-- Sidebar backdrop (mobile) -->
   <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="app.closeSidebar()"></div>
 
-  <!-- GLOBAL FILTER BAR -->
-  <div id="globalFilterBar" style="display:none">
-    <div class="gfb-periods">
-      <button class="gfb-btn active" data-period="month" onclick="app.setGlobalPeriod('month')">This Month</button>
-      <button class="gfb-btn" data-period="last-month" onclick="app.setGlobalPeriod('last-month')">Last Month</button>
-      <button class="gfb-btn" data-period="qtd" onclick="app.setGlobalPeriod('qtd')">QTD</button>
-      <button class="gfb-btn" data-period="ytd" onclick="app.setGlobalPeriod('ytd')">YTD</button>
-      <button class="gfb-btn" data-period="custom" onclick="app.setGlobalPeriod('custom')">Custom ▾</button>
-    </div>
-    <div id="gfbCustomPopover" class="gfb-custom-popover" style="display:none">
-      <label>From <input type="date" id="gfbFromDate"></label>
-      <label>To <input type="date" id="gfbToDate"></label>
-      <button class="gfb-btn active" onclick="app.applyCustomRange()">Apply</button>
-    </div>
-    <select id="gfbEntitySel" onchange="app.onGlobalFilterChange()">
-      <option value="all">All Entities</option>
-      <option value="WBP">WB Promo</option>
-      <option value="LP">Lanyard Promo</option>
-      <option value="KP">Koolers Promo</option>
-      <option value="BP">Band Promo</option>
-      <option value="SWAG">SWAG</option>
-      <option value="RUSH">RUSH</option>
-      <option value="ONEOPS">One Operations</option>
-      <option value="SP1">SP1</option>
-    </select>
-    <div id="gfbChips" class="gfb-chips"></div>
-  </div>
-
   <!-- MAIN CONTENT -->
   <main class="main-content">
     <div class="topbar">
@@ -222,6 +194,34 @@
         </button>
         <div class="avatar">ZT</div>
       </div>
+    </div>
+
+    <!-- GLOBAL FILTER BAR -->
+    <div id="globalFilterBar" style="display:none">
+      <div class="gfb-periods">
+        <button class="gfb-btn active" data-period="month" onclick="app.setGlobalPeriod('month')">This Month</button>
+        <button class="gfb-btn" data-period="last-month" onclick="app.setGlobalPeriod('last-month')">Last Month</button>
+        <button class="gfb-btn" data-period="qtd" onclick="app.setGlobalPeriod('qtd')">QTD</button>
+        <button class="gfb-btn" data-period="ytd" onclick="app.setGlobalPeriod('ytd')">YTD</button>
+        <button class="gfb-btn" data-period="custom" onclick="app.setGlobalPeriod('custom')">Custom ▾</button>
+      </div>
+      <div id="gfbCustomPopover" class="gfb-custom-popover" style="display:none">
+        <label>From <input type="date" id="gfbFromDate"></label>
+        <label>To <input type="date" id="gfbToDate"></label>
+        <button class="gfb-btn active" onclick="app.applyCustomRange()">Apply</button>
+      </div>
+      <select id="gfbEntitySel" onchange="app.onGlobalFilterChange()">
+        <option value="all">All Entities</option>
+        <option value="WBP">WB Promo</option>
+        <option value="LP">Lanyard Promo</option>
+        <option value="KP">Koolers Promo</option>
+        <option value="BP">Band Promo</option>
+        <option value="SWAG">SWAG</option>
+        <option value="RUSH">RUSH</option>
+        <option value="ONEOPS">One Operations</option>
+        <option value="SP1">SP1</option>
+      </select>
+      <div id="gfbChips" class="gfb-chips"></div>
     </div>
 
     <!-- PAGES -->
