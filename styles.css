@@ -69,7 +69,7 @@
 html, body { height: 100%; font-family: var(--font); background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
 
 /* ---- LAYOUT ---- */
-#app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; height: 100vh; overflow: hidden; transition: grid-template-columns 0.22s ease; }
+#app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; transition: grid-template-columns 0.22s ease; }
 #app.sidebar-collapsed { grid-template-columns: 48px 1fr; }
 
 /* ---- SIDEBAR ---- */
@@ -118,7 +118,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
 /* ---- MAIN ---- */
-.main-content { display: flex; flex-direction: column; overflow: hidden; }
+.main-content { display: flex; flex-direction: column; overflow: hidden; height: 100vh; min-height: 0; }
 
 .topbar { height: var(--topbar-h); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; background: var(--surface); flex-shrink: 0; }
 .topbar-left { display: flex; flex-direction: row; align-items: center; gap: 10px; }
@@ -415,7 +415,8 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 @media (max-width: 768px) {
 
   /* --- App shell --- */
-  #app { grid-template-columns: 1fr; height: 100dvh; }
+  #app { grid-template-columns: 1fr; grid-template-rows: 100dvh; height: 100dvh; }
+  .main-content { height: 100dvh; }
 
   /* --- Sidebar off-canvas drawer --- */
   .sidebar {
