@@ -1582,7 +1582,7 @@ const app = {
     const CB_INPUT_COLS = [
       { key:'tfb',       label:'TFB',                   section:1 },
       { key:'hunt',      label:'Huntington Bank',        section:1 },
-      { key:'vend_pay',  label:'Vendors Paymentt',       section:1 },
+      { key:'vend_pay',  label:'Vendor Payments',         section:1 },
       { key:'cc',        label:'CC',                     section:1 },
       { key:'int_xfer',  label:'Int Transfer',           section:1 },
       { key:'google',    label:'Google/Agencies',        section:1 },
