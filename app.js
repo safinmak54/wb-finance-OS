@@ -277,7 +277,8 @@ const app = {
       cfnotes:    ['CFO Notes', 'GAAP compliance & tax planning'],
       sales:      ['Sales Metrics', 'Revenue performance'],
       productmix: ['Product Mix', 'Category & channel breakdown'],
-      ap:         ['AP / Payables', 'Outstanding payables & aging'],
+      ap:             ['AP / Payables', 'Outstanding payables & aging'],
+      'cash-balances': ['Cash Balances', 'Manually-updated multi-entity cash position'],
     };
     const [title, sub] = titles[page] || ['—', ''];
     document.getElementById('pageTitle').textContent = title;
@@ -301,6 +302,7 @@ const app = {
       if (page === 'reconcile')    await this.renderReconcile();
       if (page === 'cashflow')     await this.renderCashflow();
       if (page === 'forecast')     this.renderCashForecast();
+      if (page === 'cash-balances') this.renderCashBalances();
       if (page === 'ratios')       await this.renderRatios();
       if (page === 'cfnotes')      this.renderCfoNotes();
       if (page === 'sales')        this.renderSales();
@@ -1569,6 +1571,156 @@ const app = {
 
   exportForecast() {
     this.showToast('Export coming soon', 'success');
+  },
+
+  // ---- CASH BALANCES ----
+  renderCashBalances() {
+    const el = document.getElementById('page-cash-balances');
+    if (!el) return;
+
+    const CB_ENTITIES = ['WB Brands','Koolers Promo','WB Promo','Band Promo','Lanyard Promo','SP Brands','One Ops'];
+    const CB_INPUT_COLS = [
+      { key:'tfb',       label:'TFB',                   section:1 },
+      { key:'hunt',      label:'Huntington Bank',        section:1 },
+      { key:'vend_pay',  label:'Vendors Paymentt',       section:1 },
+      { key:'cc',        label:'CC',                     section:1 },
+      { key:'int_xfer',  label:'Int Transfer',           section:1 },
+      { key:'google',    label:'Google/Agencies',        section:1 },
+      { key:'hunt_bal',  label:'Huntington Bal',         section:1 },
+      { key:'cc_pay',    label:'Credit Card',            section:2, payable:true },
+      { key:'vend_pmts', label:'Vendor Payments',        section:2, payable:true },
+      { key:'goog_pend', label:'Google Pending',         section:2, payable:true },
+      { key:'fedex',     label:'Fedex, ASI, Agencies',   section:2, payable:true },
+      { key:'stripe_pp', label:'Stripe + Paypal +3 days',section:2 },
+    ];
+
+    const STORAGE_KEY = 'wb_cash_balances';
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+
+    const fmtCell = (val, isPayable, isComputed) => {
+      if (val === null || val === undefined || val === '') return '';
+      const num = Number(val);
+      if (isNaN(num) || num === 0) return '';
+      const color = isPayable ? 'var(--red,#dc2626)' : (num < 0 ? 'var(--red,#dc2626)' : 'var(--blue,#2563eb)');
+      return `<span style="color:${color};font-weight:600">${isPayable ? '(' : ''}${fmt(Math.abs(num))}${isPayable ? ')' : ''}</span>`;
+    };
+
+    const getVal = (entity, key) => {
+      const raw = saved[entity + '_' + key];
+      return raw !== undefined && raw !== '' ? Number(raw) || 0 : 0;
+    };
+
+    const buildRow = (entityLabel, isTotal) => {
+      const cells = CB_INPUT_COLS.map(col => {
+        const val = getVal(entityLabel, col.key);
+        const numVal = col.payable ? -Math.abs(val) : val;
+        if (isTotal) {
+          // For total row, sum all entities
+          const sum = CB_ENTITIES.reduce((s, ent) => {
+            const v = getVal(ent, col.key);
+            return s + (col.payable ? -Math.abs(v) : v);
+          }, 0);
+          return `<td class="cb-computed" style="text-align:right">${fmtCell(sum, col.payable, true)}</td>`;
+        }
+        return `<td style="text-align:right;${col.payable?'background:rgba(220,38,38,0.03)':''}">
+          <span contenteditable="true" class="cb-cell"
+            data-entity="${entityLabel.replace(/"/g,'&quot;')}"
+            data-key="${col.key}"
+            data-payable="${col.payable ? '1' : '0'}"
+            onblur="app.saveCashBalance(this)"
+            style="display:block;min-width:70px;outline:none;cursor:text"
+          >${val !== 0 ? val : ''}</span>
+        </td>`;
+      });
+
+      // Compute Cash Total, Total Payables, Cash Bal
+      const cashTotal = isTotal
+        ? CB_ENTITIES.reduce((s,e) => s + CB_INPUT_COLS.filter(c=>c.section===1).reduce((ss,c)=>ss+getVal(e,c.key),0), 0)
+        : CB_INPUT_COLS.filter(c=>c.section===1).reduce((s,c)=>s+getVal(entityLabel,c.key),0);
+      const totalPayables = isTotal
+        ? CB_ENTITIES.reduce((s,e) => s + CB_INPUT_COLS.filter(c=>c.payable).reduce((ss,c)=>ss+Math.abs(getVal(e,c.key)),0), 0)
+        : CB_INPUT_COLS.filter(c=>c.payable).reduce((s,c)=>s+Math.abs(getVal(entityLabel,c.key)),0);
+      const stripeVal = isTotal
+        ? CB_ENTITIES.reduce((s,e)=>s+getVal(e,'stripe_pp'),0)
+        : getVal(entityLabel,'stripe_pp');
+      const cashBal = cashTotal - totalPayables + stripeVal;
+
+      const cashTotalCell = `<td class="cb-computed" style="text-align:right;background:rgba(37,99,235,0.06)">${fmtCell(cashTotal,false,true)}</td>`;
+      const totalPayCell  = `<td class="cb-computed" style="text-align:right;background:rgba(220,38,38,0.06)">${fmtCell(totalPayables,true,true)}</td>`;
+      const cashBalColor  = cashBal >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+      const cashBalCell   = `<td class="cb-computed" style="text-align:right;background:rgba(37,99,235,0.06)"><span style="color:${cashBalColor};font-weight:700">${cashBal !== 0 ? (cashBal<0?'('+fmt(Math.abs(cashBal))+')':fmt(cashBal)) : ''}</span></td>`;
+
+      // Insert computed cols at right positions: after hunt_bal (idx 6), after fedex (idx 10), at end
+      const allCells = [...cells];
+      // After index 6 (hunt_bal) → Cash Total
+      allCells.splice(7, 0, cashTotalCell);
+      // After index 10+1=11 (fedex, now shifted by 1) → Total Payables
+      allCells.splice(13, 0, totalPayCell);
+      // At end → Cash Bal
+      allCells.push(cashBalCell);
+
+      const rowClass = isTotal ? 'style="background:var(--surface2);font-weight:700"' : '';
+      return `<tr ${rowClass}>
+        <td style="font-weight:600;white-space:nowrap;padding:6px 10px">${isTotal ? 'Total' : entityLabel}</td>
+        ${allCells.join('')}
+      </tr>`;
+    };
+
+    // Build header
+    const allHeaders = [
+      ...CB_INPUT_COLS.slice(0,7).map(c=>`<th style="text-align:right;white-space:nowrap;font-size:11px">${c.label}</th>`),
+      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(37,99,235,0.08)">Cash Total</th>`,
+      ...CB_INPUT_COLS.slice(7,11).map(c=>`<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(220,38,38,0.05)">${c.label}</th>`),
+      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(220,38,38,0.08)">Total Payables</th>`,
+      `<th style="text-align:right;white-space:nowrap;font-size:11px">${CB_INPUT_COLS[11].label}</th>`,
+      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(37,99,235,0.08)">Cash Bal (exp) (3days)</th>`,
+    ].join('');
+
+    const today = new Date().toLocaleDateString('en-US', { month:'numeric', day:'numeric', year:'2-digit' });
+
+    el.innerHTML = `
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">Cash Balances</h2>
+          <p class="page-subtitle" style="font-size:12px;color:var(--text3)">Manually updated · as of <strong>${saved._date || today}</strong></p>
+        </div>
+        <button class="btn-outline" style="font-size:12px" onclick="app.exportCashBalances()">Export CSV</button>
+      </div>
+      <div class="card" style="overflow-x:auto">
+        <table class="data-table cash-bal-table" style="font-size:12px;min-width:1200px">
+          <thead>
+            <tr>
+              <th style="white-space:nowrap">Entity</th>
+              ${allHeaders}
+            </tr>
+          </thead>
+          <tbody>
+            ${CB_ENTITIES.map(e => buildRow(e, false)).join('')}
+            ${buildRow('Total', true)}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  saveCashBalance(el) {
+    const entity = el.dataset.entity;
+    const key    = el.dataset.key;
+    const raw    = el.textContent.trim().replace(/[$,()]/g,'');
+    const STORAGE_KEY = 'wb_cash_balances';
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (raw === '' || raw === '0') {
+      delete saved[entity + '_' + key];
+    } else {
+      saved[entity + '_' + key] = raw;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    // Re-render to update computed columns
+    this.renderCashBalances();
+  },
+
+  exportCashBalances() {
+    this.showToast('CSV export coming soon', 'info');
   },
 
   // ---- RATIOS & KPIs ----

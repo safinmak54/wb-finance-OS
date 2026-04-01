@@ -1034,3 +1034,9 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
   flex-shrink: 0;
 }
 .topbar-menu-btn:hover { background: var(--surface2); color: var(--text); }
+
+/* ---- Cash Balances ---- */
+.cash-bal-table td { padding: 5px 8px; vertical-align: middle; }
+.cash-bal-table .cb-computed { pointer-events: none; }
+.cash-bal-table .cb-cell:focus { outline: 2px solid var(--accent); border-radius: 2px; }
+.cash-bal-table .cb-cell:empty::before { content: '—'; color: var(--text3); opacity: 0.4; pointer-events: none; }

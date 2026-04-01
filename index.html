@@ -114,6 +114,7 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 4 2-2 3 3"/></svg>
         <span class="nav-label">Cash Forecast</span>
       </a>
+      <li class="nav-item" data-page="cash-balances" data-roles="coo,bookkeeper,admin,cpa" onclick="app.navigate('cash-balances')">Cash Balances</li>
       <a class="nav-item" onclick="app.navigate('ratios')" data-page="ratios" data-roles="coo,cpa,admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M9 9h.01M15 15h.01"/><path d="M16 8l-8 8"/></svg>
         <span class="nav-label">Ratios & KPIs</span>
@@ -618,6 +619,8 @@
     </div>
 
     <!-- CASH FORECAST PAGE -->
+    <div id="page-cash-balances" class="page" style="display:none"></div>
+
     <div id="page-forecast" class="page">
       <div class="toolbar">
         <div class="toolbar-right">
