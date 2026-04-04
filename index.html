@@ -63,8 +63,13 @@
       <div class="nav-group-label">Accounting</div>
       <a class="nav-item" onclick="app.navigate('inbox')" data-page="inbox" data-roles="bookkeeper,admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-        <span class="nav-label">New Transactions</span>
+        <span class="nav-label">Bank Transactions</span>
         <span class="nav-badge" id="reviewBadge"></span>
+      </a>
+      <a class="nav-item" onclick="app.navigate('cc-inbox')" data-page="cc-inbox" data-roles="bookkeeper,admin">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <span class="nav-label">Credit Card Txns</span>
+        <span class="nav-badge" id="ccBadge"></span>
       </a>
       <a class="nav-item" onclick="app.navigate('ledger')" data-page="ledger" data-roles="coo,bookkeeper,admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -366,6 +371,11 @@
     <!-- INBOX PAGE -->
     <div id="page-inbox" class="page">
       <div id="inboxContent"></div>
+    </div>
+
+    <!-- CREDIT CARD TRANSACTIONS PAGE -->
+    <div id="page-cc-inbox" class="page">
+      <div id="ccInboxContent"></div>
     </div>
 
     <!-- LEDGER PAGE -->

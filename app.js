@@ -228,6 +228,9 @@ const state = {
   charts: {},
   pnlEntities: [],   // empty = all/consolidated; filled = selected entity codes
   pnlMode: 'summary',
+  inboxMode: 'bank',  // 'bank' | 'internal' | 'cc'
+  inboxFilter: { search: '', from: '', to: '', entity: '', direction: '' },
+  ledgerFilter: { search: '', account: '', direction: '' },
 };
 
 // P&L comparison data (from localStorage, set at render time)
@@ -239,11 +242,13 @@ const app = {
   // Navigation
   navigate(page) {
     // Show filter bar only on report/data pages
-    const FILTER_BAR_PAGES = new Set(['dashboard','inbox','ledger','journals','pnl','balance','cashflow','ratios','cfnotes','ap','reconcile','sales','productmix','forecast','invoices']);
+    const FILTER_BAR_PAGES = new Set(['dashboard','inbox','cc-inbox','ledger','journals','pnl','balance','cashflow','ratios','cfnotes','ap','reconcile','sales','productmix','forecast','invoices']);
     const bar = document.getElementById('globalFilterBar');
     if (bar) bar.style.display = FILTER_BAR_PAGES.has(page) ? 'flex' : 'none';
 
-    if (page !== 'inbox') this._inboxLoadAll = false; // reset pagination on nav away
+    if (page !== 'inbox') { this._inboxLoadAll = false; } // reset pagination on nav away
+    if (page !== 'cc-inbox') { this._ccLoadAll = false; }
+    if (page !== 'ledger') { state.ledgerFilter = { search: '', account: '', direction: '' }; }
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     const el = document.getElementById('page-' + page);
@@ -261,7 +266,7 @@ const app = {
 
     const titles = {
       dashboard:  ['Dashboard', `${period} · Consolidated view`],
-      inbox:      ['New Transactions', 'Unclassified transactions'],
+      inbox:      ['Bank Transactions', 'Unclassified bank transactions'],
       ledger:     ['Ledger', `Classified transactions · ${period}`],
       journals:   ['Journal Entries', 'Double-entry ledger'],
       reconcile:  ['Reconciliation', `Bank vs book · ${period}`],
@@ -278,6 +283,7 @@ const app = {
       sales:      ['Sales Metrics', 'Revenue performance'],
       productmix: ['Product Mix', 'Category & channel breakdown'],
       ap:             ['AP / Payables', 'Outstanding payables & aging'],
+      'cc-inbox':     ['Credit Card Transactions', 'Unclassified CC charges'],
       'cash-balances': ['Cash Balances', 'Manually-updated multi-entity cash position'],
     };
     const [title, sub] = titles[page] || ['—', ''];
@@ -308,6 +314,7 @@ const app = {
       if (page === 'sales')        this.renderSales();
       if (page === 'productmix')   this.renderProductMix();
       if (page === 'ap')           await this.renderAP();
+      if (page === 'cc-inbox')     await this.renderCCInbox();
     }, 10);
   },
 
@@ -326,7 +333,25 @@ const app = {
   setPeriod(val) {
     state.globalPeriod = val;
     state.globalPeriodRange = this.resolveGlobalPeriod(val);
+    // Deactivate all filter-bar period buttons — a specific month isn't represented by any
+    document.querySelectorAll('.gfb-btn[data-period]').forEach(b => b.classList.remove('active'));
     this.navigate(state.currentPage);
+  },
+
+  // Sync topbar period picker dropdown to match a semantic period selection
+  _syncPeriodPicker(semantic) {
+    const picker = document.getElementById('periodPicker');
+    if (!picker) return;
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    if (semantic === 'month') {
+      picker.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+    } else if (semantic === 'last-month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      picker.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+    } else {
+      picker.value = '';
+    }
   },
 
   resolveGlobalPeriod(semantic, customFrom, customTo) {
@@ -399,6 +424,8 @@ const app = {
     document.getElementById('gfbCustomPopover').style.display = 'none';
     state.globalPeriod = semantic;
     state.globalPeriodRange = this.resolveGlobalPeriod(semantic);
+    // Sync topbar dropdown to match
+    this._syncPeriodPicker(semantic);
     this.onGlobalFilterChange();
   },
 
@@ -425,6 +452,28 @@ const app = {
 
     // Re-render active page
     this.navigate(state.currentPage);
+  },
+
+  // ---- INBOX MODE / FILTER HELPERS ----
+  setInboxMode(mode) {
+    state.inboxMode = mode;
+    state.inboxFilter = { search: '', from: '', to: '', entity: '', direction: '' };
+    this.renderInbox();
+  },
+
+  applyInboxFilters(query) {
+    const f = state.inboxFilter;
+    if (f.search)    query = query.ilike('description', `%${f.search}%`);
+    if (f.from)      query = query.gte('transaction_date', f.from);
+    if (f.to)        query = query.lte('transaction_date', f.to);
+    if (f.entity)    query = query.eq('entity_id', window._entityByCode[f.entity] || f.entity);
+    if (f.direction) query = query.eq('direction', f.direction);
+    return query;
+  },
+
+  updateInboxFilter(field, value) {
+    state.inboxFilter[field] = value;
+    this.renderInbox();
   },
 
   renderGfbChips() {
@@ -2906,10 +2955,28 @@ const app = {
 
     const PAGE = 200;
     const loadAll = this._inboxLoadAll || false;
-    const query = supabaseClient
+    const mode = state.inboxMode || 'bank';
+
+    // Build base query with mode filter
+    let baseQuery = supabaseClient
       .from('raw_transactions').select('*', { count: 'exact' }).eq('classified', false)
       .order('transaction_date', { ascending: false });
-    const { data: rawTxns, count: totalCount, error } = await (loadAll ? query : query.limit(PAGE));
+
+    if (mode === 'bank') {
+      baseQuery = baseQuery
+        .not('description', 'ilike', '%BUS ONL TFR TO%')
+        .not('description', 'ilike', '%AMEX%')
+        .neq('source', 'credit_card');
+    } else if (mode === 'internal') {
+      baseQuery = baseQuery.ilike('description', '%BUS ONL TFR TO%');
+    } else if (mode === 'cc') {
+      baseQuery = baseQuery.ilike('description', '%AMEX%');
+    }
+
+    // Apply active filters
+    baseQuery = this.applyInboxFilters(baseQuery);
+
+    const { data: rawTxns, count: totalCount, error } = await (loadAll ? baseQuery : baseQuery.limit(PAGE));
 
     if (error) { this.toast('Failed to load transactions'); console.error(error); return; }
 
@@ -2921,28 +2988,62 @@ const app = {
 
     const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
 
-    // Update sidebar badge with total count
+    // Update sidebar badge with total unclassified bank count (all modes)
     const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = (totalCount || txns.length) || '';
+    if (badge && mode === 'bank') badge.textContent = (totalCount || txns.length) || '';
+
+    const f = state.inboxFilter;
+    const tabBtn = (m, label) => `<button class="btn-outline" style="font-size:12px;padding:4px 12px;${mode===m?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="app.setInboxMode('${m}')">${label}</button>`;
+
+    const filterRow = `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <input type="text" placeholder="Search description…" value="${f.search.replace(/"/g,'&quot;')}"
+          style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);width:200px"
+          oninput="app.updateInboxFilter('search',this.value)">
+        <input type="date" value="${f.from}" title="From date"
+          style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.updateInboxFilter('from',this.value)">
+        <input type="date" value="${f.to}" title="To date"
+          style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.updateInboxFilter('to',this.value)">
+        <select style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.updateInboxFilter('entity',this.value)">
+          <option value="">All Entities</option>
+          ${allEntityCodes.map(e => `<option value="${e}" ${f.entity===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+        <select style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.updateInboxFilter('direction',this.value)">
+          <option value="">All Directions</option>
+          <option value="DEBIT" ${f.direction==='DEBIT'?'selected':''}>Debit (out)</option>
+          <option value="CREDIT" ${f.direction==='CREDIT'?'selected':''}>Credit (in)</option>
+        </select>
+        ${(f.search||f.from||f.to||f.entity||f.direction) ? `<button class="btn-outline" style="font-size:11px;padding:3px 10px;color:var(--red);border-color:var(--red)" onclick="app.updateInboxFilter('search','');app.updateInboxFilter('from','');app.updateInboxFilter('to','');app.updateInboxFilter('entity','');app.updateInboxFilter('direction','')">Clear</button>` : ''}
+      </div>`;
 
     el.innerHTML = `
       <div class="toolbar">
         <div class="toolbar-left">
-          <button class="btn-primary" onclick="app.openModal('importCSV')">↑ Upload CSV</button>
+          <button class="btn-primary" onclick="app.openImportModal()">↑ Upload CSV</button>
           <button class="btn-outline" onclick="app.openModal('newRawTxn')">+ Manual Entry</button>
           <button class="btn-outline" onclick="app.openRulesModal()" style="font-size:12px">⚡ Rules</button>
+          <div style="display:flex;gap:4px;margin-left:8px;border-left:1px solid var(--border);padding-left:8px">
+            ${tabBtn('bank','All Bank')}
+            ${tabBtn('internal','Internal Transfers')}
+            ${tabBtn('cc','Credit Card')}
+          </div>
         </div>
         <div class="toolbar-right">
-          <span style="font-size:13px;color:var(--text3)">${txns.length} to classify</span>
+          <span style="font-size:13px;color:var(--text3)">${txns.length}${totalCount > txns.length ? ' of ' + totalCount : ''} transaction${txns.length !== 1 ? 's' : ''}</span>
           <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="app.bulkClassifyAutoTagged()">⚡ Auto-Tagged</button>
           <button class="btn-primary" id="bulkClassifyBtn" style="display:none;background:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="app.bulkClassify()">Finalize Selected</button>
           <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
         </div>
       </div>
+      ${filterRow}
       ${txns.length === 0 ? `
         <div style="padding:64px;text-align:center;color:var(--text3)">
-          <p style="font-size:15px;margin-bottom:8px">No new transactions</p>
-          <p style="font-size:13px">Upload a CSV or add a manual transaction to get started.</p>
+          <p style="font-size:15px;margin-bottom:8px">No transactions</p>
+          <p style="font-size:13px">${mode === 'bank' ? 'Upload a CSV or add a manual transaction to get started.' : 'No transactions match this filter.'}</p>
         </div>
       ` : `
         <div class="table-wrap">
@@ -2991,12 +3092,115 @@ const app = {
         </div>
         ${hasMore ? `
           <div style="padding:12px 16px;background:var(--surface2);border-top:1px solid var(--border);display:flex;align-items:center;gap:12px">
-            <span style="font-size:12px;color:var(--text3)">Showing ${txns.length} of ${totalCount} unclassified transactions</span>
+            <span style="font-size:12px;color:var(--text3)">Showing ${txns.length} of ${totalCount} transactions</span>
             <button class="btn-outline" style="font-size:12px;padding:4px 12px" onclick="app._inboxLoadAll=true;app.renderInbox()">Load all ${totalCount}</button>
           </div>` : ''}
       `}
     `;
     // Apply auto-classification rules after render
+    this.applyClassificationRules();
+  },
+
+  // ---- CREDIT CARD TRANSACTIONS PAGE ----
+  async renderCCInbox() {
+    const el = document.getElementById('ccInboxContent');
+    if (!el) return;
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
+
+    const { data: accounts } = await supabaseClient
+      .from('accounts').select('id, account_code, account_name, account_type')
+      .order('account_code');
+
+    const PAGE = 200;
+    const loadAll = this._ccLoadAll || false;
+    let baseQuery = supabaseClient
+      .from('raw_transactions').select('*', { count: 'exact' })
+      .eq('classified', false)
+      .eq('source', 'credit_card')
+      .order('transaction_date', { ascending: false });
+
+    const { data: rawTxns, count: totalCount, error } = await (loadAll ? baseQuery : baseQuery.limit(PAGE));
+    if (error) { this.toast('Failed to load CC transactions'); console.error(error); return; }
+
+    const txns = rawTxns || [];
+    const hasMore = !loadAll && (totalCount || 0) > PAGE;
+
+    // Update CC badge
+    const badge = document.getElementById('ccBadge');
+    if (badge) badge.textContent = (totalCount || txns.length) || '';
+
+    const acctOptions = (accounts || []).map(a =>
+      `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
+    ).join('');
+    const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <button class="btn-primary" onclick="app.openImportModal('cc')">↑ Upload CC Statement</button>
+          <button class="btn-outline" onclick="app.openRulesModal()" style="font-size:12px">⚡ Rules</button>
+        </div>
+        <div class="toolbar-right">
+          <span style="font-size:13px;color:var(--text3)">${txns.length}${totalCount > txns.length ? ' of ' + totalCount : ''} CC charge${txns.length !== 1 ? 's' : ''}</span>
+          <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="app.bulkClassifyAutoTagged()">⚡ Auto-Tagged</button>
+          <button class="btn-primary" id="bulkClassifyBtn" style="display:none;background:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="app.bulkClassify()">Finalize Selected</button>
+          <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
+        </div>
+      </div>
+      ${txns.length === 0 ? `
+        <div style="padding:64px;text-align:center;color:var(--text3)">
+          <p style="font-size:15px;margin-bottom:8px">No unclassified credit card charges</p>
+          <p style="font-size:13px">Upload a CC statement CSV to get started.</p>
+        </div>
+      ` : `
+        <div class="table-wrap">
+          <table class="data-table" id="inboxTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="inboxSelectAll" onchange="app.toggleSelectAll(this)"></th>
+                <th>Date</th><th>Description</th><th>Entity</th><th>Amount</th>
+                <th style="min-width:260px">Category (COA)</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${txns.map(t => `
+                <tr data-id="${t.id}">
+                  <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
+                  <td style="white-space:nowrap">${t.transaction_date || ''}</td>
+                  <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
+                  <td>
+                    <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
+                      ${allEntityCodes.map(e =>
+                        `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
+                      ).join('')}
+                    </select>
+                  </td>
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--blue)'};font-weight:600">
+                    ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
+                  </td>
+                  <td>
+                    <select class="acct-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px" onchange="if(this.value==='__new__'){this.value='';app.openNewAccountModal();}else{const btn=this.closest('tr').querySelector('.classify-btn');if(btn){btn.style.opacity=this.value?'1':'0.35';btn.style.background=this.value?'var(--green,#16a34a)':''}}">
+                      <option value="">— select account —</option>
+                      ${acctOptions}
+                      <option value="__new__">+ New account</option>
+                    </select>
+                  </td>
+                  <td style="white-space:nowrap">
+                    <button class="btn-primary classify-btn" style="font-size:12px;padding:4px 10px;background:var(--green,#16a34a);border-color:var(--green,#16a34a);opacity:0.35" onclick="app.classifyRow('${t.id}')">Classify</button>
+                    <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${hasMore ? `
+          <div style="padding:12px 16px;background:var(--surface2);border-top:1px solid var(--border);display:flex;align-items:center;gap:12px">
+            <span style="font-size:12px;color:var(--text3)">Showing ${txns.length} of ${totalCount} CC charges</span>
+            <button class="btn-outline" style="font-size:12px;padding:4px 12px" onclick="app._ccLoadAll=true;app.renderCCInbox()">Load all ${totalCount}</button>
+          </div>` : ''}
+      `}
+    `;
     this.applyClassificationRules();
   },
 
@@ -3025,9 +3229,10 @@ const app = {
       const descInput = row.querySelector('.desc-edit');
       const acctSel   = row.querySelector('.acct-sel');
       if (!descInput || !acctSel || acctSel.value) return; // skip if already assigned
-      const desc = descInput.value.toLowerCase();
+      const desc = descInput.value.toLowerCase().replace(/\s+/g, ' ').trim();
       for (const rule of rules) {
-        if (desc.includes(rule.pattern.toLowerCase())) {
+        const pat = rule.pattern.trim().toLowerCase();
+        if (pat && desc.includes(pat)) {
           acctSel.value = rule.account_id;
           // Trigger green classify button
           const btn = row.querySelector('.classify-btn');
@@ -3052,35 +3257,11 @@ const app = {
     ];
 
     modal.innerHTML = `
-      <div style="font-size:15px;font-weight:600;margin-bottom:16px">⚡ Classification Rules</div>
-      <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Rules auto-assign a category when a transaction description contains the pattern (case-insensitive). First match wins.</p>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">⚡ Classification Rules</div>
+      <p style="font-size:12px;color:var(--text3);margin-bottom:14px">Rules auto-assign a category when a transaction description contains the pattern (case-insensitive). First match wins.</p>
 
-      <div style="margin-bottom:16px">
-        <input id="ruleSearch" type="text" placeholder="Filter rules…"
-          style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);margin-bottom:8px"
-          oninput="app.filterRules()">
-        <table class="data-table" style="font-size:12px">
-          <thead><tr><th>#</th><th>Includes</th><th>Account</th><th></th></tr></thead>
-          <tbody id="rulesTableBody">
-            ${rules.length === 0
-              ? `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No rules yet</td></tr>`
-              : rules.map((r, i) => `
-                <tr data-rule-id="${r.id}">
-                  <td style="font-size:11px;color:var(--text3)">${i+1}</td>
-                  <td><code style="font-size:11px;background:var(--surface2);padding:1px 4px;border-radius:3px">${r.pattern}</code></td>
-                  <td style="font-size:11px;color:var(--text2)">${(DATA.coa || []).find(a => a.id === r.account_id)?.name || r.account_id?.slice(0,8)+'…'}</td>
-                  <td>
-                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;margin-right:4px" onclick="app.editRule('${r.id}','${r.pattern.replace(/'/g,"\\'")}','${r.account_id}')">Edit</button>
-                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button>
-                  </td>
-                </tr>`).join('')
-            }
-          </tbody>
-        </table>
-      </div>
-
-      <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:10px">
-        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:10px">Add Rule</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:10px">Add / Edit Rule</div>
         <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
           <div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:3px">Includes (word)</div>
@@ -3094,15 +3275,38 @@ const app = {
               ${(DATA.coa || []).map(a => `<option value="${a.code} — ${a.name}"></option>`).join('')}
             </datalist>
           </div>
-          <button id="ruleSaveBtn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="app.saveRule()">Save</button>
+          <button id="ruleSaveBtn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="app.saveRule()">Save Rule</button>
+        </div>
+        <div style="margin-top:10px">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Quick-add:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${defaultPatterns.map(p => `<button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('rulePatternInput').value='${p}';document.getElementById('rulePatternInput').focus()">${p}</button>`).join('')}
+          </div>
         </div>
       </div>
 
-      <div style="margin-bottom:14px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Quick-add defaults (select account for each):</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${defaultPatterns.map(p => `<button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('rulePatternInput').value='${p}'">${p}</button>`).join('')}
-        </div>
+      <div style="margin-bottom:12px">
+        <input id="ruleSearch" type="text" placeholder="Search rules…"
+          style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);margin-bottom:8px"
+          oninput="app.filterRules()">
+        <table class="data-table" style="font-size:12px">
+          <thead><tr><th>#</th><th>Includes</th><th>Account</th><th></th></tr></thead>
+          <tbody id="rulesTableBody">
+            ${rules.length === 0
+              ? `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">No rules yet — add one above</td></tr>`
+              : rules.map((r, i) => `
+                <tr data-rule-id="${r.id}">
+                  <td style="font-size:11px;color:var(--text3)">${i+1}</td>
+                  <td><code style="font-size:11px;background:var(--surface2);padding:1px 4px;border-radius:3px">${r.pattern}</code></td>
+                  <td style="font-size:11px;color:var(--text2)">${(DATA.coa || []).find(a => a.id === r.account_id)?.name || r.account_id?.slice(0,8)+'…'}</td>
+                  <td>
+                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;margin-right:4px" onclick="app.editRule('${r.id}','${r.pattern.replace(/'/g,"\\'")}','${r.account_id}')">Edit</button>
+                    <button class="btn-outline" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="app.deleteRule('${r.id}')">Delete</button>
+                  </td>
+                </tr>`).join('')
+            }
+          </tbody>
+        </table>
       </div>
 
       <div class="form-actions">
@@ -3480,7 +3684,6 @@ const app = {
     // Fallback: if period filter returned nothing, try without period to detect date format issues
     let showingAllPeriods = false;
     if (rows.length === 0 && range) {
-      // Count unclassified raw transactions for this period
       try {
         const { count } = await supabaseClient
           .from('raw_transactions')
@@ -3504,25 +3707,89 @@ const app = {
         showingAllPeriods = true;
       }
     }
+
+    // Cache rows for client-side filtering
+    this._ledgerRows = rows;
+    if (!state.ledgerFilter) state.ledgerFilter = { search: '', account: '', direction: '' };
+
+    // Build unique account options from fetched rows
+    const accountMap = {};
+    rows.forEach(t => {
+      if (t.accounts) accountMap[t.account_id] = t.accounts.account_code + ' — ' + t.accounts.account_name;
+    });
+    const acctFilterOptions = Object.entries(accountMap)
+      .sort((a,b) => a[1].localeCompare(b[1]))
+      .map(([id, label]) => `<option value="${id}" ${state.ledgerFilter.account===id?'selected':''}>${label}</option>`)
+      .join('');
+
+    const lf = state.ledgerFilter;
     const entityLabel = entity === 'all' ? 'All Entities' : entity;
     const periodLabel = this.getPeriodLabel(state.globalPeriod);
     const emptyPeriodWarning = unclassifiedCount > 0
       ? `<span style="font-size:11px;color:var(--amber,#d97706);background:rgba(217,119,6,0.1);padding:4px 10px;border-radius:4px;flex:1">⚠ No classified transactions in ${periodLabel}. ${unclassifiedCount} unclassified transaction${unclassifiedCount !== 1 ? 's' : ''} pending — <span onclick="app.navigate('inbox')" style="cursor:pointer;text-decoration:underline;color:var(--accent)">Go to Classification →</span></span>`
       : (showingAllPeriods ? `<span style="font-size:11px;color:var(--amber,#d97706);background:rgba(217,119,6,0.1);padding:2px 8px;border-radius:4px">⚠ No transactions in selected period — showing all</span>` : '');
+
     const toolbar = `
       <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg2)">
         <span style="font-size:12px;font-weight:600;background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px">${entityLabel}</span>
         <span style="font-size:13px;color:var(--text2)">${showingAllPeriods ? 'All periods' : periodLabel}</span>
         ${emptyPeriodWarning}
-        <span style="font-size:12px;color:var(--text3);margin-left:auto">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
+        <span style="font-size:12px;color:var(--text3);margin-left:auto" id="ledgerRowCount">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <input type="text" id="ledgerSearchInput" placeholder="Search description or account…" value="${lf.search.replace(/"/g,'&quot;')}"
+          style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);width:220px"
+          oninput="app.setLedgerFilter('search',this.value)">
+        <select id="ledgerAcctFilter" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.setLedgerFilter('account',this.value)">
+          <option value="">All Accounts</option>
+          ${acctFilterOptions}
+        </select>
+        <select id="ledgerDirFilter" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          onchange="app.setLedgerFilter('direction',this.value)">
+          <option value="">All Directions</option>
+          <option value="credit" ${lf.direction==='credit'?'selected':''}>Credits (income)</option>
+          <option value="debit" ${lf.direction==='debit'?'selected':''}>Debits (expense)</option>
+        </select>
+        ${(lf.search||lf.account||lf.direction) ? `<button class="btn-outline" style="font-size:11px;padding:3px 10px;color:var(--red);border-color:var(--red)" onclick="state.ledgerFilter={search:'',account:'',direction:''};app.renderLedgerTable()">Clear</button>` : ''}
       </div>
     `;
+
     el.innerHTML = rows.length === 0 ? toolbar + `
       <div style="padding:64px;text-align:center;color:var(--text3)">
         <p style="font-size:15px;margin-bottom:8px">No classified transactions</p>
-        <p style="font-size:13px">Classify transactions in the Inbox to see them here.</p>
+        <p style="font-size:13px">Classify transactions in Bank Transactions to see them here.</p>
       </div>
-    ` : toolbar + `
+    ` : toolbar + `<div id="ledgerTableWrap"></div>`;
+
+    if (rows.length > 0) this.renderLedgerTable();
+  },
+
+  renderLedgerTable() {
+    const wrap = document.getElementById('ledgerTableWrap');
+    if (!wrap) return;
+    const lf = state.ledgerFilter || {};
+    let rows = this._ledgerRows || [];
+
+    // Apply client-side filters
+    if (lf.search) {
+      const q = lf.search.toLowerCase();
+      rows = rows.filter(t =>
+        (t.description || '').toLowerCase().includes(q) ||
+        (t.accounts ? t.accounts.account_code + ' ' + t.accounts.account_name : '').toLowerCase().includes(q)
+      );
+    }
+    if (lf.account) rows = rows.filter(t => t.account_id === lf.account);
+    if (lf.direction === 'credit') rows = rows.filter(t => Number(t.amount) >= 0);
+    if (lf.direction === 'debit')  rows = rows.filter(t => Number(t.amount) < 0);
+
+    // Update count label
+    const countEl = document.getElementById('ledgerRowCount');
+    if (countEl) countEl.textContent = `${rows.length} transaction${rows.length !== 1 ? 's' : ''}`;
+
+    wrap.innerHTML = rows.length === 0 ? `
+      <div style="padding:48px;text-align:center;color:var(--text3)">No transactions match the current filters.</div>
+    ` : `
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -3554,6 +3821,12 @@ const app = {
         </table>
       </div>
     `;
+  },
+
+  setLedgerFilter(field, value) {
+    if (!state.ledgerFilter) state.ledgerFilter = { search: '', account: '', direction: '' };
+    state.ledgerFilter[field] = value;
+    this.renderLedgerTable();
   },
 
   async editLedgerRow(txnId) {
@@ -3870,8 +4143,11 @@ const app = {
     reader.readAsArrayBuffer(file);
   },
 
-  openImportModal() {
+  openImportModal(type = 'bank') {
+    this._importType = type;
     this.resetImportModal();
+    const titleEl = document.querySelector('#importModal .import-title');
+    if (titleEl) titleEl.textContent = type === 'cc' ? 'Import Credit Card Statement' : 'Import Bank Statement';
     document.getElementById('importModal').showModal();
   },
 
@@ -4148,7 +4424,7 @@ const app = {
         direction,
         transaction_date: accDate,
         accounting_date:  accDate,
-        source:           'csv',
+        source:           this._importType === 'cc' ? 'credit_card' : 'csv',
         classified:       false,
         entity_id:        entityCode ? (window._entityByCode[entityCode] || null) : null,
         bank_account:     bankAcct,
