@@ -3829,12 +3829,22 @@ const app = {
       <div style="padding:48px;text-align:center;color:var(--text3)">No transactions match the current filters.</div>
     ` : `
       <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table" style="table-layout:fixed;width:100%">
+          <colgroup>
+            <col style="width:32px">
+            <col style="width:96px">
+            <col style="width:auto">
+            <col style="width:72px">
+            <col style="width:200px">
+            <col style="width:90px">
+            <col style="width:140px">
+            <col style="width:88px">
+          </colgroup>
           <thead>
             <tr>
-              <th style="width:28px"><input type="checkbox" id="ledgerSelectAll" onchange="app.onLedgerSelectAll(this)" title="Select all"></th>
-              <th style="white-space:nowrap">Acc. Date</th><th>Description</th><th style="white-space:nowrap">Entity</th>
-              <th>Category</th><th style="white-space:nowrap">Amount</th><th>Memo</th><th style="width:80px"></th>
+              <th><input type="checkbox" id="ledgerSelectAll" onchange="app.onLedgerSelectAll(this)" title="Select all"></th>
+              <th>Acc. Date</th><th>Description</th><th>Entity</th>
+              <th>Category</th><th>Amount</th><th>Memo</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -3842,15 +3852,16 @@ const app = {
               const amt = Number(t.amount);
               const amtColor = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
+              const category = t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : '';
               return `
               <tr data-txn-id="${t.id}">
                 <td><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
                 <td style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</td>
-                <td style="max-width:260px">${t.description || ''}</td>
-                <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
-                <td style="font-size:12px">${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(t.description||'').replace(/"/g,'&quot;')}">${t.description || ''}</td>
+                <td><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="${category.replace(/"/g,'&quot;')}">${category}</td>
                 <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${amtDisplay}</td>
-                <td style="color:var(--text3);font-size:12px;max-width:160px">${t.memo || ''}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px" title="${(t.memo||'').replace(/"/g,'&quot;')}">${t.memo || ''}</td>
                 <td style="white-space:nowrap">
                   <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button>
                   <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteLedgerRow('${t.id}')">✕</button>
