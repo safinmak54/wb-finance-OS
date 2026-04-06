@@ -1380,21 +1380,26 @@ const app = {
       const shortId = 'JE-' + je.id.slice(0,8).toUpperCase();
       (je.ledger_entries || []).forEach(line => {
         displayRows.push({
-          id: shortId,
-          date: je.accounting_date,
-          memo: line.memo || je.description,
+          jeId:    je.id,      // full UUID for deletion
+          id:      shortId,
+          date:    je.accounting_date,
+          memo:    line.memo || je.description,
           account: line.accounts ? line.accounts.account_code + ' — ' + line.accounts.account_name : '',
-          debit:  Number(line.debit_amount)  || 0,
-          credit: Number(line.credit_amount) || 0,
-          type: je.entry_type || 'manual'
+          debit:   Number(line.debit_amount)  || 0,
+          credit:  Number(line.credit_amount) || 0,
+          type:    je.entry_type || 'manual'
         });
       });
     });
 
+    // Count unique journal entries
+    const uniqueJEs = [...new Set(displayRows.map(r => r.jeId))].length;
+
     el.innerHTML = `
       <div class="toolbar">
         <div class="toolbar-left">
-          <span style="font-size:13px;color:var(--text3)">${displayRows.length} entries</span>
+          <span style="font-size:13px;color:var(--text3)">${uniqueJEs} journal entr${uniqueJEs !== 1 ? 'ies' : 'y'} · ${displayRows.length} lines</span>
+          <button id="journalBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--red);border-color:var(--red);font-size:12px;padding:4px 12px;margin-left:8px" onclick="app.bulkDeleteJournals()">Delete Selected</button>
         </div>
         <div class="toolbar-right">
           ${isClosed
@@ -1410,10 +1415,16 @@ const app = {
       ` : `
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>ID</th><th>Date</th><th>Memo</th><th>Account</th><th>Debit</th><th>Credit</th><th>Type</th></tr></thead>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="journalSelectAll" title="Select all" onchange="app.onJournalSelectAll(this)"></th>
+                <th>ID</th><th>Date</th><th>Memo</th><th>Account</th><th>Debit</th><th>Credit</th><th>Type</th>
+              </tr>
+            </thead>
             <tbody>
               ${displayRows.map(r => `
-                <tr>
+                <tr data-je-id="${r.jeId}">
+                  <td><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
                   <td style="font-family:var(--mono);font-size:12px">${r.id}</td>
                   <td>${r.date}</td>
                   <td>${r.memo}</td>
@@ -1427,6 +1438,32 @@ const app = {
         </div>
       `}
     `;
+  },
+
+  onJournalSelectAll(cb) {
+    document.querySelectorAll('.journal-check').forEach(c => c.checked = cb.checked);
+    this.onJournalCheck();
+  },
+
+  onJournalCheck() {
+    const checked = document.querySelectorAll('.journal-check:checked');
+    const uniqueJEs = new Set([...checked].map(c => c.dataset.jeId)).size;
+    const btn = document.getElementById('journalBulkDeleteBtn');
+    if (btn) {
+      btn.style.display = uniqueJEs > 0 ? 'inline-block' : 'none';
+      btn.textContent = uniqueJEs > 0 ? `Delete ${uniqueJEs} Selected` : 'Delete Selected';
+    }
+  },
+
+  async bulkDeleteJournals() {
+    const checked = [...document.querySelectorAll('.journal-check:checked')];
+    const jeIds = [...new Set(checked.map(c => c.dataset.jeId))].filter(Boolean);
+    if (!jeIds.length) return;
+    if (!confirm(`Delete ${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'} and all their lines? This cannot be undone.`)) return;
+    const { error } = await supabaseClient.from('journal_entries').delete().in('id', jeIds);
+    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    this.showToast(`${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'} deleted`, 'success');
+    await this.renderJournals();
   },
 
   // ---- VENDORS ----
@@ -3735,6 +3772,7 @@ const app = {
         <span style="font-size:13px;color:var(--text2)">${showingAllPeriods ? 'All periods' : periodLabel}</span>
         ${emptyPeriodWarning}
         <span style="font-size:12px;color:var(--text3);margin-left:auto" id="ledgerRowCount">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
+        <button id="ledgerBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--red);border-color:var(--red);font-size:12px;padding:4px 12px" onclick="app.bulkDeleteLedger()">Delete Selected</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
         <input type="text" id="ledgerSearchInput" placeholder="Search description or account…" value="${lf.search.replace(/"/g,'&quot;')}"
@@ -3794,6 +3832,7 @@ const app = {
         <table class="data-table">
           <thead>
             <tr>
+              <th><input type="checkbox" id="ledgerSelectAll" onchange="app.onLedgerCheck()" title="Select all"></th>
               <th>Acc. Date</th><th>Description</th><th>Entity</th>
               <th>Category</th><th>Amount</th><th>Memo</th><th></th>
             </tr>
@@ -3804,7 +3843,8 @@ const app = {
               const amtColor = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
               return `
-              <tr>
+              <tr data-txn-id="${t.id}">
+                <td><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
                 <td>${t.acc_date || ''}</td>
                 <td>${t.description || ''}</td>
                 <td><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
@@ -3821,6 +3861,33 @@ const app = {
         </table>
       </div>
     `;
+
+    // Wire up select-all
+    const sa = document.getElementById('ledgerSelectAll');
+    if (sa) sa.addEventListener('change', () => {
+      document.querySelectorAll('.ledger-check').forEach(c => c.checked = sa.checked);
+      this.onLedgerCheck();
+    });
+  },
+
+  onLedgerCheck() {
+    const n = document.querySelectorAll('.ledger-check:checked').length;
+    const btn = document.getElementById('ledgerBulkDeleteBtn');
+    if (btn) {
+      btn.style.display = n > 0 ? 'inline-block' : 'none';
+      btn.textContent = n > 0 ? `Delete ${n} Selected` : 'Delete Selected';
+    }
+  },
+
+  async bulkDeleteLedger() {
+    const checked = [...document.querySelectorAll('.ledger-check:checked')];
+    if (!checked.length) return;
+    if (!confirm(`Delete ${checked.length} transaction${checked.length !== 1 ? 's' : ''} from the ledger? This cannot be undone.`)) return;
+    const ids = checked.map(c => c.closest('tr[data-txn-id]')?.dataset.txnId).filter(Boolean);
+    const { error } = await supabaseClient.from('transactions').delete().in('id', ids);
+    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    this.showToast(`${ids.length} transaction${ids.length !== 1 ? 's' : ''} deleted`, 'success');
+    await this.renderLedger();
   },
 
   setLedgerFilter(field, value) {
