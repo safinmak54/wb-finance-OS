@@ -1417,16 +1417,16 @@ const app = {
           <table class="data-table">
             <thead>
               <tr>
-                <th><input type="checkbox" id="journalSelectAll" title="Select all" onchange="app.onJournalSelectAll(this)"></th>
-                <th>ID</th><th>Date</th><th>Memo</th><th>Account</th><th>Debit</th><th>Credit</th><th>Type</th>
+                <th style="width:28px"><input type="checkbox" id="journalSelectAll" title="Select all" onchange="app.onJournalSelectAll(this)"></th>
+                <th style="white-space:nowrap">ID</th><th style="white-space:nowrap">Date</th><th>Memo</th><th>Account</th><th style="white-space:nowrap">Debit</th><th style="white-space:nowrap">Credit</th><th>Type</th>
               </tr>
             </thead>
             <tbody>
               ${displayRows.map(r => `
                 <tr data-je-id="${r.jeId}">
                   <td><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
-                  <td style="font-family:var(--mono);font-size:12px">${r.id}</td>
-                  <td>${r.date}</td>
+                  <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${r.id}</td>
+                  <td style="white-space:nowrap">${r.date}</td>
                   <td>${r.memo}</td>
                   <td>${r.account}</td>
                   <td>${r.debit > 0 ? fmt(r.debit) : ''}</td>
@@ -3832,9 +3832,9 @@ const app = {
         <table class="data-table">
           <thead>
             <tr>
-              <th><input type="checkbox" id="ledgerSelectAll" onchange="app.onLedgerCheck()" title="Select all"></th>
-              <th>Acc. Date</th><th>Description</th><th>Entity</th>
-              <th>Category</th><th>Amount</th><th>Memo</th><th></th>
+              <th style="width:28px"><input type="checkbox" id="ledgerSelectAll" onchange="app.onLedgerSelectAll(this)" title="Select all"></th>
+              <th style="white-space:nowrap">Acc. Date</th><th>Description</th><th style="white-space:nowrap">Entity</th>
+              <th>Category</th><th style="white-space:nowrap">Amount</th><th>Memo</th><th style="width:80px"></th>
             </tr>
           </thead>
           <tbody>
@@ -3845,12 +3845,12 @@ const app = {
               return `
               <tr data-txn-id="${t.id}">
                 <td><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
-                <td>${t.acc_date || ''}</td>
-                <td>${t.description || ''}</td>
-                <td><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
-                <td>${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
-                <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums">${amtDisplay}</td>
-                <td style="color:var(--text3);font-size:12px">${t.memo || ''}</td>
+                <td style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</td>
+                <td style="max-width:260px">${t.description || ''}</td>
+                <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
+                <td style="font-size:12px">${t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : ''}</td>
+                <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${amtDisplay}</td>
+                <td style="color:var(--text3);font-size:12px;max-width:160px">${t.memo || ''}</td>
                 <td style="white-space:nowrap">
                   <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button>
                   <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteLedgerRow('${t.id}')">✕</button>
@@ -3862,12 +3862,11 @@ const app = {
       </div>
     `;
 
-    // Wire up select-all
-    const sa = document.getElementById('ledgerSelectAll');
-    if (sa) sa.addEventListener('change', () => {
-      document.querySelectorAll('.ledger-check').forEach(c => c.checked = sa.checked);
-      this.onLedgerCheck();
-    });
+  },
+
+  onLedgerSelectAll(cb) {
+    document.querySelectorAll('.ledger-check').forEach(c => c.checked = cb.checked);
+    this.onLedgerCheck();
   },
 
   onLedgerCheck() {
