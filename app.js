@@ -1424,14 +1424,14 @@ const app = {
             <tbody>
               ${displayRows.map(r => `
                 <tr data-je-id="${r.jeId}">
-                  <td><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
+                  <td style="width:32px;padding:11px 8px"><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
                   <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${r.id}</td>
                   <td style="white-space:nowrap">${r.date}</td>
-                  <td>${r.memo}</td>
-                  <td>${r.account}</td>
-                  <td>${r.debit > 0 ? fmt(r.debit) : ''}</td>
-                  <td>${r.credit > 0 ? fmt(r.credit) : ''}</td>
-                  <td><span class="badge">${r.type}</span></td>
+                  <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.memo}</div></td>
+                  <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${r.account}</div></td>
+                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.debit > 0 ? fmt(r.debit) : ''}</td>
+                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.credit > 0 ? fmt(r.credit) : ''}</td>
+                  <td style="white-space:nowrap"><span class="badge">${r.type}</span></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -3845,13 +3845,13 @@ const app = {
               const category = t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : '';
               return `
               <tr data-txn-id="${t.id}">
-                <td style="width:32px"><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
+                <td style="width:32px;padding:11px 8px"><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
                 <td style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</td>
-                <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</td>
+                <td><div style="width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</div></td>
                 <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
-                <td style="white-space:nowrap;font-size:12px">${category}</td>
+                <td><div style="width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${category}</div></td>
                 <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${amtDisplay}</td>
-                <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px">${t.memo || ''}</td>
+                <td><div style="width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px">${t.memo || ''}</div></td>
                 <td style="white-space:nowrap">
                   <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button>
                   <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteLedgerRow('${t.id}')">✕</button>
@@ -4334,8 +4334,11 @@ const app = {
       if (['status','state'].includes(k)) map.status = i;
       if (['bankaccount','accountname','acctname'].includes(k) ||
           (k.includes('account') && k.includes('name'))) map.bankAccount = i;
-      if (['accountnumber','accountno','acctno','accountnum','acctnum'].includes(k) ||
+      if (['accountnumber','accountno','acctno','accountnum','acctnum','account'].includes(k) ||
           (k.includes('account') && (k.includes('number') || k.includes('num') || k.includes('no')))) map.accountNumber = i;
+      // AMEX CC columns
+      if (['receipt'].includes(k)) map.memo = map.memo ?? i;
+      if (k.includes('cardmember') || k === 'cardno' || k === 'cardholder') map.entity = map.entity ?? i;
     });
 
     // Value-based detection for synthetic headers (Col_1, Col_2 …) from record-type bank files
@@ -4470,8 +4473,10 @@ const app = {
           else if (typeStr.includes('CREDIT')) direction = 'CREDIT';
           else if (typeStr.includes('DEBIT'))  direction = 'DEBIT';
         }
-        // Fallback: positive = credit, negative = debit
-        if (!direction) direction = val >= 0 ? 'CREDIT' : 'DEBIT';
+        // Fallback: for CC, positive = charge = DEBIT; for bank, positive = deposit = CREDIT
+        if (!direction) direction = this._importType === 'cc'
+          ? (val >= 0 ? 'DEBIT' : 'CREDIT')
+          : (val >= 0 ? 'CREDIT' : 'DEBIT');
       } else {
         const debitVal  = parseFloat(mapping.debit  >= 0 ? row[mapping.debit]?.replace(/["$,\s]/g,'')  || '0' : '0') || 0;
         const creditVal = parseFloat(mapping.credit >= 0 ? row[mapping.credit]?.replace(/["$,\s]/g,'') || '0' : '0') || 0;
