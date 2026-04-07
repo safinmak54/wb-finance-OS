@@ -1456,8 +1456,8 @@ const app = {
                   <td style="white-space:nowrap">${r.date}</td>
                   <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.memo}</div></td>
                   <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${r.account}</div></td>
-                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.debit > 0 ? fmt(r.debit) : ''}</td>
-                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums">${r.credit > 0 ? fmt(r.credit) : ''}</td>
+                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--red,#dc2626);font-weight:600">${r.debit > 0 ? `(${fmt(r.debit)})` : ''}</td>
+                  <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--green,#059669);font-weight:600">${r.credit > 0 ? fmt(r.credit) : ''}</td>
                   <td style="white-space:nowrap"><span class="badge">${r.type}</span></td>
                 </tr>`).join('')}
             </tbody>
@@ -1714,7 +1714,7 @@ const app = {
       if (val === null || val === undefined || val === '') return '';
       const num = Number(val);
       if (isNaN(num) || num === 0) return '';
-      const color = isPayable ? 'var(--red,#dc2626)' : (num < 0 ? 'var(--red,#dc2626)' : 'var(--blue,#2563eb)');
+      const color = isPayable ? 'var(--red,#dc2626)' : (num < 0 ? 'var(--red,#dc2626)' : 'var(--green,#059669)');
       return `<span style="color:${color};font-weight:600">${isPayable ? '(' : ''}${fmt(Math.abs(num))}${isPayable ? ')' : ''}</span>`;
     };
 
@@ -1760,7 +1760,7 @@ const app = {
 
       const cashTotalCell = `<td class="cb-computed" style="text-align:right;background:rgba(37,99,235,0.06)">${fmtCell(cashTotal,false,true)}</td>`;
       const totalPayCell  = `<td class="cb-computed" style="text-align:right;background:rgba(220,38,38,0.06)">${fmtCell(totalPayables,true,true)}</td>`;
-      const cashBalColor  = cashBal >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+      const cashBalColor  = cashBal >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
       const cashBalCell   = `<td class="cb-computed" style="text-align:right;background:rgba(37,99,235,0.06)"><span style="color:${cashBalColor};font-weight:700">${cashBal !== 0 ? (cashBal<0?'('+fmt(Math.abs(cashBal))+')':fmt(cashBal)) : ''}</span></td>`;
 
       // Insert computed cols at right positions: after hunt_bal (idx 6), after fedex (idx 10), at end
@@ -3048,7 +3048,7 @@ const app = {
 
     const rows = (txns || []).map(t => {
       const amt = Number(t.amount);
-      const color = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+      const color = amt >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
       const amtStr = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
       return `<tr>
         <td style="white-space:nowrap">${t.acc_date || ''}</td>
@@ -3064,7 +3064,7 @@ const app = {
     }).join('');
 
     const total = (txns || []).reduce((s, t) => s + Number(t.amount), 0);
-    const totalColor = total >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+    const totalColor = total >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
     const totalStr = total < 0 ? `(${fmt(Math.abs(total))})` : fmt(total);
 
     document.getElementById('modalTitle').textContent = label;
@@ -3226,7 +3226,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--blue)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
@@ -3341,7 +3341,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--blue)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td>
@@ -3981,7 +3981,7 @@ const app = {
           <tbody>
             ${rows.map(t => {
               const amt = Number(t.amount);
-              const amtColor = amt >= 0 ? 'var(--blue,#2563eb)' : 'var(--red,#dc2626)';
+              const amtColor = amt >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
               const category = t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : '';
               return `
