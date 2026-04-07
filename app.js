@@ -724,7 +724,7 @@ const app = {
     } else if (mode === 'prior') {
       await this._renderPnlVsPrior(data, range);
     } else if (mode === 'budget') {
-      this._renderPnlVsBudget(data);
+      await this._renderPnlVsBudget(data, range);
     }
 
     await this._renderPnlCharts(data, range);
@@ -912,25 +912,47 @@ const app = {
     container.innerHTML = html;
   },
 
-  _renderPnlVsBudget(data) {
+  async _renderPnlVsBudget(data, range) {
     const container = document.getElementById('pnlReport');
-    const curr = this._summarizePnlData(data);
-    const bgt = window._plBudget || {};
+    if (!container) return;
+    container.innerHTML = '<div style="padding:24px;color:var(--text3)">Loading comparison…</div>';
+
+    // Compute prior period of same length
+    const from  = new Date(range.from);
+    const to    = new Date(range.to);
+    const days  = Math.round((to - from) / 86400000) + 1;
+    const pFrom = new Date(from); pFrom.setDate(pFrom.getDate() - days);
+    const pTo   = new Date(from); pTo.setDate(pTo.getDate() - 1);
+    const pad   = d => d.toISOString().slice(0,10);
+    const priorRange = { from: pad(pFrom), to: pad(pTo) };
+
+    const entity = state.pnlEntities?.length ? state.pnlEntities : state.globalEntity;
+    const priorData = await this.fetchReportData(entity, priorRange);
+
+    const curr  = this._summarizePnlData(data);
+    const prior = priorData ? this._summarizePnlData(priorData) : {};
+
+    const hasBudget = !!window._plBudget;
+    const compLabel = hasBudget ? 'Budget' : 'Prior Period';
     const cats = [
-      { label:'Revenue',            key:'Revenue',            bKey:'revenue'            },
-      { label:'COGS',               key:'COGS',               bKey:'cogs'               },
-      { label:'Gross Profit',       key:'Gross Profit',       bKey:'gross_profit'       },
-      { label:'Operating Expenses', key:'Operating Expenses', bKey:'operating_expenses' },
-      { label:'Net Income',         key:'Net Income',         bKey:'net_income'         },
+      { label:'Revenue',            key:'Revenue'            },
+      { label:'COGS',               key:'COGS'               },
+      { label:'Gross Profit',       key:'Gross Profit'       },
+      { label:'Operating Expenses', key:'Operating Expenses' },
+      { label:'Net Income',         key:'Net Income'         },
     ];
-    let html = '<table class="data-table"><thead><tr><th>Category</th><th class="r">Actual</th><th class="r">Budget</th><th class="r">$ Var</th><th class="r">% Var</th></tr></thead><tbody>';
-    cats.forEach(({ label, key, bKey }) => {
+    const bgt = window._plBudget || {};
+    const bgtKey = { 'Revenue':'revenue','COGS':'cogs','Gross Profit':'gross_profit','Operating Expenses':'operating_expenses','Net Income':'net_income' };
+
+    let html = `<div style="font-size:12px;color:var(--text3);margin-bottom:12px">Comparing current period vs ${hasBudget ? 'budget' : `prior period (${priorRange.from} – ${priorRange.to})`}</div>`;
+    html += `<table class="data-table"><thead><tr><th>Category</th><th class="r">Actual</th><th class="r">${compLabel}</th><th class="r">$ Var</th><th class="r">% Var</th></tr></thead><tbody>`;
+    cats.forEach(({ label, key }) => {
       const actual = curr[key] || 0;
-      const budget = bgt[bKey] ?? null;
-      const varD = budget !== null ? actual - budget : null;
-      const varP = (budget && varD !== null) ? (varD/Math.abs(budget)*100).toFixed(1)+'%' : '—';
-      const cls  = varD !== null ? (varD >= 0 ? 'g' : 'r') : '';
-      html += `<tr><td>${label}</td><td class="r">${fmt(actual)}</td><td class="r">${budget !== null ? fmt(budget) : '—'}</td><td class="r ${cls}">${varD !== null ? fmt(varD) : '—'}</td><td class="r ${cls}">${varP}</td></tr>`;
+      const comp   = hasBudget ? (bgt[bgtKey[key]] ?? null) : (prior[key] ?? null);
+      const varD   = comp !== null ? actual - comp : null;
+      const varP   = (comp && varD !== null) ? (varD / Math.abs(comp) * 100).toFixed(1) + '%' : '—';
+      const cls    = varD !== null ? (varD >= 0 ? 'g' : 'r') : '';
+      html += `<tr><td>${label}</td><td class="r">${fmt(actual)}</td><td class="r">${comp !== null ? fmt(comp) : '—'}</td><td class="r ${cls}">${varD !== null ? fmt(varD) : '—'}</td><td class="r ${cls}">${varP}</td></tr>`;
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -2275,8 +2297,61 @@ const app = {
     }
   },
 
-  _refreshProductMix() {
-    this.toast('Product mix refreshed (using seed data — configure GAS proxy in Bank Connections to sync live)');
+  async _refreshProductMix() {
+    const el = document.getElementById('productmixContent');
+    const btn = el?.querySelector('button');
+    if (btn) { btn.textContent = '⟳ Loading…'; btn.disabled = true; }
+
+    const range = state.globalPeriodRange;
+    let q = supabaseClient
+      .from('transactions')
+      .select('amount, entity, accounts(account_code, account_name, account_type, account_subtype)')
+      .gte('acc_date', range.from)
+      .lte('acc_date', range.to);
+    const entity = state.globalEntity;
+    if (entity !== 'all') q = q.eq('entity', entity);
+
+    const { data: txns, error } = await q;
+    if (error || !txns?.length) {
+      this.showToast('No transaction data for this period', 'error');
+      if (btn) { btn.textContent = '🔄 Refresh'; btn.disabled = false; }
+      return;
+    }
+
+    // Group revenue and COGS by entity
+    const entityMap = {};
+    txns.forEach(t => {
+      const code = t.entity || 'Other';
+      if (!entityMap[code]) entityMap[code] = { revenue: 0, cogs: 0, ads: 0 };
+      const type    = t.accounts?.account_type;
+      const subtype = t.accounts?.account_subtype;
+      const amt = Math.abs(Number(t.amount));
+      if (type === 'revenue')                  entityMap[code].revenue += amt;
+      if (subtype === 'cogs')                  entityMap[code].cogs    += amt;
+      if (subtype === 'advertising')           entityMap[code].ads     += amt;
+    });
+
+    const categories = Object.entries(entityMap)
+      .filter(([,v]) => v.revenue > 0)
+      .sort((a,b) => b[1].revenue - a[1].revenue)
+      .map(([name, v]) => ({ name, ...v, platform: 'Supabase', channel: 'Live' }));
+
+    if (!categories.length) {
+      this.showToast('No revenue data found for this period', 'error');
+      if (btn) { btn.textContent = '🔄 Refresh'; btn.disabled = false; }
+      return;
+    }
+
+    window._productMix = {
+      updatedAt: `Live · ${this.getPeriodLabel(state.globalPeriod)}`,
+      categories,
+      adSpend:   { meta: 0, google: 0, tiktok: 0 },
+      channels:  { online: 0, retail: 0, wholesale: 0, other: 0 },
+      adRevenue: { meta: 0, google: 0, tiktok: 0 },
+    };
+
+    this.renderProductMix();
+    this.showToast('Product mix refreshed from live data', 'success');
   },
 
   // ---- GOOGLE SHEETS SYNC ----
@@ -4534,7 +4609,7 @@ const app = {
 
     this.closeModal();
     this.toast(`${inserts.length} transaction${inserts.length !== 1 ? 's' : ''} imported${skipped ? `, ${skipped} skipped` : ''}`);
-    await this.navigate('inbox');
+    await this.navigate(this._importType === 'cc' ? 'cc-inbox' : 'inbox');
   },
 
   printReport() { window.print(); },

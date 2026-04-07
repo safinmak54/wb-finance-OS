@@ -143,26 +143,43 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .page.active { display: block; }
 
 /* ---- METRICS ---- */
-.metrics-row { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
-.metric-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; position: relative; overflow: hidden; }
-.metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--border2); }
-.metric-card.highlight::before { background: var(--accent); }
-.metric-label { font-size: 0.67rem; color: var(--text3); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
-.metric-value { font-size: 1.4rem; font-weight: 700; color: var(--text); font-family: var(--mono); letter-spacing: -0.5px; line-height: 1; margin: 5px 0 3px; }
+.metrics-row { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+.metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px 16px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  transition: box-shadow 0.18s, transform 0.18s;
+}
+.metric-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.10); transform: translateY(-1px); }
+.metric-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: var(--border2); border-radius: 12px 12px 0 0; }
+.metric-card.mc-revenue::before  { background: linear-gradient(90deg,#3b82f6,#60a5fa); }
+.metric-card.mc-cogs::before     { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
+.metric-card.mc-gp::before       { background: linear-gradient(90deg,#10b981,#34d399); }
+.metric-card.mc-np::before       { background: linear-gradient(90deg,#1e3a8a,#3b82f6); }
+.metric-card.mc-ads::before      { background: linear-gradient(90deg,#8b5cf6,#a78bfa); }
+.metric-card.mc-runway::before   { background: linear-gradient(90deg,#0891b2,#22d3ee); }
+.metric-card.highlight::before   { background: linear-gradient(90deg,#1e3a8a,#3b82f6); }
+.metric-icon { font-size: 18px; margin-bottom: 8px; line-height: 1; }
+.metric-label { font-size: 0.67rem; color: var(--text3); font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px; }
+.metric-value { font-size: 1.5rem; font-weight: 800; color: var(--text); font-family: var(--mono); letter-spacing: -0.5px; line-height: 1; margin: 4px 0 6px; }
 .metric-card.highlight .metric-value { color: var(--accent); }
-.metric-delta { display: inline-block; font-size: 10px; margin-top: 6px; color: var(--text3); background: var(--surface2); padding: 2px 7px; border-radius: 4px; font-weight: 500; }
-.metric-delta.pos { color: var(--green); background: var(--green-light); }
-.metric-delta.neg { color: var(--red); background: var(--red-light); }
+.metric-delta { display: inline-block; font-size: 10px; color: var(--text3); background: var(--surface2); padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+.metric-delta.pos { color: #059669; background: #D1FAE5; }
+.metric-delta.neg { color: #DC2626; background: #FEE2E2; }
 
 /* ---- DASHBOARD GRID ---- */
-.dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
 
 /* ---- CARDS ---- */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .card.span-2 { grid-column: span 2; }
 .card.span-3 { grid-column: span 3; }
 .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-.card-title { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.2px; }
+.card-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.2px; }
 .card-sub { font-size: 0.7rem; color: var(--text3); margin-left: 8px; }
 .card-header select { font-size: 0.72rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text2); cursor: pointer; font-family: var(--font); }
 .card-header select:focus { outline: none; border-color: var(--accent); }
@@ -172,13 +189,29 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .chart-wrap { position: relative; width: 100%; }
 
 /* ---- CASH POSITION ROW (dashboard navy cards) ---- */
-.cash-pos-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-.cash-pos-card { background: #1E3A5F; color: #fff; border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
-.cash-pos-lbl { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.65; }
-.cash-pos-val { font-size: 1.55rem; font-weight: 700; margin: 5px 0 3px; line-height: 1; }
-.cash-pos-val.g { color: #86EFAC; }
+.cash-pos-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+.cash-pos-card {
+  background: linear-gradient(135deg, #1E3A5F 0%, #1a3358 100%);
+  color: #fff;
+  border-radius: 12px;
+  padding: 18px 22px;
+  box-shadow: 0 4px 14px rgba(30,58,95,0.35);
+  position: relative;
+  overflow: hidden;
+}
+.cash-pos-card::after {
+  content: '';
+  position: absolute;
+  top: -30px; right: -30px;
+  width: 100px; height: 100px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 50%;
+}
+.cash-pos-lbl { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.6; }
+.cash-pos-val { font-size: 1.75rem; font-weight: 800; margin: 6px 0 4px; line-height: 1; font-family: var(--mono); letter-spacing: -0.5px; }
+.cash-pos-val.g { color: #6EE7B7; }
 .cash-pos-val.r { color: #FCA5A5; }
-.cash-pos-sub { font-size: 0.68rem; opacity: 0.6; line-height: 1.4; margin-top: 2px; }
+.cash-pos-sub { font-size: 0.68rem; opacity: 0.55; line-height: 1.4; margin-top: 3px; }
 
 /* ---- CASH BARS (entity bar chart in dashboard) ---- */
 .cash-bars { display: flex; flex-direction: column; gap: 10px; }
@@ -202,13 +235,17 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 
 /* ---- INSIGHTS (2×2 grid, enterprise narrative style) ---- */
 .insights-section { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-.dash-insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-.ins { border-radius: var(--radius-lg); padding: 13px 16px; }
-.ins.opp  { background: #F0FDF4; border: 1px solid #BBF7D0; }
-.ins.risk { background: #FFF7ED; border: 1px solid #FED7AA; }
+.dash-insight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.ins { border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden; }
+.ins.opp  { background: #F0FDF4; border: 1px solid #86EFAC; }
+.ins.risk { background: #FFFBEB; border: 1px solid #FDE68A; }
 .ins.warn { background: #FEF2F2; border: 1px solid #FECACA; }
-.ins-title { font-size: 0.75rem; font-weight: 700; margin-bottom: 5px; color: var(--text); }
-.ins-text  { font-size: 0.72rem; color: var(--text2); line-height: 1.55; }
+.ins::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 12px 0 0 12px; }
+.ins.opp::before  { background: #22c55e; }
+.ins.risk::before { background: #f59e0b; }
+.ins.warn::before { background: #ef4444; }
+.ins-title { font-size: 0.76rem; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+.ins-text  { font-size: 0.72rem; color: var(--text2); line-height: 1.6; }
 .ins-num   { font-weight: 700; color: var(--text); }
 [data-theme="dark"] .ins.opp  { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.25); }
 [data-theme="dark"] .ins.risk { background: rgba(245,158,11,0.08);  border-color: rgba(245,158,11,0.25); }
