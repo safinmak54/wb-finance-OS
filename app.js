@@ -498,16 +498,21 @@ const app = {
 
   normalizeDate(str) {
     if (!str) return str;
+    // Strip time component from ISO datetime: "2026-01-15 00:00:00" or "2026-01-15T00:00:00Z"
+    if (/^\d{4}-\d{2}-\d{2}[T ]/.test(str)) return str.slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     // YYYYMMDD (bank feed format: 20251231)
     const m3 = str.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (m3) return `${m3[1]}-${m3[2]}-${m3[3]}`;
-    // MM/DD/YYYY
+    // MM/DD/YYYY or M/D/YYYY
     const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-    // MM-DD-YYYY or M-D-YYYY (US bank format; treat first component as month, second as day)
+    // MM-DD-YYYY or M-D-YYYY
     const m2 = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
     if (m2) return `${m2[3]}-${m2[1].padStart(2,'0')}-${m2[2].padStart(2,'0')}`;
+    // MM/DD/YY (e.g. 01/15/26)
+    const m4 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (m4) return `20${m4[3]}-${m4[1].padStart(2,'0')}-${m4[2].padStart(2,'0')}`;
     return str;
   },
 
@@ -4104,7 +4109,7 @@ const app = {
     const isIncome = type === 'income' || type === 'transfer';
 
     if (supabaseClient) {
-      const entityId = window._entityByCode[entityCode];
+      const entityId = window._entityByCode[entityCode] || null;
       const { error } = await supabaseClient.from('raw_transactions').insert({
         entity_id: entityId,
         source: source || 'manual',
@@ -4279,7 +4284,7 @@ const app = {
     const entityCode = entity === 'WB (consolidated)' ? 'WB' : entity;
 
     if (supabaseClient) {
-      const entityId = window._entityByCode[entityCode];
+      const entityId = window._entityByCode[entityCode] || null;
 
       // Find account IDs by code or name
       const findAccountId = async (query) => {
@@ -4445,60 +4450,143 @@ const app = {
     document.getElementById('importStep1').style.display = 'none';
     document.getElementById('importStep2').style.display = '';
 
-    // Column mapping UI
-    const TXN_FIELDS = ['date', 'description', 'amount', 'entity', 'account_id'];
-    const mappingUI = document.getElementById('importMappingUI');
-    mappingUI.innerHTML = TXN_FIELDS.map(f => {
-      const bestGuess = headers.findIndex(h => h.toLowerCase().includes(f));
-      const guessIdx = bestGuess >= 0 ? bestGuess : 0;
-      const opts = headers.map((h,i) => `<option value="${i}" ${i===guessIdx?'selected':''}>${esc(h)}</option>`).join('');
-      return `<div class="import-mapping-row">
-        <span>${f}</span><span>←</span>
-        <select id="map_${f}" class="import-map-sel">${opts}</select>
-      </div>`;
-    }).join('');
+    const isCCImport = this._importType === 'cc';
+    const SKIP_OPT = `<option value="-1">(skip)</option>`;
 
-    // Preview table (first 10 rows)
+    // Auto-detect column indices
+    const detect = (keywords) => {
+      const idx = headers.findIndex(h => keywords.some(k => h.toLowerCase().replace(/[^a-z]/g,'').includes(k)));
+      return idx >= 0 ? idx : -1;
+    };
+    const guesses = {
+      date:        detect(['date','dt']),
+      description: detect(['description','desc','memo','narration','detail']),
+      amount:      detect(['amount','amt']),
+      debit:       detect(['debit','dr','withdrawal','paid']),
+      credit:      detect(['credit','cr','deposit','received']),
+      entity:      detect(['entity','company','card']),
+    };
+
+    // Column mapping UI
+    const FIELDS = [
+      { key:'date',        label:'Date *',               required:true  },
+      { key:'description', label:'Description *',        required:true  },
+      { key:'amount',      label:'Amount (single col)',   required:false },
+      { key:'debit',       label:'Debit (two-col)',       required:false },
+      { key:'credit',      label:'Credit (two-col)',      required:false },
+      { key:'entity',      label:'Entity (per-row)',      required:false },
+    ];
+
+    const mappingUI = document.getElementById('importMappingUI');
+    mappingUI.innerHTML = `
+      <div style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:6px;font-size:11px;color:var(--text2)">
+        Map <b>Amount</b> for a single amount column, OR map <b>Debit + Credit</b> for two-column statements. Skip unused fields.
+      </div>
+      ${FIELDS.map(f => {
+        const gi = guesses[f.key];
+        const opts = SKIP_OPT + headers.map((h,i) => `<option value="${i}"${i===gi?' selected':''}>${esc(h)}</option>`).join('');
+        const detected = gi >= 0 ? '<span style="color:var(--green);font-size:10px">✓ detected</span>' : '';
+        return `<div class="import-mapping-row" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="width:150px;font-size:12px">${f.label}</span>
+          <select id="map_${f.key}" class="import-map-sel filter-select" style="flex:1;font-size:12px">${opts}</select>
+          ${detected}
+        </div>`;
+      }).join('')}
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+        <label style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text3)">
+          Default Entity ${isCCImport ? '<span style="color:var(--red)">*</span>' : ''}
+        </label>
+        <select id="importEntitySelect" class="filter-select" style="width:100%;margin-top:6px;font-size:12px">
+          <option value="">— ${isCCImport ? 'Select entity (required)' : 'Auto-detect / skip'} —</option>
+          ${(isCCImport ? ['LP','BP','SP1'] : ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'])
+            .map(e => `<option value="${e}">${e}</option>`).join('')}
+        </select>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px">Used when no per-row entity column is mapped</div>
+      </div>`;
+
+    // Preview table (first 5 rows)
     const preview = document.getElementById('importPreviewTable');
-    const sample = rows.slice(0, 10);
+    const sample = rows.slice(0, 5);
     preview.innerHTML = `
       <thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
-      <tbody>${sample.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+      <tbody>${sample.map(r=>`<tr>${r.map(c=>`<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
   },
 
   async submitImport() {
     if (!this._importData) return;
-    const { headers, rows } = this._importData;
-    const TXN_FIELDS = ['date', 'description', 'amount', 'entity'];
+    const { rows } = this._importData;
     const mapping = {};
-    TXN_FIELDS.forEach(f => {
+    ['date','description','amount','debit','credit','entity'].forEach(f => {
       const sel = document.getElementById(`map_${f}`);
       if (sel) mapping[f] = parseInt(sel.value, 10);
     });
 
-    const records = rows.map(row => ({
-      acc_date:    row[mapping.date]        || null,
-      description: row[mapping.description] || '',
-      amount:      parseFloat(row[mapping.amount]) || 0,
-      entity:      row[mapping.entity]      || '',
-    })).filter(r => r.acc_date && r.amount !== 0);
+    const globalEntityCode = document.getElementById('importEntitySelect')?.value || '';
+    if (this._importType === 'cc' && !globalEntityCode) {
+      this.showToast('Select an entity (LP, BP, or SP1) before importing', 'error');
+      document.getElementById('importEntitySelect')?.focus();
+      return;
+    }
+
+    let skipped = 0;
+    const records = [];
+    rows.forEach(row => {
+      const rawDate = row[mapping.date]?.replace(/"/g,'').trim();
+      const accDate = this.normalizeDate(rawDate);
+      const desc    = row[mapping.description]?.replace(/"/g,'').trim() || '';
+      if (!accDate || !desc) { skipped++; return; }
+
+      let amount, direction;
+      if (mapping.debit >= 0 || mapping.credit >= 0) {
+        const dv = parseFloat((row[mapping.debit]  || '').replace(/[$,"\s]/g,'')) || 0;
+        const cv = parseFloat((row[mapping.credit] || '').replace(/[$,"\s]/g,'')) || 0;
+        if (cv > 0)      { amount = cv; direction = 'CREDIT'; }
+        else if (dv > 0) { amount = dv; direction = 'DEBIT'; }
+        else             { skipped++; return; }
+      } else {
+        const rawAmt = (row[mapping.amount] || '').replace(/[$,"\s]/g,'');
+        const val = parseFloat(rawAmt);
+        if (isNaN(val) || val === 0) { skipped++; return; }
+        amount = Math.abs(val);
+        direction = this._importType === 'cc'
+          ? (val >= 0 ? 'DEBIT' : 'CREDIT')
+          : (val >= 0 ? 'CREDIT' : 'DEBIT');
+      }
+
+      const rowEntityCode = mapping.entity >= 0
+        ? (row[mapping.entity] || '').replace(/"/g,'').trim().toUpperCase() || globalEntityCode
+        : globalEntityCode;
+      const entityId = rowEntityCode ? (window._entityByCode[rowEntityCode] || null) : null;
+
+      records.push({
+        description: desc,
+        amount,
+        direction,
+        transaction_date: accDate,
+        accounting_date:  accDate,
+        source:     this._importType === 'cc' ? 'credit_card' : 'csv',
+        classified: false,
+        entity_id:  entityId,
+      });
+    });
+
+    if (!records.length) {
+      document.getElementById('importStep2').style.display = 'none';
+      document.getElementById('importStep3').style.display = '';
+      document.getElementById('importResult').innerHTML = `<p style="color:var(--red)">No valid rows found. ${skipped} rows skipped — check date and amount columns.</p>`;
+      return;
+    }
 
     document.getElementById('importStep2').style.display = 'none';
     document.getElementById('importStep3').style.display = '';
     document.getElementById('importResult').innerHTML = '<p>Importing…</p>';
 
-    const { data, error } = await supabaseClient
-      .from('transactions')
-      .insert(records);
+    const { error } = await supabaseClient.from('raw_transactions').insert(records);
 
     if (error) {
-      const errP = document.createElement('p');
-      errP.style.color = 'var(--red)';
-      errP.textContent = `Error: ${error.message}`;
-      document.getElementById('importResult').innerHTML = '';
-      document.getElementById('importResult').appendChild(errP);
+      document.getElementById('importResult').innerHTML = `<p style="color:var(--red)">Error: ${error.message}</p>`;
     } else {
-      document.getElementById('importResult').innerHTML = `<p style="color:var(--green)">✓ Imported ${records.length} transactions successfully.</p>`;
+      document.getElementById('importResult').innerHTML = `<p style="color:var(--green)">✓ Imported ${records.length} transaction${records.length!==1?'s':''}${skipped?` (${skipped} skipped)`:''}.</p>`;
       this.showToast(`${records.length} transactions imported`, 'success');
     }
   },

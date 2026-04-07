@@ -810,7 +810,7 @@
   <div id="importStep3" class="import-step" style="display:none">
     <div id="importResult"></div>
     <div class="import-footer">
-      <button class="btn-primary" onclick="document.getElementById('importModal').close();app.resetImportModal()">Done</button>
+      <button class="btn-primary" onclick="document.getElementById('importModal').close();app.resetImportModal();app.navigate(app._importType==='cc'?'cc-inbox':'inbox')">Done</button>
     </div>
   </div>
 </dialog>
