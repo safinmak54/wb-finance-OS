@@ -162,6 +162,7 @@
         <div class="sync-dot"></div>
         <span class="nav-label">Connected</span>
       </div>
+      <button class="btn-danger-sm" data-roles="admin" onclick="app.clearAllData()" title="Delete all data for fresh testing" style="display:none;width:100%;margin-top:8px;font-size:11px;padding:6px;border-radius:6px;border:1px solid #fca5a5;background:#fef2f2;color:#dc2626;cursor:pointer">🗑 Clear All Data</button>
     </div>
   </aside>
 
@@ -717,10 +718,12 @@
       <div class="card" style="margin-top:12px">
         <div class="card-header">
           <span class="card-title">Payables Detail</span>
-          <div style="display:flex;gap:8px;margin-left:auto">
+          <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
             <select id="apVendorFilter" onchange="app.filterApTable()" style="font-size:0.75rem;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">
               <option value="">All Vendors</option>
             </select>
+            <button class="btn-outline" style="font-size:12px;padding:4px 12px" onclick="app.openModal('addVendor')">+ Add Vendor</button>
+            <button class="btn-primary" style="font-size:12px;padding:4px 12px" onclick="app.openModal('addApItem')">+ Add AP Item</button>
           </div>
         </div>
         <div class="tbl-wrap">

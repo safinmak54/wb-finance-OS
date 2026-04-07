@@ -2843,6 +2843,45 @@ const app = {
         </div>`;
     }
 
+    if (type === 'addApItem') {
+      title.textContent = 'Add AP Item';
+      const vendorOpts = DATA.vendors.length
+        ? DATA.vendors.map(v=>`<option>${v.name}</option>`).join('')
+        : '<option value="">No vendors yet — add one first</option>';
+      const entityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+      body.innerHTML = `
+        <div class="form-group">
+          <label>Vendor</label>
+          <select id="fApVendor">${vendorOpts}</select>
+        </div>
+        <div class="form-group">
+          <label>Entity</label>
+          <select id="fApEntity">${entityCodes.map(e=>`<option>${e}</option>`).join('')}</select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Invoice date</label>
+            <input type="date" id="fApInvDate" value="${new Date().toISOString().slice(0,10)}"/>
+          </div>
+          <div class="form-group">
+            <label>Due date</label>
+            <input type="date" id="fApDueDate"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Amount ($)</label>
+          <input type="number" id="fApAmount" step="0.01" min="0" placeholder="0.00"/>
+        </div>
+        <div class="form-group">
+          <label>Description / memo</label>
+          <input type="text" id="fApMemo" placeholder="Optional note"/>
+        </div>
+        <div class="form-actions">
+          <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+          <button class="btn-primary" onclick="app.saveApItem()">Save AP Item</button>
+        </div>`;
+    }
+
     if (type === 'addInvoice') {
       title.textContent = 'Add Invoice';
       body.innerHTML = `
@@ -4127,6 +4166,59 @@ const app = {
       this.toast('Vendor added (local only)');
       this.closeModal();
     }
+  },
+
+  async saveApItem() {
+    const vendor    = document.getElementById('fApVendor')?.value?.trim();
+    const entity    = document.getElementById('fApEntity')?.value;
+    const invDate   = document.getElementById('fApInvDate')?.value;
+    const dueDate   = document.getElementById('fApDueDate')?.value;
+    const amount    = parseFloat(document.getElementById('fApAmount')?.value || '0');
+    const memo      = document.getElementById('fApMemo')?.value?.trim();
+
+    if (!vendor) { this.showToast('Vendor is required', 'error'); return; }
+    if (!amount || amount <= 0) { this.showToast('Amount must be greater than 0', 'error'); return; }
+
+    if (supabaseClient) {
+      const { error } = await supabaseClient.from('ap_items').insert({
+        vendor, entity, invoice_date: invDate || null, due_date: dueDate || null,
+        amount, paid: false, dispute_note: memo || null
+      });
+      if (!error) {
+        this.showToast('AP item saved', 'success');
+        this.closeModal();
+        await this.renderAP();
+      } else {
+        console.error('Save AP item error:', error);
+        this.showToast('Error saving AP item', 'error');
+      }
+    } else {
+      this.showToast('No database connection', 'error');
+    }
+  },
+
+  async clearAllData() {
+    const confirmed = confirm(
+      '⚠️ DELETE ALL DATA\n\nThis will permanently delete:\n• All transactions\n• All ledger entries\n• All journal entries\n• All vendors & invoices\n• All AP items\n\nThis cannot be undone. Type "DELETE" to confirm.'
+    );
+    if (!confirmed) return;
+    const typed = prompt('Type DELETE to confirm:');
+    if (typed !== 'DELETE') { this.showToast('Cancelled', 'error'); return; }
+
+    this.showToast('Deleting all data…', 'error');
+    const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
+    for (const tbl of tables) {
+      try {
+        // Delete all rows — Supabase requires a filter; use neq on a always-true condition
+        await supabaseClient.from(tbl).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      } catch(e) {
+        console.warn('Clear error for', tbl, e);
+      }
+    }
+    // Reload data
+    await loadDataFromSupabase();
+    this.showToast('All data cleared. Starting fresh.', 'success');
+    this.navigate('dashboard');
   },
 
   async saveInvoice() {
