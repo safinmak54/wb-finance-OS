@@ -3383,7 +3383,7 @@ const app = {
     const companyWrap = document.getElementById('ccBulkCompanyWrap');
     if (classifyBtn) {
       classifyBtn.style.display = n > 0 ? 'inline-block' : 'none';
-      classifyBtn.textContent = n > 0 ? `Finalize ${n} Transaction${n > 1 ? 's' : ''}` : 'Finalize Selected';
+      classifyBtn.textContent = n > 0 ? `Finalize ${n} → Ledger` : 'Finalize → Ledger';
     }
     if (deleteBtn) deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
     if (companyWrap) companyWrap.style.display = n > 0 ? 'inline-flex' : 'none';
@@ -3646,17 +3646,17 @@ const app = {
       this.showToast('No auto-tagged transactions found', 'info');
       return;
     }
-    const missing = autoRows.filter(r => !r.querySelector('.acct-sel')?.value);
-    if (missing.length) {
-      this.showToast(`${missing.length} auto-tagged rows missing account — check rules`, 'error');
-      return;
-    }
-    // Select all auto-tagged rows and call bulkClassify
+    // Check all auto-tagged rows and surface the Finalize button — don't auto-submit
     autoRows.forEach(r => {
       const cb = r.querySelector('.row-check');
       if (cb) cb.checked = true;
     });
-    await this.bulkClassify();
+    this.onRowCheck();
+    const missing = autoRows.filter(r => !r.querySelector('.acct-sel')?.value).length;
+    const msg = missing
+      ? `${autoRows.length} rows selected — ${missing} still missing a category`
+      : `${autoRows.length} rows selected — review and click Finalize to send to Ledger`;
+    this.showToast(msg, missing ? 'error' : 'info');
   },
 
   // ---- DELETE SINGLE ROW ----
