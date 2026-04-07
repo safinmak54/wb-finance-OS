@@ -4586,7 +4586,12 @@ const app = {
     ).join('');
 
     const preEntity = this._csvImportEntity || '';
-    const entityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
+    const isCCImport = this._importType === 'cc';
+    const ccCodes = ['LP','BP','SP1'];
+    const allCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+    const entityCodes = isCCImport ? ccCodes : allCodes;
+    const blankOpt = `<option value="">— Select entity ${isCCImport ? '(required)' : ''}—</option>`;
+    const entityOptions = blankOpt + entityCodes.map(e =>
       `<option value="${e}" ${e === preEntity ? 'selected' : ''}>${e}</option>`).join('');
 
     document.getElementById('modalBody').innerHTML = `
@@ -4624,6 +4629,11 @@ const app = {
     selects.forEach(s => { mapping[s.dataset.field] = parseInt(s.value); });
 
     const csvEntity = document.getElementById('csvEntitySelect')?.value || '';
+    if (this._importType === 'cc' && !csvEntity) {
+      this.showToast('Select an entity (LP, BP, or SP1) before importing', 'error');
+      document.getElementById('csvEntitySelect')?.focus();
+      return;
+    }
     if (mapping.accDate < 0)  { this.toast('Date column is required');        return; }
     if (mapping.desc < 0)     { this.toast('Description column is required'); return; }
     if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
