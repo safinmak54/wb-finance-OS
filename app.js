@@ -3169,7 +3169,7 @@ const app = {
     const acctOptions = (accounts || []).map(a =>
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
     ).join('');
-    const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+    const ccEntityCodes = ['LP','BP','SP1'];
 
     el.innerHTML = `
       <div class="toolbar">
@@ -3179,6 +3179,15 @@ const app = {
         </div>
         <div class="toolbar-right">
           <span style="font-size:13px;color:var(--text3)">${txns.length}${totalCount > txns.length ? ' of ' + totalCount : ''} CC charge${txns.length !== 1 ? 's' : ''}</span>
+          <span id="ccBulkCompanyWrap" style="display:none;align-items:center;gap:6px">
+            <select id="ccBulkCompanySel" class="filter-select" style="font-size:12px;padding:4px 8px">
+              <option value="">Set Company…</option>
+              <option value="LP">LP</option>
+              <option value="BP">BP</option>
+              <option value="SP1">SP1</option>
+            </select>
+            <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.bulkSetCCCompany()">Apply</button>
+          </span>
           <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="app.bulkClassifyAutoTagged()">⚡ Auto-Tagged</button>
           <button class="btn-primary" id="bulkClassifyBtn" style="display:none;background:var(--green,#16a34a);border-color:var(--green,#16a34a)" onclick="app.bulkClassify()">Finalize Selected</button>
           <button class="btn-outline" id="bulkDeleteBtn" style="display:none;color:var(--red);border-color:var(--red)" onclick="app.bulkDelete()">Delete Selected</button>
@@ -3195,7 +3204,7 @@ const app = {
             <thead>
               <tr>
                 <th><input type="checkbox" id="inboxSelectAll" onchange="app.toggleSelectAll(this)"></th>
-                <th>Date</th><th>Description</th><th>Entity</th><th>Amount</th>
+                <th style="white-space:nowrap">Date</th><th>Description</th><th>Company</th><th style="white-space:nowrap">Amount</th>
                 <th style="min-width:260px">Category (COA)</th><th></th>
               </tr>
             </thead>
@@ -3207,7 +3216,8 @@ const app = {
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
-                      ${allEntityCodes.map(e =>
+                      <option value="">— select —</option>
+                      ${ccEntityCodes.map(e =>
                         `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
                       ).join('')}
                     </select>
@@ -3251,11 +3261,23 @@ const app = {
     const n = checked.length;
     const classifyBtn = document.getElementById('bulkClassifyBtn');
     const deleteBtn   = document.getElementById('bulkDeleteBtn');
+    const companyWrap = document.getElementById('ccBulkCompanyWrap');
     if (classifyBtn) {
       classifyBtn.style.display = n > 0 ? 'inline-block' : 'none';
       classifyBtn.textContent = n > 0 ? `Finalize ${n} Transaction${n > 1 ? 's' : ''}` : 'Finalize Selected';
     }
     if (deleteBtn) deleteBtn.style.display = n > 0 ? 'inline-block' : 'none';
+    if (companyWrap) companyWrap.style.display = n > 0 ? 'inline-flex' : 'none';
+  },
+
+  bulkSetCCCompany() {
+    const code = document.getElementById('ccBulkCompanySel')?.value;
+    if (!code) { this.showToast('Select a company first', 'error'); return; }
+    document.querySelectorAll('.row-check:checked').forEach(cb => {
+      const sel = cb.closest('tr')?.querySelector('.entity-sel');
+      if (sel) sel.value = code;
+    });
+    this.showToast(`Company set to ${code}`, 'success');
   },
 
   // ---- AUTO-CLASSIFICATION RULES ----
@@ -3846,7 +3868,7 @@ const app = {
               return `
               <tr data-txn-id="${t.id}">
                 <td style="width:32px;padding:11px 8px"><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
-                <td style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</td>
+                <td><div style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</div></td>
                 <td><div style="width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</div></td>
                 <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
                 <td><div style="width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${category}</div></td>
@@ -3885,7 +3907,7 @@ const app = {
     if (!confirm(`Delete ${checked.length} transaction${checked.length !== 1 ? 's' : ''} from the ledger? This cannot be undone.`)) return;
     const ids = checked.map(c => c.closest('tr[data-txn-id]')?.dataset.txnId).filter(Boolean);
     const { error } = await supabaseClient.from('transactions').delete().in('id', ids);
-    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    if (error) { this.showToast('Delete failed — see console', 'error'); console.error(error); return; }
     this.showToast(`${ids.length} transaction${ids.length !== 1 ? 's' : ''} deleted`, 'success');
     await this.renderLedger();
   },
@@ -4323,7 +4345,7 @@ const app = {
       const k = n(h);
       if (['accdate','accountingdate','acctdate'].includes(k) || (k.includes('account') && k.includes('date'))) map.accDate = i;
       if (map.accDate === undefined && k.includes('date')) map.accDate = i;
-      if (k === 'entity') map.entity = i;
+      if (['entity','company'].includes(k)) map.entity = i;
       if (['description','desc','memo','narrative','details','reference'].includes(k)) map.desc = i;
       if (['vendor','payee','merchant','supplier'].includes(k)) map.vendor = i;
       if (['type','transactiontype','txntype','kind'].includes(k)) map.type = i;
@@ -4489,7 +4511,8 @@ const app = {
 
       const bankAcct    = mapping.bankAccount   >= 0 ? row[mapping.bankAccount]?.replace(/"/g,'').trim()   || null : null;
       const acctNum     = mapping.accountNumber >= 0 ? row[mapping.accountNumber]?.replace(/"/g,'').trim() || null : null;
-      const entityCode  = detectEntityFromBankAccount(bankAcct) || csvEntity || null;
+      const rowEntity   = mapping.entity >= 0 ? row[mapping.entity]?.replace(/"/g,'').trim().toUpperCase() || null : null;
+      const entityCode  = rowEntity || detectEntityFromBankAccount(bankAcct) || csvEntity || null;
       inserts.push({
         description:      desc,
         amount,
