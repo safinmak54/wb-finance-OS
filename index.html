@@ -55,103 +55,103 @@
 
     <nav class="sidebar-nav">
       <div class="nav-group-label">Overview</div>
-      <a class="nav-item active" onclick="app.navigate('dashboard')" data-page="dashboard" data-roles="coo,admin">
+      <a class="nav-item active" onclick="app.navigate('dashboard')" data-page="dashboard" data-roles="coo,admin" title="Dashboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         <span class="nav-label">Dashboard</span>
       </a>
 
       <div class="nav-group-label">Accounting</div>
-      <a class="nav-item" onclick="app.navigate('inbox')" data-page="inbox" data-roles="bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('inbox')" data-page="inbox" data-roles="bookkeeper,admin" title="Bank Transactions">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         <span class="nav-label">Bank Transactions</span>
         <span class="nav-badge" id="reviewBadge"></span>
       </a>
-      <a class="nav-item" onclick="app.navigate('cc-inbox')" data-page="cc-inbox" data-roles="bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('cc-inbox')" data-page="cc-inbox" data-roles="bookkeeper,admin" title="Credit Card Txns">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         <span class="nav-label">Credit Card Txns</span>
         <span class="nav-badge" id="ccBadge"></span>
       </a>
-      <a class="nav-item" onclick="app.navigate('ledger')" data-page="ledger" data-roles="coo,bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('ledger')" data-page="ledger" data-roles="coo,bookkeeper,admin" title="Ledger">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
           <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>
         </svg>
         <span class="nav-label">Ledger</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('journals')" data-page="journals" data-roles="coo,bookkeeper,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('journals')" data-page="journals" data-roles="coo,bookkeeper,cpa,admin" title="Journal Entries">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
         <span class="nav-label">Journal Entries</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('reconcile')" data-page="reconcile" data-roles="coo,bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('reconcile')" data-page="reconcile" data-roles="coo,bookkeeper,admin" title="Reconciliation">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span class="nav-label">Reconciliation</span>
       </a>
 
       <div class="nav-group-label">Payables</div>
-      <a class="nav-item" onclick="app.navigate('vendors')" data-page="vendors" data-roles="coo,bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('vendors')" data-page="vendors" data-roles="coo,bookkeeper,admin" title="Vendors">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         <span class="nav-label">Vendors</span>
         <span class="nav-badge danger" id="overdueVendorBadge"></span>
       </a>
-      <a class="nav-item" onclick="app.navigate('invoices')" data-page="invoices" data-roles="coo,bookkeeper,admin">
+      <a class="nav-item" onclick="app.navigate('invoices')" data-page="invoices" data-roles="coo,bookkeeper,admin" title="Invoices">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         <span class="nav-label">Invoices</span>
       </a>
-      <a class="nav-item" data-page="ap" data-roles="coo,cpa,admin" onclick="app.navigate('ap')">
+      <a class="nav-item" data-page="ap" data-roles="coo,cpa,admin" onclick="app.navigate('ap')" title="AP / Payables">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         <span class="nav-label">AP / Payables</span>
       </a>
 
       <div class="nav-group-label">Reports</div>
-      <a class="nav-item" onclick="app.navigate('pnl')" data-page="pnl" data-roles="coo,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('pnl')" data-page="pnl" data-roles="coo,cpa,admin" title="Profit & Loss">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span class="nav-label">Profit & Loss</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('balance')" data-page="balance" data-roles="coo,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('balance')" data-page="balance" data-roles="coo,cpa,admin" title="Balance Sheet">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
         <span class="nav-label">Balance Sheet</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('cashflow')" data-page="cashflow" data-roles="coo,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('cashflow')" data-page="cashflow" data-roles="coo,cpa,admin" title="Cash Flow">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         <span class="nav-label">Cash Flow</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('forecast')" data-page="forecast" data-roles="coo,admin">
+      <a class="nav-item" onclick="app.navigate('forecast')" data-page="forecast" data-roles="coo,admin" title="Cash Forecast">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 4 2-2 3 3"/></svg>
         <span class="nav-label">Cash Forecast</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('cash-balances')" data-page="cash-balances" data-roles="coo,bookkeeper,admin,cpa">
+      <a class="nav-item" onclick="app.navigate('cash-balances')" data-page="cash-balances" data-roles="coo,bookkeeper,admin,cpa" title="Cash Balances">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
         <span class="nav-label">Cash Balances</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('ratios')" data-page="ratios" data-roles="coo,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('ratios')" data-page="ratios" data-roles="coo,cpa,admin" title="Ratios & KPIs">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M9 9h.01M15 15h.01"/><path d="M16 8l-8 8"/></svg>
         <span class="nav-label">Ratios & KPIs</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('cfnotes')" data-page="cfnotes" data-roles="coo,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('cfnotes')" data-page="cfnotes" data-roles="coo,cpa,admin" title="CFO Notes">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
         <span class="nav-label">CFO Notes</span>
       </a>
 
       <div class="nav-group-label">COO</div>
-      <a class="nav-item" onclick="app.navigate('sales')" data-page="sales" data-roles="coo,admin">
+      <a class="nav-item" onclick="app.navigate('sales')" data-page="sales" data-roles="coo,admin" title="Sales Metrics">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3h18v18H3z" fill="none"/><path d="M3 9h18M9 21V9"/></svg>
         <span class="nav-label">Sales Metrics</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('productmix')" data-page="productmix" data-roles="coo,admin">
+      <a class="nav-item" onclick="app.navigate('productmix')" data-page="productmix" data-roles="coo,admin" title="Product Mix">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
         <span class="nav-label">Product Mix</span>
       </a>
 
       <div class="nav-group-label">Settings</div>
-      <a class="nav-item" onclick="app.navigate('coa')" data-page="coa" data-roles="bookkeeper,cpa,admin">
+      <a class="nav-item" onclick="app.navigate('coa')" data-page="coa" data-roles="bookkeeper,cpa,admin" title="Chart of Accounts">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M5.34 17.66l-1.41 1.41M20 12h-2M6 12H4M19.07 19.07l-1.41-1.41M5.34 6.34L3.93 4.93"/></svg>
         <span class="nav-label">Chart of Accounts</span>
       </a>
-      <a class="nav-item" onclick="app.navigate('banks')" data-page="banks" data-roles="coo,admin">
+      <a class="nav-item" onclick="app.navigate('banks')" data-page="banks" data-roles="coo,admin" title="Bank Connections">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
         <span class="nav-label">Bank Connections</span>
       </a>
-      <a class="nav-item" data-page="import" data-roles="coo,bookkeeper,cpa,admin" onclick="app.openImportModal()" style="display:none">
+      <a class="nav-item" data-page="import" data-roles="coo,bookkeeper,cpa,admin" onclick="app.openImportModal()" style="display:none" title="Import Data">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
         <span class="nav-label">Import Data</span>
       </a>
