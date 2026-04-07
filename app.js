@@ -5028,20 +5028,17 @@ const app = {
     set('m-adspend', adSpend);
 
     // Margin deltas on KPI cards
-    const npEl = document.getElementById('m-np');
-    if (npEl && revenue > 0) {
-      const d = npEl.parentElement?.querySelector('.metric-delta');
-      if (d) d.textContent = ((np / revenue) * 100).toFixed(1) + '% margin';
-    }
-    const gpEl = document.getElementById('m-gp');
-    if (gpEl && revenue > 0) {
-      const d = gpEl.parentElement?.querySelector('.metric-delta');
-      if (d) d.textContent = ((gp / revenue) * 100).toFixed(1) + '% gross margin';
-    }
-    const cogsEl = document.getElementById('m-income');
-    if (cogsEl && revenue > 0) {
-      const d = cogsEl.parentElement?.querySelector('.metric-delta');
-      if (d) d.textContent = ((cogs / revenue) * 100).toFixed(1) + '% of revenue';
+    const setDelta = (elId, text, isNeg) => {
+      const card = document.getElementById(elId)?.closest('.metric-card');
+      const d = card?.querySelector('.metric-delta');
+      if (!d) return;
+      d.textContent = text;
+      d.className = 'metric-delta' + (isNeg ? ' neg' : '');
+    };
+    if (revenue > 0) {
+      setDelta('m-np',     ((np / revenue) * 100).toFixed(1) + '% margin',       np < 0);
+      setDelta('m-gp',     ((gp / revenue) * 100).toFixed(1) + '% gross margin', gp < 0);
+      setDelta('m-income', ((cogs / revenue) * 100).toFixed(1) + '% of revenue', false);
     }
 
     // Cash Runway KPI
@@ -5055,7 +5052,7 @@ const app = {
       const monthlyBurn = weeklyBurn * 4.33;
       const runway = monthlyBurn > 0 ? bankBalance / monthlyBurn : 0;
       runwayKpi.textContent = runway.toFixed(1) + ' mo';
-      const delta = runwayKpi.parentElement?.querySelector('.metric-delta');
+      const delta = runwayKpi.closest('.metric-card')?.querySelector('.metric-delta');
       if (delta) { delta.textContent = 'Cash runway'; delta.style.color = runway >= 6 ? 'var(--green)' : runway >= 3 ? 'var(--amber)' : 'var(--red)'; }
     }
 

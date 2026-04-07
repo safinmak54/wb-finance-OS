@@ -237,61 +237,134 @@
     <div id="page-dashboard" class="page active">
       <!-- KPI metrics row -->
       <div class="metrics-row">
-        <div class="metric-card mc-revenue">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,22 8,18 16,20 24,10 32,14 40,6 48,8" stroke="#2563EB" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">Gross Revenue</div>
+        <div class="metric-card">
+          <div class="metric-card-top">
+            <div class="metric-label">Gross Revenue</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-revenue">$0</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta" id="m-revenue-delta"></div>
+            <svg class="metric-sparkline" viewBox="0 0 64 32" preserveAspectRatio="none" fill="none">
+              <defs><linearGradient id="sg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0,25 Q8,18 16,20 T32,10 T48,6 T64,8" fill="none" stroke="#10B981" stroke-width="1.5"/>
+              <path d="M0,25 Q8,18 16,20 T32,10 T48,6 T64,8 L64,32 L0,32Z" fill="url(#sg1)"/>
+            </svg>
+          </div>
         </div>
-        <div class="metric-card mc-cogs">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,10 8,14 16,12 24,18 32,14 40,20 48,16" stroke="#F59E0B" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">COGS</div>
+        <div class="metric-card">
+          <div class="metric-card-top">
+            <div class="metric-label">COGS</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-income">$0</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta" id="m-income-delta"></div>
+            <svg class="metric-sparkline" viewBox="0 0 64 32" preserveAspectRatio="none" fill="none">
+              <defs><linearGradient id="sg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0,20 Q12,24 24,16 T48,10 T64,5" fill="none" stroke="#10B981" stroke-width="1.5"/>
+              <path d="M0,20 Q12,24 24,16 T48,10 T64,5 L64,32 L0,32Z" fill="url(#sg2)"/>
+            </svg>
+          </div>
         </div>
-        <div class="metric-card mc-gp">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,20 8,16 16,18 24,10 32,12 40,6 48,8" stroke="#10B981" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">Gross Profit</div>
+        <div class="metric-card">
+          <div class="metric-card-top">
+            <div class="metric-label">Gross Profit</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-gp">$0</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta" id="m-gp-delta"></div>
+            <svg class="metric-sparkline" viewBox="0 0 64 32" preserveAspectRatio="none" fill="none">
+              <defs><linearGradient id="sg3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0,26 Q16,10 28,16 T52,5 T64,0" fill="none" stroke="#10B981" stroke-width="1.5"/>
+              <path d="M0,26 Q16,10 28,16 T52,5 T64,0 L64,32 L0,32Z" fill="url(#sg3)"/>
+            </svg>
+          </div>
         </div>
-        <div class="metric-card highlight mc-np">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,22 8,18 16,16 24,12 32,10 40,6 48,4" stroke="#1E3A5F" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">Net Profit</div>
+        <div class="metric-card highlight">
+          <div class="metric-card-top">
+            <div class="metric-label">Net Profit</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-np">$0</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta" id="m-np-delta"></div>
+            <svg class="metric-sparkline" viewBox="0 0 64 32" preserveAspectRatio="none" fill="none">
+              <defs><linearGradient id="sg4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0,28 Q10,20 24,22 T48,12 T64,2" fill="none" stroke="#10B981" stroke-width="1.5"/>
+              <path d="M0,28 Q10,20 24,22 T48,12 T64,2 L64,32 L0,32Z" fill="url(#sg4)"/>
+            </svg>
+          </div>
         </div>
-        <div class="metric-card mc-ads">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,14 8,10 16,12 24,8 32,10 40,6 48,8" stroke="#8B5CF6" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">Ad Spend</div>
+        <div class="metric-card">
+          <div class="metric-card-top">
+            <div class="metric-label">Ad Spend</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-adspend">$0</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta" id="m-adspend-delta"></div>
+            <svg class="metric-sparkline" viewBox="0 0 64 32" preserveAspectRatio="none" fill="none">
+              <defs><linearGradient id="sg5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.3"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+              <path d="M0,20 Q16,10 32,14 T56,6 T64,5" fill="none" stroke="#10B981" stroke-width="1.5"/>
+              <path d="M0,20 Q16,10 32,14 T56,6 T64,5 L64,32 L0,32Z" fill="url(#sg5)"/>
+            </svg>
+          </div>
         </div>
-        <div class="metric-card mc-runway" id="runwayCard" data-roles="coo" style="display:none">
-          <svg class="metric-sparkline" width="48" height="28" viewBox="0 0 48 28" fill="none"><polyline points="0,20 8,18 16,14 24,12 32,10 40,8 48,6" stroke="#0891B2" stroke-width="2" fill="none"/></svg>
-          <div class="metric-label">Cash Runway</div>
+        <div class="metric-card" id="runwayCard" data-roles="coo" style="display:none">
+          <div class="metric-card-top">
+            <div class="metric-label">Cash Runway</div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="metric-value" id="m-runway">—</div>
-          <div class="metric-delta"></div>
+          <div class="metric-card-bottom">
+            <div class="metric-delta"></div>
+          </div>
         </div>
         <div id="m-cash" style="display:none">0</div>
       </div>
 
-      <!-- Cash position row (navy) -->
+      <!-- Cash position row -->
       <div class="cash-pos-row">
         <div class="cash-pos-card">
-          <div class="cash-pos-lbl">Total Bank Balance</div>
-          <div class="cash-pos-val g" id="cp-bank">$0</div>
-          <div class="cash-pos-sub" id="cp-bank-sub">Loading…</div>
+          <div class="cash-pos-info">
+            <div class="cash-pos-lbl">Total Bank Balance</div>
+            <div class="cash-pos-val g" id="cp-bank">$0</div>
+            <div class="cash-pos-sub" id="cp-bank-sub">Loading…</div>
+          </div>
+          <svg class="cash-pos-chart" viewBox="0 0 120 50" preserveAspectRatio="none" fill="none">
+            <defs><linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+            <path d="M0,42 Q12,15 24,28 T48,12 T72,22 T96,6 T120,18" fill="none" stroke="#10B981" stroke-width="2"/>
+            <path d="M0,42 Q12,15 24,28 T48,12 T72,22 T96,6 T120,18 L120,50 L0,50Z" fill="url(#cg1)"/>
+          </svg>
         </div>
         <div class="cash-pos-card">
-          <div class="cash-pos-lbl">CC Payables</div>
-          <div class="cash-pos-val r" id="cp-cc">$0</div>
-          <div class="cash-pos-sub">Amex + Capital One · all entities</div>
+          <div class="cash-pos-info">
+            <div class="cash-pos-lbl">CC Payables</div>
+            <div class="cash-pos-val r" id="cp-cc">$0</div>
+            <div class="cash-pos-sub">Amex + Capital One · all entities</div>
+          </div>
+          <svg class="cash-pos-chart" viewBox="0 0 120 50" preserveAspectRatio="none" fill="none">
+            <rect x="5" y="20" width="14" height="30" rx="2" fill="#10B981" opacity="0.7"/>
+            <rect x="25" y="10" width="14" height="40" rx="2" fill="#CBD5E1" opacity="0.7"/>
+            <rect x="45" y="28" width="14" height="22" rx="2" fill="#10B981" opacity="0.7"/>
+            <rect x="65" y="15" width="14" height="35" rx="2" fill="#CBD5E1" opacity="0.7"/>
+            <rect x="85" y="22" width="14" height="28" rx="2" fill="#10B981" opacity="0.7"/>
+            <rect x="105" y="32" width="14" height="18" rx="2" fill="#CBD5E1" opacity="0.7"/>
+          </svg>
         </div>
         <div class="cash-pos-card">
-          <div class="cash-pos-lbl">Net Cash Position</div>
-          <div class="cash-pos-val" id="cp-net">$0</div>
-          <div class="cash-pos-sub" id="cp-net-sub">Bank balance minus CC payables</div>
+          <div class="cash-pos-info">
+            <div class="cash-pos-lbl">Net Cash Position</div>
+            <div class="cash-pos-val" id="cp-net">$0</div>
+            <div class="cash-pos-sub" id="cp-net-sub">Bank balance minus CC payables</div>
+          </div>
+          <svg class="cash-pos-chart" viewBox="0 0 120 50" preserveAspectRatio="none" fill="none">
+            <defs><linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.25"/><stop offset="100%" stop-color="#10B981" stop-opacity="0"/></linearGradient></defs>
+            <path d="M0,38 Q20,22 40,34 T72,10 T100,22 T120,14" fill="none" stroke="#10B981" stroke-width="2"/>
+            <path d="M0,38 Q20,22 40,34 T72,10 T100,22 T120,14 L120,50 L0,50Z" fill="url(#cg2)"/>
+          </svg>
         </div>
       </div>
 
