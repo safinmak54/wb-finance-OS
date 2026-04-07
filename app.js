@@ -4469,7 +4469,7 @@ const app = {
   async submitImport() {
     if (!this._importData) return;
     const { headers, rows } = this._importData;
-    const TXN_FIELDS = ['date', 'description', 'amount', 'entity', 'account_id'];
+    const TXN_FIELDS = ['date', 'description', 'amount', 'entity'];
     const mapping = {};
     TXN_FIELDS.forEach(f => {
       const sel = document.getElementById(`map_${f}`);
@@ -4481,7 +4481,6 @@ const app = {
       description: row[mapping.description] || '',
       amount:      parseFloat(row[mapping.amount]) || 0,
       entity:      row[mapping.entity]      || '',
-      account_id:  row[mapping.account_id]  || null,
     })).filter(r => r.acc_date && r.amount !== 0);
 
     document.getElementById('importStep2').style.display = 'none';
