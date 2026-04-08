@@ -81,8 +81,10 @@ async function loadDataFromSupabase() {
     window._entityByCode = {};
     window._entityById = {};
     (entities || []).forEach(e => {
-      window._entityByCode[e.code] = e.id;
-      window._entityById[e.id] = e.code;
+      const code = (e.code || '').trim().toUpperCase();
+      window._entityByCode[code] = e.id;
+      window._entityByCode[e.code] = e.id; // also keep original casing
+      window._entityById[e.id] = code;
     });
 
     // Build account lookup maps
@@ -1907,11 +1909,12 @@ const app = {
       return;
     }
 
-    // Strip JSONP wrapper
-    const json = raw.replace(/^[^{]*/, '').replace(/\s*;\s*$/, '');
+    // Strip JSONP wrapper: response is /*O_o*/\ngoogle.visualization.Query.setResponse({...});
+    const json = raw.replace(/^[^{]*/, '').replace(/[);\s]+$/, '');
     let gdata;
     try { gdata = JSON.parse(json); } catch(e) {
-      this.showToast('Could not parse sheet response', 'error'); return;
+      console.error('Sheet parse error:', e, '\nRaw (first 200):', raw.slice(0, 200));
+      this.showToast('Could not parse sheet — ensure it is publicly shared (Anyone with link → Viewer)', 'error'); return;
     }
 
     const cols = (gdata.table?.cols || []).map(c => (c.label || '').trim().toLowerCase());
@@ -1948,12 +1951,21 @@ const app = {
       }
     });
 
-    const CB_ENTITIES = ['WB Brands','Koolers Promo','WB Promo','Band Promo','Lanyard Promo','SP Brands','One Ops'];
+    // Accept both display names AND short codes (case-insensitive)
+    const CB_ENTITY_MAP = {
+      'wb brands': 'WB Brands', 'wbp': 'WB Brands', 'wb promo': 'WB Brands',
+      'koolers promo': 'Koolers Promo', 'kp': 'Koolers Promo', 'kooler': 'Koolers Promo',
+      'band promo': 'Band Promo', 'bp': 'Band Promo',
+      'lanyard promo': 'Lanyard Promo', 'lp': 'Lanyard Promo', 'lanyard': 'Lanyard Promo',
+      'sp brands': 'SP Brands', 'sp1': 'SP Brands', 'sp': 'SP Brands',
+      'one ops': 'One Ops', 'oneops': 'One Ops', 'one operations': 'One Ops',
+    };
     const upserts = [];
     dataRows.forEach(row => {
       const cells = row.c || [];
       const entityRaw = (cells[0]?.v || '').toString().trim();
-      const entityMatch = CB_ENTITIES.find(e => e.toLowerCase() === entityRaw.toLowerCase());
+      const entityMatch = CB_ENTITY_MAP[entityRaw.toLowerCase()] ||
+        Object.values(CB_ENTITY_MAP).find(v => v.toLowerCase() === entityRaw.toLowerCase());
       if (!entityMatch) return;
       Object.entries(colMap).forEach(([i, key]) => {
         const val = cells[Number(i)]?.v;
@@ -3364,7 +3376,7 @@ const app = {
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
                       <option value="">— entity —</option>
                       ${allEntityCodes.map(e =>
-                        `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
+                        `<option value="${e}" ${(window._entityById[t.entity_id]||'').toUpperCase() === e.toUpperCase() ? 'selected' : ''}>${e}</option>`
                       ).join('')}
                     </select>
                   </td>
@@ -3479,7 +3491,7 @@ const app = {
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
                       <option value="">— select —</option>
                       ${ccEntityCodes.map(e =>
-                        `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
+                        `<option value="${e}" ${(window._entityById[t.entity_id]||'').toUpperCase() === e.toUpperCase() ? 'selected' : ''}>${e}</option>`
                       ).join('')}
                     </select>
                   </td>
@@ -3766,19 +3778,20 @@ const app = {
       rowsMissingCategory.forEach(r => r.querySelector('.acct-sel')?.closest('td')?.classList.add('field-error'));
       return;
     }
-    let success = 0, failed = 0;
+    let success = 0, failed = 0, noEntity = 0;
 
     for (const row of checkedRows) {
-      const rawId     = row.dataset.id;
+      const rawId     = row?.dataset?.id;
+      if (!rawId) { failed++; continue; }
       const accountId = row.querySelector('.acct-sel')?.value;
       if (!accountId) { failed++; continue; }
 
       const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
       if (error) { failed++; continue; }
 
-      // Resolve entity: DOM dropdown first, then fall back to entity_id stored from import
-      const entityCode = row.querySelector('.entity-sel')?.value || window._entityById[t.entity_id] || '';
-      if (!entityCode) { failed++; continue; }
+      // Resolve entity: DOM dropdown first, then entity_id stored from import
+      const entityCode = row.querySelector('.entity-sel')?.value || (window._entityById[t.entity_id] || '').toUpperCase() || '';
+      if (!entityCode) { noEntity++; failed++; continue; }
 
       const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
       const { error: insErr } = await supabaseClient.from('transactions').insert({
@@ -3797,7 +3810,13 @@ const app = {
       success++;
     }
 
-    this.toast(`${success} classified${failed ? `, ${failed} failed` : ''}`);
+    if (noEntity > 0 && success === 0) {
+      this.showToast(`${noEntity} row(s) have no entity — set Company on each row then try again`, 'error');
+    } else if (success > 0) {
+      this.showToast(`${success} transaction${success !== 1 ? 's' : ''} moved to Ledger${failed ? ` · ${failed} skipped` : ''}`, 'success');
+    } else {
+      this.showToast(`No rows classified${failed ? ` — ${failed} failed` : ''}`, 'error');
+    }
     const _activePage = document.querySelector('.page.active');
     const _cBtn = _activePage?.querySelector('#bulkClassifyBtn'); if (_cBtn) _cBtn.style.display = 'none';
     const _dBtn = _activePage?.querySelector('#bulkDeleteBtn'); if (_dBtn) _dBtn.style.display = 'none';
@@ -4744,10 +4763,15 @@ const app = {
           : (val >= 0 ? 'CREDIT' : 'DEBIT');
       }
 
-      const rowEntityCode = mapping.entity >= 0
-        ? (row[mapping.entity] || '').replace(/"/g,'').trim().toUpperCase() || globalEntityCode
-        : globalEntityCode;
-      const entityId = rowEntityCode ? (window._entityByCode[rowEntityCode] || null) : null;
+      const rowEntityCode = (mapping.entity >= 0
+        ? (row[mapping.entity] || '').replace(/"/g,'').trim().toUpperCase() || globalEntityCode.toUpperCase()
+        : globalEntityCode.toUpperCase());
+      // Try exact, then case-insensitive search through all known entity codes
+      const entityId = rowEntityCode ? (
+        window._entityByCode[rowEntityCode] ||
+        window._entityByCode[Object.keys(window._entityByCode).find(k => k.toUpperCase() === rowEntityCode)] ||
+        null
+      ) : null;
 
       records.push({
         description: desc,
