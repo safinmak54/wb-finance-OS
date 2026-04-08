@@ -4415,7 +4415,7 @@ const app = {
           style="background:#dc2626;border-color:#dc2626"
           onclick="app.clearAllData()">Delete Everything</button>
       </div>`;
-    document.getElementById('appModal').showModal();
+    document.getElementById('modalOverlay').classList.add('open');
   },
 
   async clearAllData() {
