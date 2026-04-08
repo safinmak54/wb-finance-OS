@@ -3381,6 +3381,8 @@ const app = {
   },
 
   onRowCheck() {
+    // Clear any field-error highlights whenever selection changes
+    document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
     const checked = [...document.querySelectorAll('.row-check')].filter(c => c.checked);
     const n = checked.length;
     const classifyBtn = document.getElementById('bulkClassifyBtn');
@@ -3607,7 +3609,17 @@ const app = {
     if (!checkedRows.length) { this.toast('No rows selected'); return; }
 
     const rowsMissingCategory = checkedRows.filter(r => !r.querySelector('.acct-sel')?.value);
-    if (rowsMissingCategory.length > 0) { this.toast(`${rowsMissingCategory.length} row(s) missing a category — select one for each`); return; }
+    if (rowsMissingCategory.length > 0) {
+      this.showToast(`${rowsMissingCategory.length} row(s) missing a category — assign one first`, 'error');
+      rowsMissingCategory.forEach(r => r.querySelector('.acct-sel')?.closest('td')?.classList.add('field-error'));
+      return;
+    }
+    const rowsMissingEntity = checkedRows.filter(r => !r.querySelector('.entity-sel')?.value);
+    if (rowsMissingEntity.length > 0) {
+      this.showToast(`${rowsMissingEntity.length} row(s) missing an entity — assign company first`, 'error');
+      rowsMissingEntity.forEach(r => r.querySelector('.entity-sel')?.closest('td')?.classList.add('field-error'));
+      return;
+    }
 
     let success = 0, failed = 0;
 
@@ -4153,13 +4165,14 @@ const app = {
   },
 
   async saveVendor() {
-    const name = document.getElementById('fVendorName')?.value?.trim();
-    const type = document.getElementById('fVendorType')?.value;
-    if (!name) { this.toast('Vendor name is required'); return; }
+    const name     = document.getElementById('fVendorName')?.value?.trim();
+    const type     = document.getElementById('fVendorType')?.value;
+    const category = document.getElementById('fVendorCategory')?.value || null;
+    if (!name) { this.showToast('Vendor name is required', 'error'); return; }
 
     if (supabaseClient) {
       const { error } = await supabaseClient.from('vendors').insert({
-        name, vendor_type: type, status: 'active', ytd_spend: 0, open_invoices: 0, overdue_count: 0
+        name, vendor_type: type, default_category: category, status: 'active', ytd_spend: 0, open_invoices: 0, overdue_count: 0
       });
       if (!error) {
         await loadDataFromSupabase();
@@ -4207,25 +4220,46 @@ const app = {
     }
   },
 
-  async clearAllData() {
-    const confirmed = confirm(
-      '⚠️ DELETE ALL DATA\n\nThis will permanently delete:\n• All transactions\n• All ledger entries\n• All journal entries\n• All vendors & invoices\n• All AP items\n\nThis cannot be undone. Type "DELETE" to confirm.'
-    );
-    if (!confirmed) return;
-    const typed = prompt('Type DELETE to confirm:');
-    if (typed !== 'DELETE') { this.showToast('Cancelled', 'error'); return; }
+  openClearAllModal() {
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = '⚠️ Clear All Data';
+    if (body) body.innerHTML = `
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:14px 16px;margin-bottom:16px">
+        <p style="font-weight:700;color:#dc2626;margin-bottom:8px">This will permanently delete:</p>
+        <ul style="color:#dc2626;font-size:13px;padding-left:18px;line-height:1.8">
+          <li>All bank &amp; CC transactions (inbox)</li>
+          <li>All classified ledger transactions</li>
+          <li>All journal entries &amp; ledger entries</li>
+          <li>All vendors, invoices &amp; AP items</li>
+        </ul>
+      </div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Type <strong>DELETE</strong> below to confirm. This cannot be undone.</p>
+      <input type="text" id="clearConfirmInput" placeholder="Type DELETE here…"
+        style="width:100%;padding:9px 12px;border:2px solid var(--border);border-radius:6px;font-size:14px;letter-spacing:1px"
+        oninput="document.getElementById('clearAllConfirmBtn').disabled = this.value !== 'DELETE'"/>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button id="clearAllConfirmBtn" class="btn-primary" disabled
+          style="background:#dc2626;border-color:#dc2626"
+          onclick="app.clearAllData()">Delete Everything</button>
+      </div>`;
+    document.getElementById('appModal').showModal();
+  },
 
+  async clearAllData() {
+    const input = document.getElementById('clearConfirmInput')?.value;
+    if (input !== 'DELETE') { this.showToast('Type DELETE to confirm', 'error'); return; }
+    this.closeModal();
     this.showToast('Deleting all data…', 'error');
     const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
     for (const tbl of tables) {
       try {
-        // Delete all rows — Supabase requires a filter; use neq on a always-true condition
         await supabaseClient.from(tbl).delete().neq('id', '00000000-0000-0000-0000-000000000000');
       } catch(e) {
         console.warn('Clear error for', tbl, e);
       }
     }
-    // Reload data
     await loadDataFromSupabase();
     this.showToast('All data cleared. Starting fresh.', 'success');
     this.navigate('dashboard');
@@ -5454,10 +5488,11 @@ const app = {
   openEditAccount(id) {
     const a = DATA.coa.find(x => x.id === id);
     if (!a) return;
-    const modal = document.getElementById('modalTitle');
-    if (modal) modal.textContent = 'Edit Account';
-    const body = document.getElementById('modalBody');
-    if (!body) return;
+    const overlay = document.getElementById('modalOverlay');
+    const title   = document.getElementById('modalTitle');
+    const body    = document.getElementById('modalBody');
+    if (!overlay || !body) return;
+    if (title) title.textContent = 'Edit Account';
     body.innerHTML = `
       <input type="hidden" id="fCoaEditId" value="${a.id}"/>
       <div class="form-row">
@@ -5488,7 +5523,7 @@ const app = {
         <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
         <button class="btn-primary" onclick="app.saveAccount()">Save changes</button>
       </div>`;
-    document.getElementById('appModal').showModal();
+    overlay.classList.add('open');
   },
 
   async deleteAccount(id, name) {

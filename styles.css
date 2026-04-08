@@ -344,6 +344,7 @@ html, body { height: 100%; font-family: var(--font); background: var(--bg); colo
 .filter-select { font-size: 12px; padding: 7px 10px; border: 1px solid var(--border2); border-radius: 6px; background: var(--surface); color: var(--text); font-family: var(--font); }
 .filter-input { font-size: 12px; padding: 7px 10px; border: 1px solid var(--border2); border-radius: 6px; background: var(--surface); color: var(--text); font-family: var(--font); }
 .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+.field-error select, .field-error .filter-select { border-color: var(--red) !important; background: #fef2f2 !important; }
 
 /* ---- TABLES ---- */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); }
