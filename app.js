@@ -4423,16 +4423,21 @@ const app = {
     if (input !== 'DELETE') { this.showToast('Type DELETE to confirm', 'error'); return; }
     this.closeModal();
     this.showToast('Deleting all data…', 'error');
-    const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
+    const tables = ['raw_transactions','transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
+    const failed = [];
     for (const tbl of tables) {
-      try {
-        await supabaseClient.from(tbl).delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      } catch(e) {
-        console.warn('Clear error for', tbl, e);
+      const { error } = await supabaseClient.from(tbl).delete().gte('id', '00000000-0000-0000-0000-000000000000');
+      if (error) {
+        console.error('Clear error for', tbl, error);
+        failed.push(tbl);
       }
     }
     await loadDataFromSupabase();
-    this.showToast('All data cleared. Starting fresh.', 'success');
+    if (failed.length) {
+      this.showToast(`Cleared most data. Failed: ${failed.join(', ')} — check console.`, 'error');
+    } else {
+      this.showToast('All data cleared. Starting fresh.', 'success');
+    }
     this.navigate('dashboard');
   },
 
