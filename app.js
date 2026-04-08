@@ -3221,6 +3221,7 @@ const app = {
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
                   <td>
                     <select class="entity-sel filter-select" data-id="${t.id}" style="font-size:12px;padding:2px 6px">
+                      <option value="">— entity —</option>
                       ${allEntityCodes.map(e =>
                         `<option value="${e}" ${(window._entityById[t.entity_id]||'') === e ? 'selected' : ''}>${e}</option>`
                       ).join('')}
