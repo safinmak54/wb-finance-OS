@@ -1812,7 +1812,10 @@ const app = {
           <h2 class="page-title">Cash Balances</h2>
           <p class="page-subtitle" style="font-size:12px;color:var(--text3)">Manually updated · as of <strong>${latestUpdated ? new Date(latestUpdated).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : today}</strong></p>
         </div>
-        <button class="btn-outline" style="font-size:12px" onclick="app.exportCashBalances()">Export CSV</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-primary" style="font-size:12px" onclick="app.openCashBalanceSyncModal()">↓ Sync from Google Sheet</button>
+          <button class="btn-outline" style="font-size:12px" onclick="app.exportCashBalances()">Export CSV</button>
+        </div>
       </div>
       <div class="card" style="overflow-x:auto">
         <table class="data-table cash-bal-table" style="font-size:12px;min-width:1200px">
@@ -1852,6 +1855,126 @@ const app = {
 
   exportCashBalances() {
     this.showToast('CSV export coming soon', 'info');
+  },
+
+  openCashBalanceSyncModal() {
+    const saved = localStorage.getItem('wb_cb_sheet_url') || '';
+    const overlay = document.getElementById('modalOverlay');
+    const body = document.getElementById('modalBody');
+    if (!overlay || !body) return;
+    body.innerHTML = `
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">↓ Sync from Google Sheet</div>
+      <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Sheet must be publicly shared (Anyone with link → Viewer). First column = Entity name, remaining columns = balance fields by header.</p>
+      <div class="form-group">
+        <label style="font-size:12px">Google Sheet URL</label>
+        <input id="cbSheetUrl" type="text" placeholder="https://docs.google.com/spreadsheets/d/…"
+          style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+          value="${saved}">
+      </div>
+      <div class="form-group" style="margin-top:10px">
+        <label style="font-size:12px">Tab / Sheet Name <span style="color:var(--text3)">(optional — leave blank for first tab)</span></label>
+        <input id="cbSheetTab" type="text" placeholder="e.g. Cash Balances"
+          style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.syncCashBalancesFromSheet()">Sync</button>
+      </div>
+    `;
+    overlay.classList.add('open');
+  },
+
+  async syncCashBalancesFromSheet() {
+    const urlInput = document.getElementById('cbSheetUrl')?.value.trim();
+    const tabInput = document.getElementById('cbSheetTab')?.value.trim();
+    if (!urlInput) { this.showToast('Paste a Google Sheet URL', 'error'); return; }
+
+    // Extract sheet ID from URL
+    const match = urlInput.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match) { this.showToast('Invalid Google Sheet URL', 'error'); return; }
+    const sheetId = match[1];
+    localStorage.setItem('wb_cb_sheet_url', urlInput);
+
+    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json${tabInput ? '&sheet=' + encodeURIComponent(tabInput) : ''}`;
+
+    this.showToast('Fetching sheet…', 'info');
+    let raw;
+    try {
+      const res = await fetch(gvizUrl);
+      raw = await res.text();
+    } catch(e) {
+      this.showToast('Could not fetch sheet — check URL and sharing settings', 'error');
+      return;
+    }
+
+    // Strip JSONP wrapper
+    const json = raw.replace(/^[^{]*/, '').replace(/\s*;\s*$/, '');
+    let gdata;
+    try { gdata = JSON.parse(json); } catch(e) {
+      this.showToast('Could not parse sheet response', 'error'); return;
+    }
+
+    const cols = (gdata.table?.cols || []).map(c => (c.label || '').trim().toLowerCase());
+    const dataRows = gdata.table?.rows || [];
+    if (!cols.length || !dataRows.length) {
+      this.showToast('Sheet appears empty', 'error'); return;
+    }
+
+    // Map headers → col keys
+    const CB_INPUT_COLS = [
+      { key:'tfb',       labels:['tfb'] },
+      { key:'hunt',      labels:['huntington bank','huntington'] },
+      { key:'vend_pay',  labels:['vendor payments','vendor pay'] },
+      { key:'cc',        labels:['cc'] },
+      { key:'int_xfer',  labels:['int transfer','internal transfer'] },
+      { key:'google',    labels:['google/agencies','google agencies','google'] },
+      { key:'hunt_bal',  labels:['huntington bal','huntington balance'] },
+      { key:'cc_pay',    labels:['credit card'] },
+      { key:'vend_pmts', labels:['vendor payments'] },
+      { key:'goog_pend', labels:['google pending'] },
+      { key:'fedex',     labels:['fedex, asi, agencies','fedex'] },
+      { key:'stripe_pp', labels:['stripe + paypal +3 days','stripe','stripe + paypal'] },
+    ];
+
+    // Build col index → key map (skip first col = entity)
+    const colMap = {};
+    cols.forEach((label, i) => {
+      if (i === 0) return;
+      for (const def of CB_INPUT_COLS) {
+        if (def.labels.some(l => label.includes(l))) {
+          colMap[i] = def.key;
+          break;
+        }
+      }
+    });
+
+    const CB_ENTITIES = ['WB Brands','Koolers Promo','WB Promo','Band Promo','Lanyard Promo','SP Brands','One Ops'];
+    const upserts = [];
+    dataRows.forEach(row => {
+      const cells = row.c || [];
+      const entityRaw = (cells[0]?.v || '').toString().trim();
+      const entityMatch = CB_ENTITIES.find(e => e.toLowerCase() === entityRaw.toLowerCase());
+      if (!entityMatch) return;
+      Object.entries(colMap).forEach(([i, key]) => {
+        const val = cells[Number(i)]?.v;
+        const num = val !== null && val !== undefined && val !== '' ? Number(val) : null;
+        if (num !== null && !isNaN(num) && num !== 0) {
+          upserts.push({ entity: entityMatch, col_key: key, value: num, updated_at: new Date().toISOString() });
+        }
+      });
+    });
+
+    if (!upserts.length) {
+      this.showToast('No matching data found — check entity names and column headers', 'error'); return;
+    }
+
+    const { error } = await supabaseClient.from('cash_balances')
+      .upsert(upserts, { onConflict: 'entity,col_key' });
+    if (error) { this.showToast('Failed to save to Supabase', 'error'); console.error(error); return; }
+
+    this.closeModal();
+    this.showToast(`Synced ${upserts.length} values from sheet`, 'success');
+    this.renderCashBalances();
   },
 
   // ---- RATIOS & KPIs ----
