@@ -308,7 +308,7 @@ const app = {
       if (page === 'reconcile')    await this.renderReconcile();
       if (page === 'cashflow')     await this.renderCashflow();
       if (page === 'forecast')     this.renderCashForecast();
-      if (page === 'cash-balances') this.renderCashBalances();
+      if (page === 'cash-balances') await this.renderCashBalances();
       if (page === 'ratios')       await this.renderRatios();
       if (page === 'cfnotes')      this.renderCfoNotes();
       if (page === 'sales')        this.renderSales();
@@ -1691,9 +1691,11 @@ const app = {
   },
 
   // ---- CASH BALANCES ----
-  renderCashBalances() {
+  async renderCashBalances() {
     const el = document.getElementById('page-cash-balances');
     if (!el) return;
+
+    el.innerHTML = '<div style="padding:32px;color:var(--text3)">Loading…</div>';
 
     const CB_ENTITIES = ['WB Brands','Koolers Promo','WB Promo','Band Promo','Lanyard Promo','SP Brands','One Ops'];
     const CB_INPUT_COLS = [
@@ -1711,8 +1713,17 @@ const app = {
       { key:'stripe_pp', label:'Stripe + Paypal +3 days',section:2 },
     ];
 
-    const STORAGE_KEY = 'wb_cash_balances';
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    // Load from Supabase
+    const { data: rows, error } = await supabaseClient
+      .from('cash_balances').select('entity, col_key, value, updated_at');
+    if (error) { this.showToast('Failed to load cash balances', 'error'); console.error(error); }
+
+    const saved = {};
+    let latestUpdated = null;
+    (rows || []).forEach(r => {
+      saved[r.entity + '_' + r.col_key] = r.value;
+      if (!latestUpdated || r.updated_at > latestUpdated) latestUpdated = r.updated_at;
+    });
 
     const fmtCell = (val, isPayable, isComputed) => {
       if (val === null || val === undefined || val === '') return '';
@@ -1799,7 +1810,7 @@ const app = {
       <div class="page-header">
         <div>
           <h2 class="page-title">Cash Balances</h2>
-          <p class="page-subtitle" style="font-size:12px;color:var(--text3)">Manually updated · as of <strong>${saved._date || today}</strong></p>
+          <p class="page-subtitle" style="font-size:12px;color:var(--text3)">Manually updated · as of <strong>${latestUpdated ? new Date(latestUpdated).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : today}</strong></p>
         </div>
         <button class="btn-outline" style="font-size:12px" onclick="app.exportCashBalances()">Export CSV</button>
       </div>
@@ -1820,18 +1831,21 @@ const app = {
     `;
   },
 
-  saveCashBalance(el) {
+  async saveCashBalance(el) {
     const entity = el.dataset.entity;
     const key    = el.dataset.key;
-    const raw    = el.textContent.trim().replace(/[$,()]/g,'');
-    const STORAGE_KEY = 'wb_cash_balances';
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    if (raw === '' || raw === '0') {
-      delete saved[entity + '_' + key];
+    const raw    = el.textContent.trim().replace(/[$,()]/g, '');
+    const value  = raw === '' ? null : Number(raw) || 0;
+
+    if (value === null || value === 0) {
+      await supabaseClient.from('cash_balances')
+        .delete().eq('entity', entity).eq('col_key', key);
     } else {
-      saved[entity + '_' + key] = raw;
+      const { error } = await supabaseClient.from('cash_balances')
+        .upsert({ entity, col_key: key, value, updated_at: new Date().toISOString() },
+                 { onConflict: 'entity,col_key' });
+      if (error) { this.showToast('Failed to save', 'error'); console.error(error); return; }
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     // Re-render to update computed columns
     this.renderCashBalances();
   },
