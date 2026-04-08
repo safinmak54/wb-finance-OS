@@ -1616,10 +1616,14 @@ const app = {
         <td style="font-family:var(--mono);font-size:11px">${a.code}</td>
         <td style="font-weight:500">${a.name}</td>
         <td><span class="badge badge-${a.type === 'asset' ? 'asset' : a.type === 'liability' ? 'liability' : a.type === 'equity' ? 'equity' : a.type === 'revenue' ? 'revenue' : 'expense2'}">${a.type}</span></td>
-        <td style="font-size:11px;color:var(--text2)">${a.subtype}</td>
-        <td style="font-size:11px">${a.line}</td>
+        <td style="font-size:11px;color:var(--text2)">${a.subtype || '—'}</td>
+        <td style="font-size:11px">${a.line || '—'}</td>
         <td class="amount ${a.balance < 0 ? 'amount-neg' : ''}">${fmt(Math.abs(a.balance))}</td>
         <td>${a.elimination ? '<span class="badge badge-transfer">Yes</span>' : '<span style="color:var(--text3);font-size:11px">—</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn-outline" style="font-size:11px;padding:3px 10px" onclick="app.openEditAccount('${a.id}')">Edit</button>
+          <button class="btn-outline" style="font-size:11px;padding:3px 10px;color:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteAccount('${a.id}','${a.name.replace(/'/g,"\\'")}')">Delete</button>
+        </td>
       </tr>`).join('');
   },
 
@@ -5398,18 +5402,101 @@ const app = {
   },
 
   // ---- ACCOUNT ----
-  saveAccount() {
+  async _reloadCOA() {
+    const { data } = await supabaseClient
+      .from('accounts').select('id, account_code, account_name, account_type, account_subtype, is_elimination')
+      .order('account_code');
+    if (data) {
+      DATA.coa = data.map(a => ({
+        id: a.id, code: a.account_code, name: a.account_name,
+        type: a.account_type, subtype: a.account_subtype || '',
+        line: a.account_name, balance: 0, elimination: a.is_elimination || false
+      }));
+      data.forEach(a => { window._accountById[a.id] = a.account_name; });
+    }
+    this.renderCOA();
+  },
+
+  async saveAccount() {
     const code    = document.getElementById('fCoaCode')?.value?.trim();
     const name    = document.getElementById('fCoaName')?.value?.trim();
     const type    = document.getElementById('fCoaType')?.value;
     const subtype = document.getElementById('fCoaSubtype')?.value?.trim();
-    const line    = document.getElementById('fCoaLine')?.value?.trim();
-    if (!code || !name) { this.toast('Code and name are required'); return; }
-    if (DATA.coa.find(a => a.code === code)) { this.toast('Account code already exists'); return; }
-    DATA.coa.push({ code, name, type, subtype: subtype || type, line: line || name, balance: 0, elimination: false });
-    this.renderCOA();
-    this.toast('Account added');
+    const editId  = document.getElementById('fCoaEditId')?.value || null;
+    if (!code || !name) { this.showToast('Code and name are required', 'error'); return; }
+
+    if (editId) {
+      const { error } = await supabaseClient.from('accounts').update({
+        account_code: code, account_name: name, account_type: type,
+        account_subtype: subtype || type,
+        normal_balance: (type === 'asset' || type === 'expense') ? 'DEBIT' : 'CREDIT',
+      }).eq('id', editId);
+      if (error) { this.showToast('Update failed: ' + error.message, 'error'); return; }
+      this.showToast('Account updated', 'success');
+    } else {
+      const { error } = await supabaseClient.from('accounts').insert({
+        account_code: code, account_name: name, account_type: type,
+        account_subtype: subtype || type,
+        normal_balance: (type === 'asset' || type === 'expense') ? 'DEBIT' : 'CREDIT',
+        is_active: true
+      });
+      if (error) {
+        if (error.code === '23505') this.showToast('Account code already exists', 'error');
+        else this.showToast('Save failed: ' + error.message, 'error');
+        return;
+      }
+      this.showToast('Account added', 'success');
+    }
     this.closeModal();
+    await this._reloadCOA();
+  },
+
+  openEditAccount(id) {
+    const a = DATA.coa.find(x => x.id === id);
+    if (!a) return;
+    const modal = document.getElementById('modalTitle');
+    if (modal) modal.textContent = 'Edit Account';
+    const body = document.getElementById('modalBody');
+    if (!body) return;
+    body.innerHTML = `
+      <input type="hidden" id="fCoaEditId" value="${a.id}"/>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Account code</label>
+          <input type="text" id="fCoaCode" value="${a.code}"/>
+        </div>
+        <div class="form-group">
+          <label>Account type</label>
+          <select id="fCoaType">
+            <option value="asset" ${a.type==='asset'?'selected':''}>Asset</option>
+            <option value="liability" ${a.type==='liability'?'selected':''}>Liability</option>
+            <option value="equity" ${a.type==='equity'?'selected':''}>Equity</option>
+            <option value="revenue" ${a.type==='revenue'?'selected':''}>Revenue</option>
+            <option value="expense" ${a.type==='expense'?'selected':''}>Expense</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Account name</label>
+        <input type="text" id="fCoaName" value="${a.name.replace(/"/g,'&quot;')}"/>
+      </div>
+      <div class="form-group">
+        <label>Subtype</label>
+        <input type="text" id="fCoaSubtype" value="${a.subtype || ''}"/>
+      </div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveAccount()">Save changes</button>
+      </div>`;
+    document.getElementById('appModal').showModal();
+  },
+
+  async deleteAccount(id, name) {
+    if (!confirm(`Delete account "${name}"?\n\nThis cannot be undone.`)) return;
+    const { error } = await supabaseClient.from('accounts').delete().eq('id', id);
+    if (error) { this.showToast('Delete failed: ' + error.message, 'error'); return; }
+    this.showToast('Account deleted', 'success');
+    await this._reloadCOA();
   },
 
   // ---- BANK ACTIONS ----
