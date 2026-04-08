@@ -3656,7 +3656,12 @@ const app = {
     document.getElementById('rulePatternInput').value = pattern;
     const acct = (DATA.coa || []).find(a => a.id === accountId);
     if (acct) document.getElementById('ruleAccountInput').value = `${acct.code} — ${acct.name}`;
-    document.getElementById('ruleSaveBtn').dataset.editingId = id;
+    const saveBtn = document.getElementById('ruleSaveBtn');
+    saveBtn.dataset.editingId = id;
+    saveBtn.textContent = 'Update Rule';
+    // Scroll modal to top and focus the pattern input so user sees the form
+    document.getElementById('modalOverlay').scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('rulePatternInput').focus();
   },
 
   async saveRule() {
@@ -3672,7 +3677,9 @@ const app = {
       ({ error } = await supabaseClient.from('classification_rules')
         .update({ name: pattern, pattern, account_id: accountId })
         .eq('id', editingId));
-      delete document.getElementById('ruleSaveBtn').dataset.editingId;
+      const sb = document.getElementById('ruleSaveBtn');
+      delete sb.dataset.editingId;
+      sb.textContent = 'Save Rule';
     } else {
       ({ error } = await supabaseClient.from('classification_rules')
         .insert({ name: pattern, pattern, account_id: accountId, is_active: true }));
@@ -3698,13 +3705,15 @@ const app = {
     const row = document.querySelector(`tr[data-id="${rawId}"]`);
     if (!row) return;
     const accountId  = row.querySelector('.acct-sel')?.value;
-    const entityCode = row.querySelector('.entity-sel')?.value;
     if (!accountId)  { this.toast('Select a category first'); return; }
-    if (!entityCode) { this.toast('Select an entity'); return; }
 
     const { data: t, error: loadErr } = await supabaseClient
       .from('raw_transactions').select('*').eq('id', rawId).single();
     if (loadErr) { this.toast('Could not load transaction'); return; }
+
+    // Resolve entity: DOM dropdown first, then fall back to entity_id stored from import
+    const entityCode = row.querySelector('.entity-sel')?.value || window._entityById[t.entity_id] || '';
+    if (!entityCode) { this.toast('Select an entity'); return; }
 
     const accPeriod = (t.accounting_date || t.transaction_date || '').slice(0, 7);
     const { data: closedCheck } = await supabaseClient
@@ -3757,23 +3766,19 @@ const app = {
       rowsMissingCategory.forEach(r => r.querySelector('.acct-sel')?.closest('td')?.classList.add('field-error'));
       return;
     }
-    const rowsMissingEntity = checkedRows.filter(r => !r.querySelector('.entity-sel')?.value);
-    if (rowsMissingEntity.length > 0) {
-      this.showToast(`${rowsMissingEntity.length} row(s) missing an entity — assign company first`, 'error');
-      rowsMissingEntity.forEach(r => r.querySelector('.entity-sel')?.closest('td')?.classList.add('field-error'));
-      return;
-    }
-
     let success = 0, failed = 0;
 
     for (const row of checkedRows) {
       const rawId     = row.dataset.id;
       const accountId = row.querySelector('.acct-sel')?.value;
-      const entityCode = row.querySelector('.entity-sel')?.value;
-      if (!entityCode || !accountId) { failed++; continue; }
+      if (!accountId) { failed++; continue; }
 
       const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
       if (error) { failed++; continue; }
+
+      // Resolve entity: DOM dropdown first, then fall back to entity_id stored from import
+      const entityCode = row.querySelector('.entity-sel')?.value || window._entityById[t.entity_id] || '';
+      if (!entityCode) { failed++; continue; }
 
       const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
       const { error: insErr } = await supabaseClient.from('transactions').insert({
