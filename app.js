@@ -3376,18 +3376,21 @@ const app = {
   },
 
   toggleSelectAll(checkbox) {
-    document.querySelectorAll('.row-check').forEach(c => c.checked = checkbox.checked);
+    const activePage = document.querySelector('.page.active');
+    (activePage || document).querySelectorAll('.row-check').forEach(c => c.checked = checkbox.checked);
     this.onRowCheck();
   },
 
   onRowCheck() {
     // Clear any field-error highlights whenever selection changes
-    document.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
-    const checked = [...document.querySelectorAll('.row-check')].filter(c => c.checked);
+    const activePage = document.querySelector('.page.active');
+    if (!activePage) return;
+    activePage.querySelectorAll('.field-error').forEach(el => el.classList.remove('field-error'));
+    const checked = [...activePage.querySelectorAll('.row-check')].filter(c => c.checked);
     const n = checked.length;
-    const classifyBtn = document.getElementById('bulkClassifyBtn');
-    const deleteBtn   = document.getElementById('bulkDeleteBtn');
-    const companyWrap = document.getElementById('ccBulkCompanyWrap');
+    const classifyBtn = activePage.querySelector('#bulkClassifyBtn');
+    const deleteBtn   = activePage.querySelector('#bulkDeleteBtn');
+    const companyWrap = activePage.querySelector('#ccBulkCompanyWrap');
     if (classifyBtn) {
       classifyBtn.style.display = n > 0 ? 'inline-block' : 'none';
       classifyBtn.textContent = n > 0 ? `Finalize ${n} → Ledger` : 'Finalize → Ledger';
@@ -3397,9 +3400,10 @@ const app = {
   },
 
   bulkSetCCCompany() {
-    const code = document.getElementById('ccBulkCompanySel')?.value;
+    const activePage = document.querySelector('.page.active');
+    const code = (activePage || document).querySelector('#ccBulkCompanySel')?.value;
     if (!code) { this.showToast('Select a company first', 'error'); return; }
-    document.querySelectorAll('.row-check:checked').forEach(cb => {
+    (activePage || document).querySelectorAll('.row-check:checked').forEach(cb => {
       const sel = cb.closest('tr')?.querySelector('.entity-sel');
       if (sel) sel.value = code;
     });
@@ -3410,7 +3414,8 @@ const app = {
   applyClassificationRules() {
     const rules = DATA.classificationRules || [];
     if (!rules.length) return;
-    document.querySelectorAll('#inboxTable tbody tr[data-id]').forEach(row => {
+    const activePage = document.querySelector('.page.active');
+    (activePage || document).querySelectorAll('#inboxTable tbody tr[data-id]').forEach(row => {
       const descInput = row.querySelector('.desc-edit');
       const acctSel   = row.querySelector('.acct-sel');
       if (!descInput || !acctSel || acctSel.value) return; // skip if already assigned
@@ -3605,7 +3610,8 @@ const app = {
 
   // ---- BULK CLASSIFY ----
   async bulkClassify() {
-    const checkedRows = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
+    const activePage = document.querySelector('.page.active');
+    const checkedRows = [...(activePage || document).querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
     if (!checkedRows.length) { this.toast('No rows selected'); return; }
 
     const rowsMissingCategory = checkedRows.filter(r => !r.querySelector('.acct-sel')?.value);
@@ -3650,15 +3656,17 @@ const app = {
     }
 
     this.toast(`${success} classified${failed ? `, ${failed} failed` : ''}`);
-    document.getElementById('bulkClassifyBtn').style.display = 'none';
-    document.getElementById('bulkDeleteBtn').style.display = 'none';
+    const _activePage = document.querySelector('.page.active');
+    const _cBtn = _activePage?.querySelector('#bulkClassifyBtn'); if (_cBtn) _cBtn.style.display = 'none';
+    const _dBtn = _activePage?.querySelector('#bulkDeleteBtn'); if (_dBtn) _dBtn.style.display = 'none';
     const badge = document.getElementById('reviewBadge');
     if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
   },
 
   // ---- BULK CLASSIFY AUTO-TAGGED ----
   async bulkClassifyAutoTagged() {
-    const autoRows = [...document.querySelectorAll('tr[data-auto-tagged="1"]')];
+    const activePage = document.querySelector('.page.active');
+    const autoRows = [...(activePage || document).querySelectorAll('tr[data-auto-tagged="1"]')];
     if (!autoRows.length) {
       this.showToast('No auto-tagged transactions found', 'info');
       return;
@@ -3703,7 +3711,8 @@ const app = {
 
   // ---- BULK DELETE ----
   async bulkDelete() {
-    const checkedRows = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
+    const activePage = document.querySelector('.page.active');
+    const checkedRows = [...(activePage || document).querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
     if (!checkedRows.length) { this.toast('No rows selected'); return; }
     if (!confirm(`Delete ${checkedRows.length} transaction${checkedRows.length !== 1 ? 's' : ''}?`)) return;
 
@@ -3719,9 +3728,10 @@ const app = {
       const n = Math.max(0, parseInt(countEl.textContent) - ids.length);
       countEl.textContent = n + ' to classify';
     }
-    document.getElementById('bulkDeleteBtn').style.display = 'none';
-    document.getElementById('bulkClassifyBtn').style.display = 'none';
-    document.getElementById('inboxSelectAll').checked = false;
+    const _ap = document.querySelector('.page.active');
+    const _db = _ap?.querySelector('#bulkDeleteBtn'); if (_db) _db.style.display = 'none';
+    const _cb = _ap?.querySelector('#bulkClassifyBtn'); if (_cb) _cb.style.display = 'none';
+    const _sa = _ap?.querySelector('#inboxSelectAll'); if (_sa) _sa.checked = false;
     this.toast(`${ids.length} deleted`);
   },
 
