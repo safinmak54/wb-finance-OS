@@ -2075,7 +2075,8 @@ const app = {
     const uniqueUpserts = Object.values(deduped);
 
     console.log('Cash Balances: final colMap:', JSON.stringify(colMap));
-    console.log('Cash Balances: sample upsert data:', uniqueUpserts.slice(0, 10));
+    console.log('Cash Balances: upsert count:', uniqueUpserts.length);
+    console.log('Cash Balances: ALL upserts:', JSON.stringify(uniqueUpserts));
 
     // Clear old data first so stale values don't persist
     await supabaseClient.from('cash_balances').delete().neq('entity', '');
