@@ -1701,18 +1701,18 @@ const app = {
 
     const CB_ENTITIES = ['WB Brands','Koolers Promo','WB Promo','Band Promo','Lanyard Promo','SP Brands','One Ops'];
     const CB_INPUT_COLS = [
-      { key:'tfb',       label:'TFB',                   section:1 },
-      { key:'hunt',      label:'Huntington Bank',        section:1 },
-      { key:'vend_pay',  label:'Vendor Payments',         section:1 },
-      { key:'cc',        label:'CC',                     section:1 },
-      { key:'int_xfer',  label:'Int Transfer',           section:1 },
-      { key:'google',    label:'Google/Agencies',        section:1 },
-      { key:'hunt_bal',  label:'Huntington Bal',         section:1 },
-      { key:'cc_pay',    label:'Credit Card',            section:2, payable:true },
-      { key:'vend_pmts', label:'Vendor Payments',        section:2, payable:true },
-      { key:'goog_pend', label:'Google Pending',         section:2, payable:true },
-      { key:'fedex',     label:'Fedex, ASI, Agencies',   section:2, payable:true },
-      { key:'stripe_pp', label:'Stripe + Paypal +3 days',section:2 },
+      { key:'tfb',       label:'TFB',              section:1 },
+      { key:'hunt',      label:'Huntington',       section:1 },
+      { key:'vend_pay',  label:'Vendor Pay',       section:1 },
+      { key:'cc',        label:'CC',               section:1 },
+      { key:'int_xfer',  label:'Int Transfer',     section:1 },
+      { key:'google',    label:'Google / Agencies', section:1 },
+      { key:'hunt_bal',  label:'Hunt. Bal',        section:1 },
+      { key:'cc_pay',    label:'Credit Card',      section:2, payable:true },
+      { key:'vend_pmts', label:'Vendor Pmts',      section:2, payable:true },
+      { key:'goog_pend', label:'Google Pending',   section:2, payable:true },
+      { key:'fedex',     label:'FedEx / ASI',      section:2, payable:true },
+      { key:'stripe_pp', label:'Stripe + PayPal',  section:2 },
     ];
 
     // Load from Supabase
@@ -1796,14 +1796,18 @@ const app = {
       </tr>`;
     };
 
-    // Build header
+    // Build header — readable with abbreviations, allow wrapping on long names
+    const thBase = 'text-align:right;font-size:11px;font-weight:700;padding:8px 6px;letter-spacing:0.02em;text-transform:uppercase;min-width:80px';
+    const thBlue = `${thBase};background:rgba(37,99,235,0.08)`;
+    const thRed  = `${thBase};background:rgba(220,38,38,0.05)`;
+    const thRedDk = `${thBase};background:rgba(220,38,38,0.08)`;
     const allHeaders = [
-      ...CB_INPUT_COLS.slice(0,7).map(c=>`<th style="text-align:right;white-space:nowrap;font-size:11px">${c.label}</th>`),
-      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(37,99,235,0.08)">Cash Total</th>`,
-      ...CB_INPUT_COLS.slice(7,11).map(c=>`<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(220,38,38,0.05)">${c.label}</th>`),
-      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(220,38,38,0.08)">Total Payables</th>`,
-      `<th style="text-align:right;white-space:nowrap;font-size:11px">${CB_INPUT_COLS[11].label}</th>`,
-      `<th style="text-align:right;white-space:nowrap;font-size:11px;background:rgba(37,99,235,0.08)">Cash Bal (exp) (3days)</th>`,
+      ...CB_INPUT_COLS.slice(0,7).map(c=>`<th style="${thBase}">${c.label}</th>`),
+      `<th style="${thBlue}">Cash Total</th>`,
+      ...CB_INPUT_COLS.slice(7,11).map(c=>`<th style="${thRed}">${c.label}</th>`),
+      `<th style="${thRedDk}">Total Payables</th>`,
+      `<th style="${thBase}">${CB_INPUT_COLS[11].label}</th>`,
+      `<th style="${thBlue}">Cash Bal (3 days)</th>`,
     ].join('');
 
     const today = new Date().toLocaleDateString('en-US', { month:'numeric', day:'numeric', year:'2-digit' });
