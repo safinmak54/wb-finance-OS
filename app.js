@@ -4721,34 +4721,65 @@ const app = {
     const isCCImport = this._importType === 'cc';
     const SKIP_OPT = `<option value="-1">(skip)</option>`;
 
-    // Auto-detect column indices
+    // Auto-detect column indices — first try header keywords, then fall back to data content
     const detect = (keywords) => {
       const idx = headers.findIndex(h => keywords.some(k => h.toLowerCase().replace(/[^a-z]/g,'').includes(k)));
       return idx >= 0 ? idx : -1;
     };
-    const guesses = {
+    // Data-based detection: scan first 5 data rows for patterns
+    const sampleRows = rows.slice(0, 5);
+    const detectFromData = (testFn) => {
+      for (let col = 0; col < (sampleRows[0]||[]).length; col++) {
+        if (sampleRows.every(r => testFn(r[col] || ''))) return col;
+      }
+      return -1;
+    };
+    let guesses = {
       date:        detect(['date','dt']),
       description: detect(['description','desc','memo','narration','detail']),
       amount:      detect(['amount','amt']),
-      debit:       detect(['debit','dr','withdrawal','paid']),
-      credit:      detect(['credit','cr','deposit','received']),
+      type:        detect(['type','transtype','trantype','txntype']),
       entity:      detect(['entity','company','card']),
     };
+    // BAI/non-standard format: if header detection fails, detect from data content
+    if (guesses.date < 0) {
+      guesses.date = detectFromData(v => /^\d{8}$/.test(v.trim()) || /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(v.trim()));
+    }
+    if (guesses.amount < 0) {
+      guesses.amount = detectFromData(v => /^[\d,]+\.\d{2}$/.test(v.trim().replace(/[$]/g,'')));
+    }
+    if (guesses.type < 0) {
+      guesses.type = detectFromData(v => /credit|debit|deposit|check|wire|transfer/i.test(v));
+    }
+    if (guesses.entity < 0) {
+      // Look for column with known entity keywords (BAND PROMO, LANYARD PROMO, etc.)
+      guesses.entity = detectFromData(v => /promo|brands|koolers|lanyard|band |wb |one op|sp brand/i.test(v));
+    }
+    if (guesses.description < 0) {
+      // Longest average text column that isn't already assigned
+      const assigned = new Set(Object.values(guesses).filter(v => v >= 0));
+      let maxLen = 0, descCol = -1;
+      for (let col = 0; col < (sampleRows[0]||[]).length; col++) {
+        if (assigned.has(col)) continue;
+        const avgLen = sampleRows.reduce((s,r) => s + (r[col]||'').length, 0) / sampleRows.length;
+        if (avgLen > maxLen) { maxLen = avgLen; descCol = col; }
+      }
+      if (descCol >= 0 && maxLen > 15) guesses.description = descCol;
+    }
 
     // Column mapping UI
     const FIELDS = [
       { key:'date',        label:'Date *',               required:true  },
       { key:'description', label:'Description *',        required:true  },
-      { key:'amount',      label:'Amount (single col)',   required:false },
-      { key:'debit',       label:'Debit (two-col)',       required:false },
-      { key:'credit',      label:'Credit (two-col)',      required:false },
+      { key:'amount',      label:'Amount',               required:false },
+      { key:'type',        label:'Type (Credit/Debit)',  required:false },
       { key:'entity',      label:'Entity (per-row)',      required:false },
     ];
 
     const mappingUI = document.getElementById('importMappingUI');
     mappingUI.innerHTML = `
       <div style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:6px;font-size:11px;color:var(--text2)">
-        Map <b>Amount</b> for a single amount column, OR map <b>Debit + Credit</b> for two-column statements. Skip unused fields.
+        Map <b>Amount</b> and <b>Type</b> (Credit/Debit) columns. Type is needed when amounts are always positive.
       </div>
       ${FIELDS.map(f => {
         const gi = guesses[f.key];
@@ -4767,7 +4798,7 @@ const app = {
         <select id="importEntitySelect" class="filter-select" style="width:100%;margin-top:6px;font-size:12px">
           <option value="">— ${isCCImport ? 'Select entity (required)' : 'Auto-detect / skip'} —</option>
           ${(isCCImport ? ['LP','BP','SP1'] : ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'])
-            .map(e => `<option value="${e}">${e}</option>`).join('')}
+            .map(e => `<option value="${e}" ${(state.globalEntity && state.globalEntity !== 'all' && e === state.globalEntity.toUpperCase()) ? 'selected' : ''}>${e}</option>`).join('')}
         </select>
         <div style="font-size:10px;color:var(--text3);margin-top:4px">Used when no per-row entity column is mapped</div>
       </div>`;
@@ -4784,17 +4815,31 @@ const app = {
     if (!this._importData) return;
     const { rows } = this._importData;
     const mapping = {};
-    ['date','description','amount','debit','credit','entity'].forEach(f => {
+    ['date','description','amount','type','entity'].forEach(f => {
       const sel = document.getElementById(`map_${f}`);
       if (sel) mapping[f] = parseInt(sel.value, 10);
     });
 
-    const globalEntityCode = document.getElementById('importEntitySelect')?.value || '';
+    let globalEntityCode = document.getElementById('importEntitySelect')?.value || '';
+    // Fallback: use global entity filter if nothing selected
+    if (!globalEntityCode && state.globalEntity && state.globalEntity !== 'all') {
+      globalEntityCode = state.globalEntity.toUpperCase();
+    }
     if (this._importType === 'cc' && !globalEntityCode) {
       this.showToast('Select an entity (LP, BP, or SP1) before importing', 'error');
       document.getElementById('importEntitySelect')?.focus();
       return;
     }
+    if (mapping.amount < 0) {
+      this.showToast('Map the Amount column', 'error'); return;
+    }
+
+    // Direction map for BAI transaction type codes
+    const TX_DIR_MAP = {
+      'CHECK PAID': 'DEBIT', 'DEPOSIT CORRECTION DB': 'DEBIT', 'MISCELLANEOUS FEES': 'DEBIT',
+      'RETURNED CASH ITEM DEBIT': 'DEBIT', 'ACH OFFSET DEBIT': 'DEBIT', 'ADJUSTMENT DEBIT': 'DEBIT',
+      'REGULAR DEPOSIT': 'CREDIT', 'WIRE TRANSFER CREDIT': 'CREDIT', 'ELECTRONIC TRANSFER CREDIT': 'CREDIT',
+    };
 
     let skipped = 0;
     const records = [];
@@ -4804,32 +4849,39 @@ const app = {
       const desc    = row[mapping.description]?.replace(/"/g,'').trim() || '';
       if (!accDate || !desc) { skipped++; return; }
 
-      let amount, direction;
-      if (mapping.debit >= 0 || mapping.credit >= 0) {
-        const dv = parseFloat((row[mapping.debit]  || '').replace(/[$,"\s]/g,'')) || 0;
-        const cv = parseFloat((row[mapping.credit] || '').replace(/[$,"\s]/g,'')) || 0;
-        if (cv > 0)      { amount = cv; direction = 'CREDIT'; }
-        else if (dv > 0) { amount = dv; direction = 'DEBIT'; }
-        else             { skipped++; return; }
-      } else {
-        const rawAmt = (row[mapping.amount] || '').replace(/[$,"\s]/g,'');
-        const val = parseFloat(rawAmt);
-        if (isNaN(val) || val === 0) { skipped++; return; }
-        amount = Math.abs(val);
+      const rawAmt = (row[mapping.amount] || '').replace(/[$,"\s]/g,'');
+      const val = parseFloat(rawAmt);
+      if (isNaN(val) || val === 0) { skipped++; return; }
+      const amount = Math.abs(val);
+
+      // Determine direction: Type column first, then amount sign fallback
+      let direction;
+      if (mapping.type >= 0) {
+        const typeStr = (row[mapping.type] || '').toUpperCase().trim();
+        if (TX_DIR_MAP[typeStr]) direction = TX_DIR_MAP[typeStr];
+        else if (typeStr.includes('CREDIT') || typeStr.includes('DEPOSIT')) direction = 'CREDIT';
+        else if (typeStr.includes('DEBIT') || typeStr.includes('CHECK') || typeStr.includes('WIRE TRANSFER DEBIT')) direction = 'DEBIT';
+      }
+      if (!direction) {
         direction = this._importType === 'cc'
           ? (val >= 0 ? 'DEBIT' : 'CREDIT')
-          : (val >= 0 ? 'CREDIT' : 'DEBIT');
+          : (val < 0 ? 'DEBIT' : 'CREDIT');
       }
 
-      const rowEntityCode = (mapping.entity >= 0
-        ? (row[mapping.entity] || '').replace(/"/g,'').trim().toUpperCase() || globalEntityCode.toUpperCase()
-        : globalEntityCode.toUpperCase());
-      // Try exact, then case-insensitive search through all known entity codes
-      const entityId = rowEntityCode ? (
-        window._entityByCode[rowEntityCode] ||
-        window._entityByCode[Object.keys(window._entityByCode).find(k => k.toUpperCase() === rowEntityCode)] ||
-        null
-      ) : null;
+      // Entity resolution: raw value → exact code match → keyword match → global fallback
+      const rawEntityVal = mapping.entity >= 0
+        ? (row[mapping.entity] || '').replace(/"/g,'').trim() : '';
+      const rawEntityUpper = rawEntityVal.toUpperCase();
+      let entityCode = rawEntityUpper || globalEntityCode.toUpperCase();
+      // If not a direct code match, try keyword matching (e.g., "BAND PROMO LLC" → "BP")
+      let entityId = entityCode ? (window._entityByCode[entityCode] || null) : null;
+      if (!entityId && rawEntityVal) {
+        entityCode = detectEntityFromBankAccount(rawEntityVal) || globalEntityCode.toUpperCase();
+        entityId = entityCode ? (window._entityByCode[entityCode] || null) : null;
+      }
+      if (!entityId && globalEntityCode) {
+        entityId = window._entityByCode[globalEntityCode.toUpperCase()] || null;
+      }
 
       records.push({
         description: desc,
