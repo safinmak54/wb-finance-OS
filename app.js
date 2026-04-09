@@ -4625,7 +4625,7 @@ const app = {
     if (input !== 'DELETE') { this.showToast('Type DELETE to confirm', 'error'); return; }
     this.closeModal();
     this.showToast('Deleting all data…', 'error');
-    const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
+    const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors','cash_balances','classification_rules'];
     const failed = [];
     for (const tbl of tables) {
       const { error } = await supabaseClient.from(tbl).delete().gte('id', '00000000-0000-0000-0000-000000000000');
