@@ -2067,12 +2067,18 @@ const app = {
     upserts.forEach(u => { deduped[u.entity + '|' + u.col_key] = u; });
     const uniqueUpserts = Object.values(deduped);
 
+    console.log('Cash Balances: final colMap:', JSON.stringify(colMap));
+    console.log('Cash Balances: sample upsert data:', uniqueUpserts.slice(0, 10));
+
+    // Clear old data first so stale values don't persist
+    await supabaseClient.from('cash_balances').delete().gte('updated_at', '2000-01-01');
+
     const { error } = await supabaseClient.from('cash_balances')
       .upsert(uniqueUpserts, { onConflict: 'entity,col_key' });
     if (error) { this.showToast('Failed to save to Supabase', 'error'); console.error(error); return; }
 
     this.closeModal();
-    this.showToast(`Synced ${upserts.length} values from sheet`, 'success');
+    this.showToast(`Synced ${uniqueUpserts.length} values from sheet (cleared old data)`, 'success');
     this.renderCashBalances();
   },
 
