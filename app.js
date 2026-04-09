@@ -1917,39 +1917,69 @@ const app = {
       this.showToast('Could not parse sheet — ensure it is publicly shared (Anyone with link → Viewer)', 'error'); return;
     }
 
-    const cols = (gdata.table?.cols || []).map(c => (c.label || '').trim().toLowerCase());
-    const dataRows = gdata.table?.rows || [];
-    if (!cols.length || !dataRows.length) {
+    const gvizCols = (gdata.table?.cols || []).map(c => (c.label || '').trim().toLowerCase());
+    const allRows = gdata.table?.rows || [];
+    if (!allRows.length) {
       this.showToast('Sheet appears empty', 'error'); return;
     }
 
-    // Map headers → col keys
+    // Column definitions we're looking for
     const CB_INPUT_COLS = [
-      { key:'tfb',       labels:['tfb'] },
-      { key:'hunt',      labels:['huntington bank','huntington'] },
-      { key:'vend_pay',  labels:['vendor payments','vendor pay'] },
-      { key:'cc',        labels:['cc'] },
-      { key:'int_xfer',  labels:['int transfer','internal transfer'] },
+      { key:'tfb',       labels:['tfb','texas first','tfb bal'] },
+      { key:'hunt',      labels:['huntington bank','huntington','hunt bank'] },
+      { key:'vend_pay',  labels:['vendor payments','vendor pay','vend pay'] },
+      { key:'cc',        labels:['cc','credit card bal'] },
+      { key:'int_xfer',  labels:['int transfer','internal transfer','int xfer'] },
       { key:'google',    labels:['google/agencies','google agencies','google'] },
-      { key:'hunt_bal',  labels:['huntington bal','huntington balance'] },
-      { key:'cc_pay',    labels:['credit card'] },
-      { key:'vend_pmts', labels:['vendor payments'] },
-      { key:'goog_pend', labels:['google pending'] },
-      { key:'fedex',     labels:['fedex, asi, agencies','fedex'] },
-      { key:'stripe_pp', labels:['stripe + paypal +3 days','stripe','stripe + paypal'] },
+      { key:'hunt_bal',  labels:['huntington bal','huntington balance','hunt bal'] },
+      { key:'cc_pay',    labels:['credit card','cc pay'] },
+      { key:'vend_pmts', labels:['vendor payments','vendor pmts'] },
+      { key:'goog_pend', labels:['google pending','goog pend'] },
+      { key:'fedex',     labels:['fedex, asi, agencies','fedex','fedex asi'] },
+      { key:'stripe_pp', labels:['stripe + paypal +3 days','stripe','stripe + paypal','stripe/paypal'] },
     ];
 
-    // Build col index → key map (skip first col = entity)
-    const colMap = {};
-    cols.forEach((label, i) => {
-      if (i === 0) return;
-      for (const def of CB_INPUT_COLS) {
-        if (def.labels.some(l => label.includes(l))) {
-          colMap[i] = def.key;
+    // Helper: try to match a set of column labels against CB_INPUT_COLS
+    const matchCols = (labels) => {
+      const map = {};
+      labels.forEach((label, i) => {
+        if (i === 0) return; // first col = entity
+        const lower = label.toLowerCase().trim();
+        if (!lower) return;
+        for (const def of CB_INPUT_COLS) {
+          if (def.labels.some(l => lower.includes(l))) { map[i] = def.key; break; }
+        }
+      });
+      return map;
+    };
+
+    // 1. Try gviz header labels first
+    let colMap = matchCols(gvizCols);
+    let dataRows = allRows;
+
+    // 2. If gviz headers didn't match, scan rows to find the header row
+    if (Object.keys(colMap).length === 0) {
+      console.log('Cash Balances: gviz headers did not match, scanning rows for header…');
+      for (let r = 0; r < Math.min(allRows.length, 15); r++) {
+        const cells = allRows[r].c || [];
+        const rowLabels = cells.map(c => (c?.v || c?.f || '').toString().trim());
+        const testMap = matchCols(rowLabels);
+        if (Object.keys(testMap).length >= 2) {
+          console.log(`Cash Balances: found header row at index ${r}:`, rowLabels);
+          colMap = testMap;
+          dataRows = allRows.slice(r + 1); // data starts after header
           break;
         }
       }
-    });
+    }
+
+    if (Object.keys(colMap).length === 0) {
+      console.warn('Cash Balances: no matching columns. gviz cols:', gvizCols);
+      const sampleRow = (allRows[0]?.c || []).map(c => (c?.v || '').toString());
+      console.warn('First data row:', sampleRow);
+      this.showToast('Could not find matching column headers — check sheet layout and console', 'error');
+      return;
+    }
 
     // Accept both display names AND short codes (case-insensitive)
     const CB_ENTITY_MAP = {
