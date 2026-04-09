@@ -1798,7 +1798,7 @@ const app = {
 
     // Build header — readable with abbreviations, allow wrapping on long names
     const thBase = 'text-align:right;font-size:11px;font-weight:700;padding:8px 6px;letter-spacing:0.02em;text-transform:uppercase;min-width:80px;color:var(--text)';
-    const thBlue = `${thBase};background:rgba(37,99,235,0.08)`;
+    const thBlue = `${thBase};background:var(--navy,#1e293b);color:#fff`;
     const thRed  = `${thBase};background:rgba(254,226,226,0.6);color:#991B1B`;
     const thRedDk = `${thBase};background:rgba(254,226,226,0.8);color:#991B1B`;
     const allHeaders = [
