@@ -1943,7 +1943,6 @@ const app = {
     const matchCols = (labels) => {
       const map = {};
       labels.forEach((label, i) => {
-        if (i === 0) return; // first col = entity
         const lower = label.toLowerCase().trim();
         if (!lower) return;
         for (const def of CB_INPUT_COLS) {
@@ -1953,11 +1952,28 @@ const app = {
       return map;
     };
 
-    // 1. Try gviz header labels first
+    // Detect entity column (the column that has entity names like "WB Brands", "Band Promo", etc.)
+    const ENTITY_KEYWORDS = ['wb brands','koolers','wb promo','band promo','lanyard','sp brands','one ops','one operations'];
+    const findEntityCol = (rows) => {
+      for (let col = 0; col < 5; col++) {
+        let matches = 0;
+        for (let r = 0; r < Math.min(rows.length, 15); r++) {
+          const val = (rows[r]?.c?.[col]?.v || '').toString().toLowerCase();
+          if (ENTITY_KEYWORDS.some(k => val.includes(k))) matches++;
+        }
+        if (matches >= 3) return col;
+      }
+      return 0; // default to first column
+    };
+
+    // 1. Find entity column from data
+    const entityCol = findEntityCol(allRows);
+
+    // 2. Try gviz header labels first
     let colMap = matchCols(gvizCols);
     let dataRows = allRows;
 
-    // 2. If gviz headers didn't match, scan rows to find the header row
+    // 3. If gviz headers didn't match, scan rows to find the header row
     if (Object.keys(colMap).length === 0) {
       console.log('Cash Balances: gviz headers did not match, scanning rows for header…');
       for (let r = 0; r < Math.min(allRows.length, 15); r++) {
@@ -1967,17 +1983,53 @@ const app = {
         if (Object.keys(testMap).length >= 2) {
           console.log(`Cash Balances: found header row at index ${r}:`, rowLabels);
           colMap = testMap;
-          dataRows = allRows.slice(r + 1); // data starts after header
+          dataRows = allRows.slice(r + 1);
           break;
         }
       }
     }
 
+    // 4. If still no column matches (sparse/merged headers), use position-based mapping
+    //    Sheet format: B=entity, C=TFB, D=Huntington, E/F=empty, G=Int Transfer, I=Huntington Bal,
+    //    K=CC payable, L=Vendor Payments, M=Google Pending, N=Fedex, O=Stripe+PayPal
+    if (Object.keys(colMap).length < 2) {
+      console.log('Cash Balances: sparse headers — using position-based column mapping');
+      // Scan first entity row to find which columns have numeric data
+      const firstEntityRow = allRows.find(r => {
+        const val = (r?.c?.[entityCol]?.v || '').toString().toLowerCase();
+        return ENTITY_KEYWORDS.some(k => val.includes(k));
+      });
+      if (firstEntityRow) {
+        // Map columns relative to entity column
+        const e = entityCol;
+        const posMap = [
+          [e+1, 'tfb'], [e+2, 'hunt'], [e+3, 'vend_pay'], [e+4, 'cc'],
+          [e+5, 'int_xfer'], [e+6, 'google'], [e+7, 'hunt_bal'],
+          [e+8, 'cc_pay'], [e+9, 'vend_pmts'], [e+10, 'goog_pend'],
+          [e+11, 'fedex'], [e+12, 'stripe_pp'],
+        ];
+        // Only include positions that have data in at least one entity row
+        const entityRows = allRows.filter(r => {
+          const val = (r?.c?.[entityCol]?.v || '').toString().toLowerCase();
+          return ENTITY_KEYWORDS.some(k => val.includes(k));
+        });
+        for (const [col, key] of posMap) {
+          const hasData = entityRows.some(r => {
+            const v = r?.c?.[col]?.v;
+            return v !== null && v !== undefined && v !== '' && Number(v) !== 0;
+          });
+          if (hasData) colMap[col] = key;
+        }
+        // Remove the header row and any rows before the first entity
+        const firstEntityIdx = allRows.indexOf(firstEntityRow);
+        dataRows = allRows.slice(firstEntityIdx);
+        console.log('Cash Balances: position-based colMap:', colMap);
+      }
+    }
+
     if (Object.keys(colMap).length === 0) {
       console.warn('Cash Balances: no matching columns. gviz cols:', gvizCols);
-      const sampleRow = (allRows[0]?.c || []).map(c => (c?.v || '').toString());
-      console.warn('First data row:', sampleRow);
-      this.showToast('Could not find matching column headers — check sheet layout and console', 'error');
+      this.showToast('Could not find matching column data — check sheet layout and console', 'error');
       return;
     }
 
@@ -1993,7 +2045,7 @@ const app = {
     const upserts = [];
     dataRows.forEach(row => {
       const cells = row.c || [];
-      const entityRaw = (cells[0]?.v || '').toString().trim();
+      const entityRaw = (cells[entityCol]?.v || '').toString().trim();
       const entityMatch = CB_ENTITY_MAP[entityRaw.toLowerCase()] ||
         Object.values(CB_ENTITY_MAP).find(v => v.toLowerCase() === entityRaw.toLowerCase());
       if (!entityMatch) return;
