@@ -3810,71 +3810,82 @@ const app = {
 
   // ---- BULK CLASSIFY ----
   async bulkClassify() {
-    const activePage = document.querySelector('.page.active');
-    const checkedRows = [...(activePage || document).querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
-    if (!checkedRows.length) { this.toast('No rows selected'); return; }
+    try {
+      const activePage = document.querySelector('.page.active');
+      const checkedRows = [...(activePage || document).querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
+      if (!checkedRows.length) { this.showToast('No rows selected', 'error'); return; }
 
-    const rowsMissingCategory = checkedRows.filter(r => !r.querySelector('.acct-sel')?.value);
-    if (rowsMissingCategory.length > 0) {
-      this.showToast(`${rowsMissingCategory.length} row(s) missing a category — assign one first`, 'error');
-      rowsMissingCategory.forEach(r => r.querySelector('.acct-sel')?.closest('td')?.classList.add('field-error'));
-      return;
-    }
-    let success = 0, failed = 0, noEntity = 0;
-
-    for (const row of checkedRows) {
-      const rawId     = row?.dataset?.id;
-      if (!rawId) { failed++; continue; }
-      const accountId = row.querySelector('.acct-sel')?.value;
-      if (!accountId) { failed++; continue; }
-
-      const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
-      if (error) { failed++; continue; }
-
-      // Resolve entity: DOM dropdown first, then entity_id stored from import
-      const entityCode = row.querySelector('.entity-sel')?.value || (window._entityById[t.entity_id] || '').toUpperCase() || '';
-      if (!entityCode) { noEntity++; failed++; continue; }
-
-      const rawAmt = Math.abs(Number(t.amount));
-      let amount;
-      if (t.direction === 'DEBIT' || t.direction === 'CREDIT') {
-        amount = t.direction === 'DEBIT' ? -rawAmt : rawAmt;
-      } else {
-        // direction not stored — infer correct sign from account type
-        const acct = (DATA.coa || []).find(a => a.id === accountId);
-        const debitTypes = ['expense', 'cogs', 'cost of goods', 'asset'];
-        const isDebitAcct = debitTypes.some(dt => (acct?.account_type || '').toLowerCase().includes(dt))
-          || debitTypes.some(dt => (acct?.account_subtype || '').toLowerCase().includes(dt));
-        amount = isDebitAcct ? -rawAmt : rawAmt;
+      const rowsMissingCategory = checkedRows.filter(r => !r.querySelector('.acct-sel')?.value);
+      if (rowsMissingCategory.length > 0) {
+        this.showToast(`${rowsMissingCategory.length} row(s) missing a category — assign one first`, 'error');
+        rowsMissingCategory.forEach(r => r.querySelector('.acct-sel')?.closest('td')?.classList.add('field-error'));
+        return;
       }
-      const { error: insErr } = await supabaseClient.from('transactions').insert({
-        raw_transaction_id: rawId, entity: entityCode, account_id: accountId, amount,
-        txn_date: this.normalizeDate(t.transaction_date), acc_date: this.normalizeDate(t.accounting_date || t.transaction_date),
-        description: t.description || '', memo: ''
-      });
 
-      if (insErr && insErr.code !== '23505') { failed++; continue; }
+      this.showToast(`Finalizing ${checkedRows.length} transactions…`, 'info');
+      let success = 0, failed = 0, noEntity = 0, errors = [];
 
-      await supabaseClient.from('raw_transactions').update({
-        classified: true, classified_at: new Date().toISOString()
-      }).eq('id', rawId);
+      for (const row of checkedRows) {
+        const rawId     = row?.dataset?.id;
+        if (!rawId) { failed++; errors.push('missing row ID'); continue; }
+        const accountId = row.querySelector('.acct-sel')?.value;
+        if (!accountId) { failed++; errors.push('missing category'); continue; }
 
-      row.remove();
-      success++;
+        const { data: t, error } = await supabaseClient.from('raw_transactions').select('*').eq('id', rawId).single();
+        if (error) { failed++; errors.push(`load failed: ${error.message}`); continue; }
+
+        // Resolve entity: DOM dropdown → entity_id from import → detectEntityFromBankAccount → description keywords
+        let entityCode = row.querySelector('.entity-sel')?.value || '';
+        if (!entityCode && t.entity_id) entityCode = (window._entityById[t.entity_id] || '').toUpperCase();
+        if (!entityCode && t.bank_account) entityCode = detectEntityFromBankAccount(t.bank_account) || '';
+        if (!entityCode && t.description) entityCode = detectEntityFromBankAccount(t.description) || '';
+        if (!entityCode) { noEntity++; failed++; continue; }
+
+        const rawAmt = Math.abs(Number(t.amount));
+        let amount;
+        if (t.direction === 'DEBIT' || t.direction === 'CREDIT') {
+          amount = t.direction === 'DEBIT' ? -rawAmt : rawAmt;
+        } else {
+          // direction not stored — infer correct sign from account type
+          const acct = (DATA.coa || []).find(a => a.id === accountId);
+          const debitTypes = ['expense', 'cogs', 'cost of goods', 'asset'];
+          const isDebitAcct = debitTypes.some(dt => (acct?.account_type || '').toLowerCase().includes(dt))
+            || debitTypes.some(dt => (acct?.account_subtype || '').toLowerCase().includes(dt));
+          amount = isDebitAcct ? -rawAmt : rawAmt;
+        }
+        const { error: insErr } = await supabaseClient.from('transactions').insert({
+          raw_transaction_id: rawId, entity: entityCode, account_id: accountId, amount,
+          txn_date: this.normalizeDate(t.transaction_date), acc_date: this.normalizeDate(t.accounting_date || t.transaction_date),
+          description: t.description || '', memo: ''
+        });
+
+        if (insErr && insErr.code !== '23505') { failed++; errors.push(`insert: ${insErr.message}`); continue; }
+
+        await supabaseClient.from('raw_transactions').update({
+          classified: true, classified_at: new Date().toISOString()
+        }).eq('id', rawId);
+
+        row.remove();
+        success++;
+      }
+
+      if (noEntity > 0 && success === 0) {
+        this.showToast(`${noEntity} row(s) have no entity — select an entity on each row or re-import with entity mapped`, 'error');
+      } else if (success > 0) {
+        this.showToast(`${success} transaction${success !== 1 ? 's' : ''} moved to Ledger${failed ? ` · ${failed} skipped` : ''}`, 'success');
+      } else {
+        this.showToast(`No rows classified — ${failed} failed. ${errors[0] || 'Check console'}`, 'error');
+        console.error('bulkClassify errors:', errors);
+      }
+      const _activePage = document.querySelector('.page.active');
+      const _cBtn = _activePage?.querySelector('#bulkClassifyBtn'); if (_cBtn) _cBtn.style.display = 'none';
+      const _dBtn = _activePage?.querySelector('#bulkDeleteBtn'); if (_dBtn) _dBtn.style.display = 'none';
+      const badge = document.getElementById('reviewBadge');
+      if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
+    } catch (e) {
+      this.showToast(`Finalize error: ${e.message}`, 'error');
+      console.error('bulkClassify exception:', e);
     }
-
-    if (noEntity > 0 && success === 0) {
-      this.showToast(`${noEntity} row(s) have no entity — set Company on each row then try again`, 'error');
-    } else if (success > 0) {
-      this.showToast(`${success} transaction${success !== 1 ? 's' : ''} moved to Ledger${failed ? ` · ${failed} skipped` : ''}`, 'success');
-    } else {
-      this.showToast(`No rows classified${failed ? ` — ${failed} failed` : ''}`, 'error');
-    }
-    const _activePage = document.querySelector('.page.active');
-    const _cBtn = _activePage?.querySelector('#bulkClassifyBtn'); if (_cBtn) _cBtn.style.display = 'none';
-    const _dBtn = _activePage?.querySelector('#bulkDeleteBtn'); if (_dBtn) _dBtn.style.display = 'none';
-    const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
   },
 
   // ---- BULK CLASSIFY AUTO-TAGGED ----
