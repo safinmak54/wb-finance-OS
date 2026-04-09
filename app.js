@@ -1998,13 +1998,20 @@ const app = {
         return ENTITY_KEYWORDS.some(k => val.includes(k));
       });
       if (firstEntityRow) {
-        // Map columns relative to entity column
+        // Map columns relative to entity column — accounts for computed gap columns
+        // Sheet layout: entity(e), TFB(+1), Hunt(+2), VendPay(+3), CC(+4), IntXfer(+5), Google(+6),
+        //   [hunt_bal(+7) computed], [CashTotal(+8) computed],
+        //   CCpay(+9), VendPmts(+10), GoogPend(+11), Fedex(+12),
+        //   [TotalPayables(+13) computed], StripePP(+14)
         const e = entityCol;
         const posMap = [
           [e+1, 'tfb'], [e+2, 'hunt'], [e+3, 'vend_pay'], [e+4, 'cc'],
-          [e+5, 'int_xfer'], [e+6, 'google'], [e+7, 'hunt_bal'],
-          [e+8, 'cc_pay'], [e+9, 'vend_pmts'], [e+10, 'goog_pend'],
-          [e+11, 'fedex'], [e+12, 'stripe_pp'],
+          [e+5, 'int_xfer'], [e+6, 'google'],
+          // skip e+7 (hunt_bal computed) and e+8 (Cash Total computed)
+          [e+9, 'cc_pay'], [e+10, 'vend_pmts'], [e+11, 'goog_pend'],
+          [e+12, 'fedex'],
+          // skip e+13 (Total Payables computed)
+          [e+14, 'stripe_pp'],
         ];
         // Only include positions that have data in at least one entity row
         const entityRows = allRows.filter(r => {
