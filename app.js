@@ -1797,10 +1797,10 @@ const app = {
     };
 
     // Build header — readable with abbreviations, allow wrapping on long names
-    const thBase = 'text-align:right;font-size:11px;font-weight:700;padding:8px 6px;letter-spacing:0.02em;text-transform:uppercase;min-width:80px';
+    const thBase = 'text-align:right;font-size:11px;font-weight:700;padding:8px 6px;letter-spacing:0.02em;text-transform:uppercase;min-width:80px;color:var(--text)';
     const thBlue = `${thBase};background:rgba(37,99,235,0.08)`;
-    const thRed  = `${thBase};background:rgba(220,38,38,0.05)`;
-    const thRedDk = `${thBase};background:rgba(220,38,38,0.08)`;
+    const thRed  = `${thBase};background:rgba(254,226,226,0.6);color:#991B1B`;
+    const thRedDk = `${thBase};background:rgba(254,226,226,0.8);color:#991B1B`;
     const allHeaders = [
       ...CB_INPUT_COLS.slice(0,7).map(c=>`<th style="${thBase}">${c.label}</th>`),
       `<th style="${thBlue}">Cash Total</th>`,
@@ -4648,12 +4648,11 @@ const app = {
     if (input !== 'DELETE') { this.showToast('Type DELETE to confirm', 'error'); return; }
     this.closeModal();
     this.showToast('Deleting all data…', 'error');
-    // Tables with UUID id column
+    // Tables with UUID id column — classification_rules intentionally excluded (user wants to keep rules)
     const uuidTables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
     // Tables with composite/non-UUID keys
     const otherTables = [
       { name: 'cash_balances', filter: q => q.neq('entity', '') },
-      { name: 'classification_rules', filter: q => q.gte('id', '00000000-0000-0000-0000-000000000000') },
     ];
     const failed = [];
     for (const tbl of uuidTables) {
