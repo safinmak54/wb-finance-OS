@@ -2062,8 +2062,13 @@ const app = {
       this.showToast('No matching data found — check entity names and column headers', 'error'); return;
     }
 
+    // Deduplicate: keep last value for each entity+col_key pair
+    const deduped = {};
+    upserts.forEach(u => { deduped[u.entity + '|' + u.col_key] = u; });
+    const uniqueUpserts = Object.values(deduped);
+
     const { error } = await supabaseClient.from('cash_balances')
-      .upsert(upserts, { onConflict: 'entity,col_key' });
+      .upsert(uniqueUpserts, { onConflict: 'entity,col_key' });
     if (error) { this.showToast('Failed to save to Supabase', 'error'); console.error(error); return; }
 
     this.closeModal();
