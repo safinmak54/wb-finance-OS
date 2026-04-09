@@ -2042,12 +2042,13 @@ const app = {
 
     // Accept both display names AND short codes (case-insensitive)
     const CB_ENTITY_MAP = {
-      'wb brands': 'WB Brands', 'wbp': 'WB Brands', 'wb promo': 'WB Brands',
-      'koolers promo': 'Koolers Promo', 'kp': 'Koolers Promo', 'kooler': 'Koolers Promo',
-      'band promo': 'Band Promo', 'bp': 'Band Promo',
-      'lanyard promo': 'Lanyard Promo', 'lp': 'Lanyard Promo', 'lanyard': 'Lanyard Promo',
-      'sp brands': 'SP Brands', 'sp1': 'SP Brands', 'sp': 'SP Brands',
-      'one ops': 'One Ops', 'oneops': 'One Ops', 'one operations': 'One Ops',
+      'wb brands': 'WB Brands', 'wb brands llc': 'WB Brands',
+      'wb promo': 'WB Promo', 'wb promo llc': 'WB Promo', 'wbp': 'WB Promo',
+      'koolers promo': 'Koolers Promo', 'koolers promo llc': 'Koolers Promo', 'kp': 'Koolers Promo', 'kooler': 'Koolers Promo',
+      'band promo': 'Band Promo', 'band promo llc': 'Band Promo', 'bp': 'Band Promo',
+      'lanyard promo': 'Lanyard Promo', 'lanyard promo llc': 'Lanyard Promo', 'lp': 'Lanyard Promo', 'lanyard': 'Lanyard Promo',
+      'sp brands': 'SP Brands', 'sp brands llc': 'SP Brands', 'sp1': 'SP Brands', 'sp': 'SP Brands',
+      'one ops': 'One Ops', 'oneops': 'One Ops', 'one operations': 'One Ops', 'one operations management': 'One Ops', 'one operations management llc': 'One Ops',
     };
     const upserts = [];
     dataRows.forEach(row => {
