@@ -1998,38 +1998,39 @@ const app = {
         return ENTITY_KEYWORDS.some(k => val.includes(k));
       });
       if (firstEntityRow) {
-        // Map columns relative to entity column — accounts for computed gap columns
-        // Sheet layout: entity(e), TFB(+1), Hunt(+2), VendPay(+3), CC(+4), IntXfer(+5), Google(+6),
-        //   [hunt_bal(+7) computed], [CashTotal(+8) computed],
-        //   CCpay(+9), VendPmts(+10), GoogPend(+11), Fedex(+12),
-        //   [TotalPayables(+13) computed], StripePP(+14)
+        // Find the main section only: from first entity to the "Total" row
+        const firstEntityIdx = allRows.indexOf(firstEntityRow);
+        const totalIdx = allRows.findIndex((r, i) => i >= firstEntityIdx &&
+          (r?.c?.[entityCol]?.v || '').toString().trim().toLowerCase() === 'total');
+        const mainSectionRows = allRows.slice(firstEntityIdx, totalIdx >= 0 ? totalIdx : firstEntityIdx + 10);
+
+        // Exact column layout from sheet:
+        // B=entity, C=TFB, D=Huntington Bank, E=Vendors Payment, F=CC,
+        // G=Int Transfer, H=Comm, I=Huntington Bal(computed), J=Cash Total(computed),
+        // K=Credit Card, L=Vendor Payments, M=Google Pending, N=Fedex,
+        // O=Total Payables(computed), P=Stripe+PayPal
         const e = entityCol;
         const posMap = [
           [e+1, 'tfb'], [e+2, 'hunt'], [e+3, 'vend_pay'], [e+4, 'cc'],
-          [e+5, 'int_xfer'], [e+6, 'google'],
-          // skip e+7 (hunt_bal computed) and e+8 (Cash Total computed)
+          [e+5, 'int_xfer'],
+          // skip e+6 (Comm) and e+7 (Huntington Bal computed) and e+8 (Cash Total computed)
           [e+9, 'cc_pay'], [e+10, 'vend_pmts'], [e+11, 'goog_pend'],
           [e+12, 'fedex'],
           // skip e+13 (Total Payables computed)
           [e+14, 'stripe_pp'],
         ];
-        // Only include positions that have data in at least one entity row
-        const entityRows = allRows.filter(r => {
-          const val = (r?.c?.[entityCol]?.v || '').toString().toLowerCase();
-          return ENTITY_KEYWORDS.some(k => val.includes(k));
-        });
+        // Only include positions that have NUMERIC data in at least one main-section entity row
         const assignedKeys = new Set(Object.values(colMap));
         for (const [col, key] of posMap) {
-          if (colMap[col] || assignedKeys.has(key)) continue; // don't overwrite header matches
-          const hasData = entityRows.some(r => {
+          if (colMap[col] || assignedKeys.has(key)) continue;
+          const hasData = mainSectionRows.some(r => {
             const v = r?.c?.[col]?.v;
-            return v !== null && v !== undefined && v !== '' && Number(v) !== 0;
+            return v !== null && v !== undefined && typeof v === 'number' && v !== 0;
           });
           if (hasData) { colMap[col] = key; assignedKeys.add(key); }
         }
-        // Remove the header row and any rows before the first entity
-        const firstEntityIdx = allRows.indexOf(firstEntityRow);
         dataRows = allRows.slice(firstEntityIdx);
+        console.log('Cash Balances: main section has', mainSectionRows.length, 'entity rows');
         console.log('Cash Balances: position-based colMap:', colMap);
       }
     }
