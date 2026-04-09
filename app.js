@@ -2050,8 +2050,17 @@ const app = {
       'sp brands': 'SP Brands', 'sp brands llc': 'SP Brands', 'sp1': 'SP Brands', 'sp': 'SP Brands',
       'one ops': 'One Ops', 'oneops': 'One Ops', 'one operations': 'One Ops', 'one operations management': 'One Ops', 'one operations management llc': 'One Ops',
     };
+    // Only process rows up to the "Total" row — lower sections have duplicate entity names
+    // with different data (vendor/CC breakdowns) that would overwrite the main values
+    const stopIdx = dataRows.findIndex(r => {
+      const val = (r?.c?.[entityCol]?.v || '').toString().trim().toLowerCase();
+      return val === 'total';
+    });
+    const mainRows = stopIdx >= 0 ? dataRows.slice(0, stopIdx) : dataRows;
+    console.log(`Cash Balances: processing ${mainRows.length} rows (stopped at Total row)`);
+
     const upserts = [];
-    dataRows.forEach(row => {
+    mainRows.forEach(row => {
       const cells = row.c || [];
       const entityRaw = (cells[entityCol]?.v || '').toString().trim();
       const entityMatch = CB_ENTITY_MAP[entityRaw.toLowerCase()] ||
