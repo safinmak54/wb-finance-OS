@@ -128,9 +128,8 @@ async function loadDataFromSupabase() {
         source: t.source || 'manual'
       }));
       state.filteredTxns = [...DATA.transactions];
-      // Always update sidebar inbox badge with unclassified count
-      const badge = document.getElementById('reviewBadge');
-      if (badge) badge.textContent = (txns || []).filter(t => !t.classified).length || '';
+      // Update sidebar badges from raw_transactions (single source of truth)
+      await app.updateSidebarBadges();
     }
 
     // Load vendors
@@ -498,6 +497,27 @@ const app = {
     this.onGlobalFilterChange();
   },
 
+  async updateSidebarBadges() {
+    if (!supabaseClient) return;
+    // Bank inbox badge: unclassified, non-CC, non-internal-transfer
+    const { count: bankCount } = await supabaseClient
+      .from('raw_transactions').select('*', { count: 'exact', head: true })
+      .eq('classified', false)
+      .neq('source', 'credit_card')
+      .not('description', 'ilike', '%BUS ONL TFR TO%')
+      .not('description', 'ilike', '%AMEX%');
+    const bankBadge = document.getElementById('reviewBadge');
+    if (bankBadge) bankBadge.textContent = bankCount || '';
+
+    // CC inbox badge: unclassified CC transactions
+    const { count: ccCount } = await supabaseClient
+      .from('raw_transactions').select('*', { count: 'exact', head: true })
+      .eq('classified', false)
+      .or('source.eq.credit_card,description.ilike.%AMEX%');
+    const ccBadge = document.getElementById('ccBadge');
+    if (ccBadge) ccBadge.textContent = ccCount || '';
+  },
+
   normalizeDate(str) {
     if (!str) return str;
     // Strip time component from ISO datetime: "2026-01-15 00:00:00" or "2026-01-15T00:00:00Z"
@@ -648,10 +668,7 @@ const app = {
       t.status = 'confirmed';
       this.renderTransactionRows();
       this.toast('Transaction confirmed');
-      // Update review badge
-      const reviewCount = DATA.transactions.filter(x => x.status === 'review').length;
-      const badge = document.getElementById('reviewBadge');
-      if (badge) badge.textContent = reviewCount || '';
+      await this.updateSidebarBadges();
 
       if (supabaseClient) {
         const { error } = await supabaseClient
@@ -3455,9 +3472,7 @@ const app = {
 
     const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
 
-    // Update sidebar badge with total unclassified bank count (all modes)
-    const badge = document.getElementById('reviewBadge');
-    if (badge && mode === 'bank') badge.textContent = (totalCount || txns.length) || '';
+    // Badge is updated centrally via updateSidebarBadges()
 
     const f = state.inboxFilter;
     const tabBtn = (m, label) => `<button class="btn-outline" style="font-size:12px;padding:4px 12px;${mode===m?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="app.setInboxMode('${m}')">${label}</button>`;
@@ -3593,9 +3608,7 @@ const app = {
     const txns = rawTxns || [];
     const hasMore = !loadAll && (totalCount || 0) > PAGE;
 
-    // Update CC badge
-    const badge = document.getElementById('ccBadge');
-    if (badge) badge.textContent = (totalCount || txns.length) || '';
+    // Badge is updated centrally via updateSidebarBadges()
 
     const acctOptions = (accounts || []).map(a =>
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
@@ -3915,8 +3928,7 @@ const app = {
 
     this.toast('Classified ✓');
     row.remove();
-    const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - 1) || '';
+    this.updateSidebarBadges();
     const countEl = document.querySelector('#inboxContent .toolbar-right span');
     if (countEl) {
       const n = Math.max(0, parseInt(countEl.textContent) - 1);
@@ -4029,8 +4041,7 @@ const app = {
       const _activePage = document.querySelector('.page.active');
       const _cBtn = _activePage?.querySelector('#bulkClassifyBtn'); if (_cBtn) _cBtn.style.display = 'none';
       const _dBtn = _activePage?.querySelector('#bulkDeleteBtn'); if (_dBtn) _dBtn.style.display = 'none';
-      const badge = document.getElementById('reviewBadge');
-      if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - success) || '';
+      this.updateSidebarBadges();
 
       // 7. Auto-switch period to match finalized transactions so they're visible in Ledger
       if (inserts.length > 0) {
@@ -4076,8 +4087,7 @@ const app = {
     const { error } = await supabaseClient.from('raw_transactions').delete().eq('id', rawId);
     if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
     document.querySelector(`tr[data-id="${rawId}"]`)?.remove();
-    const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - 1) || '';
+    this.updateSidebarBadges();
     const countEl = document.querySelector('#inboxContent .toolbar-right span');
     if (countEl) {
       const n = Math.max(0, parseInt(countEl.textContent) - 1);
@@ -4107,8 +4117,7 @@ const app = {
     if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
 
     checkedRows.forEach(r => r.remove());
-    const badge = document.getElementById('reviewBadge');
-    if (badge) badge.textContent = Math.max(0, (parseInt(badge.textContent) || 0) - ids.length) || '';
+    this.updateSidebarBadges();
     const countEl = document.querySelector('#inboxContent .toolbar-right span');
     if (countEl) {
       const n = Math.max(0, parseInt(countEl.textContent) - ids.length);
