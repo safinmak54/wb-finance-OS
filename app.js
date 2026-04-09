@@ -2078,7 +2078,7 @@ const app = {
     console.log('Cash Balances: sample upsert data:', uniqueUpserts.slice(0, 10));
 
     // Clear old data first so stale values don't persist
-    await supabaseClient.from('cash_balances').delete().gte('updated_at', '2000-01-01');
+    await supabaseClient.from('cash_balances').delete().neq('entity', '');
 
     const { error } = await supabaseClient.from('cash_balances')
       .upsert(uniqueUpserts, { onConflict: 'entity,col_key' });
@@ -4632,14 +4632,21 @@ const app = {
     if (input !== 'DELETE') { this.showToast('Type DELETE to confirm', 'error'); return; }
     this.closeModal();
     this.showToast('Deleting all data…', 'error');
-    const tables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors','cash_balances','classification_rules'];
+    // Tables with UUID id column
+    const uuidTables = ['transactions','raw_transactions','ledger_entries','journal_entries','ap_items','invoices','vendors'];
+    // Tables with composite/non-UUID keys
+    const otherTables = [
+      { name: 'cash_balances', filter: q => q.neq('entity', '') },
+      { name: 'classification_rules', filter: q => q.gte('id', '00000000-0000-0000-0000-000000000000') },
+    ];
     const failed = [];
-    for (const tbl of tables) {
+    for (const tbl of uuidTables) {
       const { error } = await supabaseClient.from(tbl).delete().gte('id', '00000000-0000-0000-0000-000000000000');
-      if (error) {
-        console.error('Clear error for', tbl, error);
-        failed.push(tbl);
-      }
+      if (error) { console.error('Clear error for', tbl, error); failed.push(tbl); }
+    }
+    for (const { name, filter } of otherTables) {
+      const { error } = await filter(supabaseClient.from(name).delete());
+      if (error) { console.error('Clear error for', name, error); failed.push(name); }
     }
     await loadDataFromSupabase();
     if (failed.length) {
