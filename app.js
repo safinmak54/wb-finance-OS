@@ -1923,15 +1923,15 @@ const app = {
       this.showToast('Sheet appears empty', 'error'); return;
     }
 
-    // Column definitions we're looking for
+    // Column definitions — ORDERED most-specific first so "huntington bal" matches hunt_bal before "huntington" matches hunt
     const CB_INPUT_COLS = [
       { key:'tfb',       labels:['tfb','texas first','tfb bal'] },
+      { key:'hunt_bal',  labels:['huntington bal','huntington balance','hunt bal'] },
       { key:'hunt',      labels:['huntington bank','huntington','hunt bank'] },
-      { key:'vend_pay',  labels:['vendor payments','vendor pay','vend pay'] },
+      { key:'vend_pay',  labels:['vendors payment','vendor payments','vendor pay','vend pay'] },
       { key:'cc',        labels:['cc','credit card bal'] },
       { key:'int_xfer',  labels:['int transfer','internal transfer','int xfer'] },
       { key:'google',    labels:['google/agencies','google agencies','google'] },
-      { key:'hunt_bal',  labels:['huntington bal','huntington balance','hunt bal'] },
       { key:'cc_pay',    labels:['credit card','cc pay'] },
       { key:'vend_pmts', labels:['vendor payments','vendor pmts'] },
       { key:'goog_pend', labels:['google pending','goog pend'] },
