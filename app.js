@@ -2189,7 +2189,15 @@ const app = {
 
     const fmtK = n => '$' + (n/1000).toFixed(0) + 'K';
 
+    const salesCfg = this._getSyncConfig();
+    const hasSalesSheet = !!(salesCfg.plSheetId);
     el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700;color:var(--text)">Sales Metrics
+          ${hasSalesSheet ? `<span style="font-size:11px;font-weight:400;color:var(--text3);margin-left:8px">Sheet connected</span>` : ''}
+        </div>
+        <button class="btn-outline" style="font-size:12px;padding:4px 12px" onclick="app.syncSalesSheet()">🔄 Sync from Google Sheet</button>
+      </div>
       <div class="sales-kpi-row">
         <div class="sales-kpi" style="border-top-color:#2563eb">
           <div class="sales-kpi-label">Latest Month Net Sales</div>
@@ -2616,6 +2624,30 @@ const app = {
     if (done === 0) { if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Sheets'; } this.toast('Configure sheet IDs in Bank Connections settings'); }
   },
 
+  async syncSalesSheet() {
+    const cfg = this._getSyncConfig();
+    if (!cfg.plSheetId) {
+      const id  = prompt('Enter Google Sheet ID (found in the sheet URL between /d/ and /edit)');
+      if (!id) return;
+      const tab = prompt('Enter the tab/sheet name (e.g. Sheet1, P&L)') || 'Sheet1';
+      const newCfg = { ...cfg, plSheetId: id.trim(), plSheetName: tab.trim() };
+      localStorage.setItem('wbSyncConfig', JSON.stringify(newCfg));
+    }
+    const btn = document.querySelector('button[onclick="app.syncSalesSheet()"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+    try {
+      const updatedCfg = this._getSyncConfig();
+      const rows = await this.gvizFetch(updatedCfg.plSheetId, updatedCfg.plSheetName || 'Sheet1');
+      await this.parsePLSheet(rows);
+      this.renderSalesMetrics();
+      this.showToast('Sales data synced from Google Sheet', 'success');
+    } catch(e) {
+      this.showToast('Sheet sync failed — check Sheet ID and that the sheet is shared publicly', 'error');
+      console.error('syncSalesSheet error:', e);
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync from Google Sheet'; }
+    }
+  },
+
   // ---- BANKS ----
   renderBanks() {
     const grid = document.getElementById('banksGrid');
@@ -2818,15 +2850,21 @@ const app = {
     const financing = txns.filter(t => FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
     const operating = txns.filter(t => !INVESTING_TYPES.has(t.accounts?.account_type?.toLowerCase()) && !FINANCING_TYPES.has(t.accounts?.account_type?.toLowerCase()));
 
+    const colorAmt = (n) => {
+      const color = n >= 0 ? 'var(--green)' : 'var(--red)';
+      const display = n < 0 ? `(${fmt(Math.abs(n))})` : fmt(n);
+      return `<span style="color:${color};font-weight:500">${display}</span>`;
+    };
+
     const renderSection = (bodyId, totalId, items) => {
       const body  = document.getElementById(bodyId);
       const total = document.getElementById(totalId);
       if (!body || !total) return 0;
       const sum = items.reduce((s, t) => s + (t.amount || 0), 0);
       body.innerHTML = items.map(t =>
-        `<tr><td>${t.accounts?.account_name || t.description || '—'}</td><td class="r">${fmt(t.amount)}</td></tr>`
+        `<tr><td>${t.accounts?.account_name || t.description || '—'}</td><td class="r">${colorAmt(t.amount || 0)}</td></tr>`
       ).join('') || '<tr><td colspan="2" style="color:var(--text3)">No activity</td></tr>';
-      total.textContent = fmt(sum);
+      total.innerHTML = colorAmt(sum);
       return sum;
     };
 
@@ -2838,9 +2876,9 @@ const app = {
     const priorBank = (window._bankAccounts || []).reduce((s, a) => s + a.balance, 0);
     const ending    = priorBank + netChange;
 
-    const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = fmt(val); };
-    setEl('cfNetChange',     netChange);
-    setEl('cfEndingBalance', ending);
+    const setElColor = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = colorAmt(val); };
+    setElColor('cfNetChange',     netChange);
+    setElColor('cfEndingBalance', ending);
   },
 
   // ---- MODALS ----
@@ -3136,6 +3174,10 @@ const app = {
 
     if (type === 'importCSV') {
       title.textContent = 'Import Transactions';
+      // Pre-populate entity from global filter if not already set
+      if (!this._csvImportEntity && state.globalEntity && state.globalEntity !== 'all') {
+        this._csvImportEntity = state.globalEntity.toUpperCase();
+      }
       const uploadEntityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
         `<option value="${e}" ${(this._csvImportEntity||'') === e ? 'selected' : ''}>${e}</option>`
       ).join('');
@@ -3380,7 +3422,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : t.direction === 'CREDIT' ? 'var(--green)' : 'var(--text2)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td><span style="font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${t.source || 'manual'}</span></td>
@@ -3495,7 +3537,7 @@ const app = {
                       ).join('')}
                     </select>
                   </td>
-                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : 'var(--green)'};font-weight:600">
+                  <td style="font-variant-numeric:tabular-nums;color:${t.direction === 'DEBIT' ? 'var(--red)' : t.direction === 'CREDIT' ? 'var(--green)' : 'var(--text2)'};font-weight:600">
                     ${t.direction === 'DEBIT' ? `(${fmt(Math.abs(t.amount))})` : fmt(Number(t.amount))}
                   </td>
                   <td>
@@ -3793,7 +3835,18 @@ const app = {
       const entityCode = row.querySelector('.entity-sel')?.value || (window._entityById[t.entity_id] || '').toUpperCase() || '';
       if (!entityCode) { noEntity++; failed++; continue; }
 
-      const amount = t.direction === 'DEBIT' ? -Math.abs(Number(t.amount)) : Math.abs(Number(t.amount));
+      const rawAmt = Math.abs(Number(t.amount));
+      let amount;
+      if (t.direction === 'DEBIT' || t.direction === 'CREDIT') {
+        amount = t.direction === 'DEBIT' ? -rawAmt : rawAmt;
+      } else {
+        // direction not stored — infer correct sign from account type
+        const acct = (DATA.coa || []).find(a => a.id === accountId);
+        const debitTypes = ['expense', 'cogs', 'cost of goods', 'asset'];
+        const isDebitAcct = debitTypes.some(dt => (acct?.account_type || '').toLowerCase().includes(dt))
+          || debitTypes.some(dt => (acct?.account_subtype || '').toLowerCase().includes(dt));
+        amount = isDebitAcct ? -rawAmt : rawAmt;
+      }
       const { error: insErr } = await supabaseClient.from('transactions').insert({
         raw_transaction_id: rawId, entity: entityCode, account_id: accountId, amount,
         txn_date: this.normalizeDate(t.transaction_date), acc_date: this.normalizeDate(t.accounting_date || t.transaction_date),
@@ -4873,8 +4926,6 @@ const app = {
       { key: 'type',        label: 'Type',          required: false },
       { key: 'category',    label: 'Category',      required: false },
       { key: 'amount',      label: 'Amount',        required: false },
-      { key: 'debit',       label: 'Debit',         required: false },
-      { key: 'credit',      label: 'Credit',        required: false },
       { key: 'status',      label: 'Status',        required: false },
     ];
     const autoMap = this.autoDetectCSVColumns(headers, rows);
@@ -4892,7 +4943,8 @@ const app = {
       `<tr>${row.map(cell => `<td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cell}</td>`).join('')}</tr>`
     ).join('');
 
-    const preEntity = this._csvImportEntity || '';
+    const preEntity = this._csvImportEntity ||
+      (state.globalEntity && state.globalEntity !== 'all' ? state.globalEntity.toUpperCase() : '');
     const isCCImport = this._importType === 'cc';
     const ccCodes = ['LP','BP','SP1'];
     const allCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
@@ -4912,7 +4964,7 @@ const app = {
           ${entityOptions}
         </select>
         <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:6px">Column mapping</div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Map <b>Amount</b> for a single column, or <b>Debit + Credit</b> for two-column bank statements.</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Map <b>Amount</b> to a single signed column (negative = debit/expense, positive = credit/income).</div>
         ${mappingHTML}
       </div>
       <div style="margin-bottom:20px">
@@ -4943,8 +4995,8 @@ const app = {
     }
     if (mapping.accDate < 0)  { this.toast('Date column is required');        return; }
     if (mapping.desc < 0)     { this.toast('Description column is required'); return; }
-    if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
-      this.toast('Map either the Amount column or the Debit/Credit columns'); return;
+    if (mapping.amount < 0) {
+      this.toast('Map the Amount column'); return;
     }
 
     const { rows } = this._csvImportData;
@@ -4967,28 +5019,21 @@ const app = {
       const desc = row[mapping.desc]?.replace(/"/g, '').replace(/\s*\\EFFDAT\s*$/i, '').trim();
 
       let amount, direction;
-      if (mapping.amount >= 0) {
-        const rawAmt = row[mapping.amount]?.replace(/["$,\s]/g, '');
-        const val = parseFloat(rawAmt);
-        amount = Math.abs(val);
-        // Use type column to determine direction if available (e.g. "ACH CREDIT", "MISCELLANEOUS DEBIT")
-        if (mapping.type >= 0) {
-          const typeStr = (row[mapping.type] || '').toUpperCase().trim();
-          if (TX_DIRECTION_MAP[typeStr]) direction = TX_DIRECTION_MAP[typeStr];
-          else if (typeStr.includes('CREDIT')) direction = 'CREDIT';
-          else if (typeStr.includes('DEBIT'))  direction = 'DEBIT';
-        }
-        // Fallback: for CC, positive = charge = DEBIT; for bank, positive = deposit = CREDIT
-        if (!direction) direction = this._importType === 'cc'
-          ? (val >= 0 ? 'DEBIT' : 'CREDIT')
-          : (val >= 0 ? 'CREDIT' : 'DEBIT');
-      } else {
-        const debitVal  = parseFloat(mapping.debit  >= 0 ? row[mapping.debit]?.replace(/["$,\s]/g,'')  || '0' : '0') || 0;
-        const creditVal = parseFloat(mapping.credit >= 0 ? row[mapping.credit]?.replace(/["$,\s]/g,'') || '0' : '0') || 0;
-        if (creditVal > 0)      { amount = creditVal; direction = 'CREDIT'; }
-        else if (debitVal > 0)  { amount = debitVal;  direction = 'DEBIT';  }
-        else                    { skipped++; return; }
+      const rawAmt = row[mapping.amount]?.replace(/["$,\s]/g, '');
+      const val = parseFloat(rawAmt);
+      amount = Math.abs(val);
+      // Use type column to determine direction if available (e.g. "ACH CREDIT", "MISCELLANEOUS DEBIT")
+      if (mapping.type >= 0) {
+        const typeStr = (row[mapping.type] || '').toUpperCase().trim();
+        if (TX_DIRECTION_MAP[typeStr]) direction = TX_DIRECTION_MAP[typeStr];
+        else if (typeStr.includes('CREDIT')) direction = 'CREDIT';
+        else if (typeStr.includes('DEBIT'))  direction = 'DEBIT';
       }
+      // Fallback: use sign of amount (negative = debit/expense; positive = credit/income)
+      // For CC: positive charge = DEBIT; for bank: negative = DEBIT (expense/withdrawal)
+      if (!direction) direction = this._importType === 'cc'
+        ? (val >= 0 ? 'DEBIT' : 'CREDIT')
+        : (val < 0 ? 'DEBIT' : 'CREDIT');
 
       if (!accDate || !desc || isNaN(amount) || amount === 0) { skipped++; return; }
 
