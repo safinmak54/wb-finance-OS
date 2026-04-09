@@ -1989,10 +1989,8 @@ const app = {
       }
     }
 
-    // 4. If still no column matches (sparse/merged headers), use position-based mapping
-    //    Sheet format: B=entity, C=TFB, D=Huntington, E/F=empty, G=Int Transfer, I=Huntington Bal,
-    //    K=CC payable, L=Vendor Payments, M=Google Pending, N=Fedex, O=Stripe+PayPal
-    if (Object.keys(colMap).length < 2) {
+    // 4. If fewer than 4 columns matched (sparse/merged headers), fill remaining with position-based mapping
+    if (Object.keys(colMap).length < 4) {
       console.log('Cash Balances: sparse headers — using position-based column mapping');
       // Scan first entity row to find which columns have numeric data
       const firstEntityRow = allRows.find(r => {
@@ -2013,12 +2011,14 @@ const app = {
           const val = (r?.c?.[entityCol]?.v || '').toString().toLowerCase();
           return ENTITY_KEYWORDS.some(k => val.includes(k));
         });
+        const assignedKeys = new Set(Object.values(colMap));
         for (const [col, key] of posMap) {
+          if (colMap[col] || assignedKeys.has(key)) continue; // don't overwrite header matches
           const hasData = entityRows.some(r => {
             const v = r?.c?.[col]?.v;
             return v !== null && v !== undefined && v !== '' && Number(v) !== 0;
           });
-          if (hasData) colMap[col] = key;
+          if (hasData) { colMap[col] = key; assignedKeys.add(key); }
         }
         // Remove the header row and any rows before the first entity
         const firstEntityIdx = allRows.indexOf(firstEntityRow);
