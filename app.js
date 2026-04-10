@@ -16,11 +16,14 @@ const _SUPABASE_ENVS = {
 };
 const _ENV = (() => {
   const h = window.location.hostname.toLowerCase();
-  const p = window.location.pathname.toLowerCase();
   const params = new URLSearchParams(window.location.search);
-  // Check: ?env=qa param, hostname contains '-qa' or 'git-qa', or path contains /qa/
-  if (params.get('env') === 'qa' || h.includes('-qa') || h.includes('git-qa') || p.includes('/qa/')) return 'qa';
-  return 'prod';
+  // Production: known prod domain or local dev. Everything else = QA.
+  const PROD_HOSTS = ['wb-company.vercel.app', 'localhost', '127.0.0.1', ''];
+  if (params.get('env') === 'qa') return 'qa';
+  if (params.get('env') === 'prod') return 'prod';
+  if (PROD_HOSTS.some(ph => h === ph) || h === '') return 'prod';
+  // Any other Vercel preview deploy = QA
+  return 'qa';
 })();
 const SUPABASE_URL = _SUPABASE_ENVS[_ENV].url;
 const SUPABASE_ANON_KEY = _SUPABASE_ENVS[_ENV].key;
