@@ -3,11 +3,27 @@
 // ============================================================
 
 // ---- SUPABASE CONFIG ----
-// 1. Go to https://supabase.com → your wb-finance-os project → Settings → API
-// 2. Copy "Project URL" and "anon public" key
-// 3. Paste them below, then refresh the page
-const SUPABASE_URL = 'https://fxwjadkbvlvxtxxkjqkw.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410';
+// Auto-detects environment: QA branch uses QA database, everything else uses production
+const _SUPABASE_ENVS = {
+  prod: {
+    url: 'https://fxwjadkbvlvxtxxkjqkw.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410',
+  },
+  qa: {
+    url: 'https://jvemtsgnrfzmmbuwmmrj.supabase.co',
+    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2ZW10c2ducmZ6bW1idXdtbXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NDMxMTEsImV4cCI6MjA5MTQxOTExMX0.aMmT-A2FgTeMVtZTVV-1Oa_YPs-e_01fXwBpDLTw8xY',
+  },
+};
+const _ENV = (() => {
+  const h = window.location.hostname.toLowerCase();
+  const p = window.location.pathname.toLowerCase();
+  const params = new URLSearchParams(window.location.search);
+  // Check URL param ?env=qa, or hostname/path containing 'qa'
+  if (params.get('env') === 'qa' || h.includes('qa') || p.includes('/qa/')) return 'qa';
+  return 'prod';
+})();
+const SUPABASE_URL = _SUPABASE_ENVS[_ENV].url;
+const SUPABASE_ANON_KEY = _SUPABASE_ENVS[_ENV].key;
 
 let supabaseClient = null;
 
@@ -6567,6 +6583,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Show environment badge if not production
+  if (_ENV !== 'prod') {
+    const badge = document.createElement('div');
+    badge.textContent = _ENV.toUpperCase() + ' ENVIRONMENT';
+    badge.style.cssText = 'position:fixed;top:0;left:50%;transform:translateX(-50%);background:#f59e0b;color:#000;font-size:11px;font-weight:700;padding:2px 16px;border-radius:0 0 6px 6px;z-index:9999;letter-spacing:0.05em';
+    document.body.appendChild(badge);
+  }
+
   await loadDataFromSupabase();
   initDashboardCharts();
 
