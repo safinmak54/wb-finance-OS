@@ -499,21 +499,23 @@ const app = {
 
   async updateSidebarBadges() {
     if (!supabaseClient) return;
-    // Bank inbox badge: unclassified, non-CC, non-internal-transfer
+    // Bank inbox badge: unclassified, excluding internal transfers, CC, and Capital One
     const { count: bankCount } = await supabaseClient
       .from('raw_transactions').select('*', { count: 'exact', head: true })
       .eq('classified', false)
       .neq('source', 'credit_card')
       .not('description', 'ilike', '%BUS ONL TFR TO%')
-      .not('description', 'ilike', '%AMEX%');
+      .not('description', 'ilike', '%BUS ONL TFR FRM%')
+      .not('description', 'ilike', '%AMEX%')
+      .not('description', 'ilike', '%CAPITAL ONE ONLINE%');
     const bankBadge = document.getElementById('reviewBadge');
     if (bankBadge) bankBadge.textContent = bankCount || '';
 
-    // CC inbox badge: unclassified CC transactions
+    // CC inbox badge: unclassified CC transactions (Amex + Capital One)
     const { count: ccCount } = await supabaseClient
       .from('raw_transactions').select('*', { count: 'exact', head: true })
       .eq('classified', false)
-      .or('source.eq.credit_card,description.ilike.%AMEX%');
+      .or('source.eq.credit_card,description.ilike.%AMEX%,description.ilike.%CAPITAL ONE ONLINE%');
     const ccBadge = document.getElementById('ccBadge');
     if (ccBadge) ccBadge.textContent = ccCount || '';
   },
@@ -3449,12 +3451,14 @@ const app = {
     if (mode === 'bank') {
       baseQuery = baseQuery
         .not('description', 'ilike', '%BUS ONL TFR TO%')
+        .not('description', 'ilike', '%BUS ONL TFR FRM%')
         .not('description', 'ilike', '%AMEX%')
+        .not('description', 'ilike', '%CAPITAL ONE ONLINE%')
         .neq('source', 'credit_card');
     } else if (mode === 'internal') {
-      baseQuery = baseQuery.ilike('description', '%BUS ONL TFR TO%');
+      baseQuery = baseQuery.or('description.ilike.%BUS ONL TFR TO%,description.ilike.%BUS ONL TFR FRM%');
     } else if (mode === 'cc') {
-      baseQuery = baseQuery.ilike('description', '%AMEX%');
+      baseQuery = baseQuery.or('description.ilike.%AMEX%,description.ilike.%CAPITAL ONE ONLINE%');
     }
 
     // Apply active filters
@@ -3599,7 +3603,7 @@ const app = {
     let baseQuery = supabaseClient
       .from('raw_transactions').select('*', { count: 'exact' })
       .eq('classified', false)
-      .eq('source', 'credit_card')
+      .or('source.eq.credit_card,description.ilike.%CAPITAL ONE ONLINE%')
       .order('transaction_date', { ascending: false });
 
     const { data: rawTxns, count: totalCount, error } = await (loadAll ? baseQuery : baseQuery.limit(PAGE));
