@@ -1856,8 +1856,9 @@ const app = {
           <h2 class="page-title">Cash Balances</h2>
           <p class="page-subtitle" style="font-size:12px;color:var(--text3)">Manually updated · as of <strong>${latestUpdated ? new Date(latestUpdated).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : today}</strong></p>
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn-primary" style="font-size:12px" onclick="app.openCashBalanceSyncModal()">↓ Sync from Google Sheet</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${localStorage.getItem('wb_cb_sheet_url') ? `<button class="btn-primary" style="font-size:12px;padding:5px 12px" onclick="app.quickSyncCashBalances(this)">🔄 Sync Now</button>` : ''}
+          <button class="btn-outline" style="font-size:12px" onclick="app.openCashBalanceSyncModal()">⚙ Sheet Settings</button>
           <button class="btn-outline" style="font-size:12px" onclick="app.exportCashBalances()">Export CSV</button>
         </div>
       </div>
@@ -1901,6 +1902,22 @@ const app = {
     this.showToast('CSV export coming soon', 'info');
   },
 
+  async quickSyncCashBalances(btn) {
+    const url = localStorage.getItem('wb_cb_sheet_url');
+    if (!url) { this.openCashBalanceSyncModal(); return; }
+    const tab = localStorage.getItem('wb_cb_sheet_tab') || '';
+    // Temporarily inject hidden inputs so syncCashBalancesFromSheet can read them
+    const tmpUrl = document.createElement('input'); tmpUrl.id = 'cbSheetUrl'; tmpUrl.value = url; tmpUrl.style.display = 'none';
+    const tmpTab = document.createElement('input'); tmpTab.id = 'cbSheetTab'; tmpTab.value = tab; tmpTab.style.display = 'none';
+    document.body.appendChild(tmpUrl);
+    document.body.appendChild(tmpTab);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+    await this.syncCashBalancesFromSheet();
+    tmpUrl.remove();
+    tmpTab.remove();
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync Now'; }
+  },
+
   openCashBalanceSyncModal() {
     const saved = localStorage.getItem('wb_cb_sheet_url') || '';
     const overlay = document.getElementById('modalOverlay');
@@ -1938,6 +1955,7 @@ const app = {
     if (!match) { this.showToast('Invalid Google Sheet URL', 'error'); return; }
     const sheetId = match[1];
     localStorage.setItem('wb_cb_sheet_url', urlInput);
+    if (tabInput) localStorage.setItem('wb_cb_sheet_tab', tabInput);
 
     const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json${tabInput ? '&sheet=' + encodeURIComponent(tabInput) : ''}`;
 
