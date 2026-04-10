@@ -18,8 +18,8 @@ const _ENV = (() => {
   const h = window.location.hostname.toLowerCase();
   const p = window.location.pathname.toLowerCase();
   const params = new URLSearchParams(window.location.search);
-  // Check URL param ?env=qa, or hostname/path containing 'qa'
-  if (params.get('env') === 'qa' || h.includes('qa') || p.includes('/qa/')) return 'qa';
+  // Check: ?env=qa param, hostname contains '-qa' or 'git-qa', or path contains /qa/
+  if (params.get('env') === 'qa' || h.includes('-qa') || h.includes('git-qa') || p.includes('/qa/')) return 'qa';
   return 'prod';
 })();
 const SUPABASE_URL = _SUPABASE_ENVS[_ENV].url;
