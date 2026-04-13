@@ -45,7 +45,9 @@ const ROLES = {
 };
 
 // ---- ENTITY GROUPS ----
+const ALL_ENTITY_CODES = ['WB','WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
 const ENTITY_GROUPS = {
+  'WB-ALL':  ['WB','WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'],
   wb_full:   ['WBP','LP','KP','BP','SWAG','RUSH'],
   one_ops:   ['ONEOPS'],
   sp_brands: ['SP1'],
@@ -56,8 +58,8 @@ const BANK_ACCOUNT_ENTITY_MAP = [
   { keywords: ['lanyard', 'lp bank', 'lp '],          code: 'LP'     },
   { keywords: ['kooler'],                               code: 'KP'     },
   { keywords: ['band promo'],                           code: 'BP'     },
-  { keywords: ['wb promo', 'wbp'],                      code: 'WBP'    },
-  { keywords: ['wb brand', 'wb '],                      code: 'WBP'    },
+  { keywords: ['wb promo', 'wbp', '1918'],             code: 'WBP'    },
+  { keywords: ['wb brands', 'wb brands llc', '2645'],  code: 'WB'     },
   { keywords: ['rush'],                                 code: 'RUSH'   },
   { keywords: ['swag'],                                 code: 'SWAG'   },
   { keywords: ['sp brand', ' sp '],                     code: 'SP1'    },
@@ -800,7 +802,12 @@ const app = {
 
         const revenueLines = byType('revenue', ['contra']);
         const contraLines  = bySubtype('contra');
-        const cogsLines    = bySubtype('cogs');
+        const cogsLines    = Object.values(groups).filter(g => {
+          const s = (g.account.account_subtype || '').toLowerCase();
+          const t = (g.account.account_type || '').toLowerCase();
+          const c = (g.account.account_code || '');
+          return s === 'cogs' || s.includes('cost of goods') || t.includes('cogs') || c.startsWith('50');
+        });
         const adLines      = bySubtype('advertising');
         const payrollLines = bySubtype('payroll');
         const platformLines= bySubtype('platform');
@@ -1468,10 +1475,11 @@ const app = {
           <span style="font-size:13px;color:var(--text3)">${uniqueJEs} journal entr${uniqueJEs !== 1 ? 'ies' : 'y'} · ${displayRows.length} lines</span>
           <button id="journalBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--red);border-color:var(--red);font-size:12px;padding:4px 12px;margin-left:8px" onclick="app.bulkDeleteJournals()">Delete Selected</button>
         </div>
-        <div class="toolbar-right">
+        <div class="toolbar-right" style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" style="font-size:12px" onclick="app.openAddJournalEntry()">+ Add Journal Entry</button>
           ${isClosed
             ? `<span style="font-size:12px;font-weight:600;color:var(--green);background:var(--green-soft,#e6f9f0);padding:4px 10px;border-radius:6px;border:1px solid var(--green)">✓ ${periodLabel} Closed</span>`
-            : `<button class="btn-primary" onclick="app.openCloseMonth()">Close Month: ${periodLabel}</button>`}
+            : `<button class="btn-outline" onclick="app.openCloseMonth()">Close Month: ${periodLabel}</button>`}
         </div>
       </div>
       ${displayRows.length === 0 ? `
@@ -1530,6 +1538,82 @@ const app = {
     const { error } = await supabaseClient.from('journal_entries').delete().in('id', jeIds);
     if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
     this.showToast(`${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'} deleted`, 'success');
+    await this.renderJournals();
+  },
+
+  openAddJournalEntry() {
+    const acctOptions = (DATA.coa || [])
+      .sort((a,b) => (a.account_code||'').localeCompare(b.account_code||''))
+      .map(a => `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`).join('');
+    const entityOptions = ['WB-ALL', ...ALL_ENTITY_CODES].map(e => `<option value="${e}">${e}</option>`).join('');
+    const today = new Date().toISOString().slice(0,10);
+
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = 'Add Journal Entry';
+    if (body) body.innerHTML = `
+      <div class="form-group"><label>Date</label>
+        <input type="date" id="fJeDate" value="${today}"/></div>
+      <div class="form-group"><label>Description</label>
+        <input type="text" id="fJeDesc" placeholder="e.g. Accrue Feb advertising"/></div>
+      <div class="form-group"><label>Entity</label>
+        <select id="fJeEntity" class="filter-select" style="width:100%">${entityOptions}</select></div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group"><label>Debit Account</label>
+          <select id="fJeDebitAcct" class="filter-select" style="width:100%">
+            <option value="">— select —</option>${acctOptions}</select></div>
+        <div class="form-group"><label>Credit Account</label>
+          <select id="fJeCreditAcct" class="filter-select" style="width:100%">
+            <option value="">— select —</option>${acctOptions}</select></div>
+      </div>
+      <div class="form-group"><label>Amount</label>
+        <input type="number" id="fJeAmount" placeholder="e.g. 5000.00" step="0.01" min="0"/></div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveJournalEntry()">Save Journal Entry</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async saveJournalEntry() {
+    const date      = document.getElementById('fJeDate')?.value;
+    const desc      = document.getElementById('fJeDesc')?.value?.trim();
+    const entity    = document.getElementById('fJeEntity')?.value;
+    const debitAcct = document.getElementById('fJeDebitAcct')?.value;
+    const creditAcct= document.getElementById('fJeCreditAcct')?.value;
+    const amount    = parseFloat(document.getElementById('fJeAmount')?.value);
+
+    if (!date || !desc) { this.showToast('Date and description are required', 'error'); return; }
+    if (!debitAcct || !creditAcct) { this.showToast('Select both debit and credit accounts', 'error'); return; }
+    if (isNaN(amount) || amount <= 0) { this.showToast('Enter a positive amount', 'error'); return; }
+    if (debitAcct === creditAcct) { this.showToast('Debit and credit accounts must be different', 'error'); return; }
+
+    const period = date.slice(0,7);
+    const entityId = window._entityByCode[entity] || null;
+
+    // Create journal entry
+    const { data: je, error: jeErr } = await supabaseClient.from('journal_entries').insert({
+      accounting_date: date,
+      description: desc,
+      entry_type: 'journal',
+      period,
+      entity_id: entityId,
+      entity: entity,
+    }).select().single();
+
+    if (jeErr) { this.showToast('Failed to create journal entry', 'error'); console.error(jeErr); return; }
+
+    // Create debit and credit ledger lines
+    const { error: leErr } = await supabaseClient.from('ledger_entries').insert([
+      { journal_entry_id: je.id, account_id: debitAcct,  debit_amount: amount, credit_amount: 0, memo: desc, entity },
+      { journal_entry_id: je.id, account_id: creditAcct, debit_amount: 0, credit_amount: amount, memo: desc, entity },
+    ]);
+
+    if (leErr) { this.showToast('Failed to create ledger lines', 'error'); console.error(leErr); return; }
+
+    this.closeModal();
+    this.showToast('Journal entry created', 'success');
     await this.renderJournals();
   },
 
@@ -3216,7 +3300,7 @@ const app = {
       const vendorOpts = DATA.vendors.length
         ? DATA.vendors.map(v=>`<option>${v.name}</option>`).join('')
         : '<option value="">No vendors yet — add one first</option>';
-      const entityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+      const entityCodes = ALL_ENTITY_CODES;
       body.innerHTML = `
         <div class="form-group">
           <label>Vendor</label>
@@ -3350,7 +3434,7 @@ const app = {
       if (!this._csvImportEntity && state.globalEntity && state.globalEntity !== 'all') {
         this._csvImportEntity = state.globalEntity.toUpperCase();
       }
-      const uploadEntityOptions = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'].map(e =>
+      const uploadEntityOptions = ALL_ENTITY_CODES.map(e =>
         `<option value="${e}" ${(this._csvImportEntity||'') === e ? 'selected' : ''}>${e}</option>`
       ).join('');
       body.innerHTML = `
@@ -3511,7 +3595,7 @@ const app = {
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
     ).join('');
 
-    const allEntityCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+    const allEntityCodes = ALL_ENTITY_CODES;
 
     // Badge is updated centrally via updateSidebarBadges()
 
@@ -3547,7 +3631,6 @@ const app = {
       <div class="toolbar">
         <div class="toolbar-left">
           <button class="btn-primary" onclick="app.openImportModal()">↑ Upload CSV</button>
-          <button class="btn-outline" onclick="app.openModal('newRawTxn')">+ Manual Entry</button>
           <button class="btn-outline" onclick="app.openRulesModal()" style="font-size:12px">⚡ Rules</button>
           <div style="display:flex;gap:4px;margin-left:8px;border-left:1px solid var(--border);padding-left:8px">
             ${tabBtn('bank','All Bank')}
@@ -4124,7 +4207,13 @@ const app = {
 
   // ---- DELETE SINGLE ROW ----
   async deleteRow(rawId) {
-    if (!confirm('Delete this transaction?')) return;
+    // Protect bank-imported source data — only manual entries can be deleted
+    const { data: t } = await supabaseClient.from('raw_transactions').select('source').eq('id', rawId).single();
+    if (t && t.source !== 'manual') {
+      this.showToast('Cannot delete bank-imported transactions — source data must be preserved. Use Untag in Ledger instead.', 'error');
+      return;
+    }
+    if (!confirm('Delete this manual entry?')) return;
     const { error } = await supabaseClient.from('raw_transactions').delete().eq('id', rawId);
     if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
     document.querySelector(`tr[data-id="${rawId}"]`)?.remove();
@@ -4151,24 +4240,39 @@ const app = {
     const activePage = document.querySelector('.page.active');
     const checkedRows = [...(activePage || document).querySelectorAll('.row-check:checked')].map(c => c.closest('tr'));
     if (!checkedRows.length) { this.toast('No rows selected'); return; }
-    if (!confirm(`Delete ${checkedRows.length} transaction${checkedRows.length !== 1 ? 's' : ''}?`)) return;
 
-    const ids = checkedRows.map(r => r.dataset.id);
-    const { error } = await supabaseClient.from('raw_transactions').delete().in('id', ids);
+    // Check source — only allow deleting manual entries
+    const ids = checkedRows.map(r => r.dataset.id).filter(Boolean);
+    const { data: sources } = await supabaseClient.from('raw_transactions').select('id, source').in('id', ids);
+    const manualIds = (sources || []).filter(s => s.source === 'manual').map(s => s.id);
+    const protectedCount = ids.length - manualIds.length;
+
+    if (protectedCount > 0 && manualIds.length === 0) {
+      this.showToast('Cannot delete bank-imported transactions — source data must be preserved', 'error');
+      return;
+    }
+    if (protectedCount > 0) {
+      this.showToast(`${protectedCount} bank-imported row(s) skipped — only manual entries can be deleted`, 'info');
+    }
+    if (!manualIds.length) return;
+
+    if (!confirm(`Delete ${manualIds.length} manual entr${manualIds.length !== 1 ? 'ies' : 'y'}?`)) return;
+
+    const { error } = await supabaseClient.from('raw_transactions').delete().in('id', manualIds);
     if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
 
-    checkedRows.forEach(r => r.remove());
+    checkedRows.forEach(r => { if (manualIds.includes(r.dataset.id)) r.remove(); });
     this.updateSidebarBadges();
     const countEl = document.querySelector('#inboxContent .toolbar-right span');
     if (countEl) {
-      const n = Math.max(0, parseInt(countEl.textContent) - ids.length);
+      const n = Math.max(0, parseInt(countEl.textContent) - manualIds.length);
       countEl.textContent = n + ' to classify';
     }
     const _ap = document.querySelector('.page.active');
     const _db = _ap?.querySelector('#bulkDeleteBtn'); if (_db) _db.style.display = 'none';
     const _cb = _ap?.querySelector('#bulkClassifyBtn'); if (_cb) _cb.style.display = 'none';
     const _sa = _ap?.querySelector('#inboxSelectAll'); if (_sa) _sa.checked = false;
-    this.toast(`${ids.length} deleted`);
+    this.toast(`${manualIds.length} deleted`);
   },
 
   // ---- MANUAL RAW TXN ENTRY ----
@@ -4376,7 +4480,7 @@ const app = {
         <span style="font-size:13px;color:var(--text2)">${showingAllPeriods ? 'All periods' : periodLabel}</span>
         ${emptyPeriodWarning}
         <span style="font-size:12px;color:var(--text3);margin-left:auto" id="ledgerRowCount">${rows.length} transaction${rows.length !== 1 ? 's' : ''}</span>
-        <button id="ledgerBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--red);border-color:var(--red);font-size:12px;padding:4px 12px" onclick="app.bulkDeleteLedger()">Delete Selected</button>
+        <button id="ledgerBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--amber,#d97706);border-color:var(--amber,#d97706);font-size:12px;padding:4px 12px" onclick="app.bulkUntagLedger()">↩ Untag Selected</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap">
         <input type="text" id="ledgerSearchInput" placeholder="Search description or account…" value="${lf.search.replace(/"/g,'&quot;')}"
@@ -4447,18 +4551,20 @@ const app = {
               const amtColor = amt >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
               const amtDisplay = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
               const category = t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : '';
+              const hasAudit = (t.memo || '').includes('Split') || (t.memo || '').includes('accrual') || (t.memo || '').includes('Accrual');
               return `
               <tr data-txn-id="${t.id}">
                 <td style="width:32px;padding:11px 8px"><input type="checkbox" class="ledger-check" onchange="app.onLedgerCheck()"></td>
                 <td><div style="white-space:nowrap;font-size:12px">${t.acc_date || ''}</div></td>
-                <td><div style="width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</div></td>
+                <td><div style="width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hasAudit ? '<span title="Modified — see memo for details" style="cursor:help">✏️ </span>' : ''}${t.description || ''}</div></td>
                 <td style="white-space:nowrap"><span style="font-size:11px;font-weight:600;background:var(--accent);color:#fff;padding:2px 8px;border-radius:20px">${t.entity || ''}</span></td>
                 <td><div style="width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${category}</div></td>
                 <td style="color:${amtColor};font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">${amtDisplay}</td>
                 <td><div style="width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px">${t.memo || ''}</div></td>
                 <td style="white-space:nowrap">
                   <button class="btn-outline" style="font-size:12px;padding:4px 10px" onclick="app.editLedgerRow('${t.id}')">Edit</button>
-                  <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteLedgerRow('${t.id}')">✕</button>
+                  <button class="btn-outline" style="font-size:12px;padding:4px 8px;margin-left:4px" onclick="app.openAccrualSplitModal('${t.id}')" title="Split across periods">✂ Split</button>
+                  <button class="btn-outline" style="font-size:12px;padding:4px 8px;color:var(--amber,#d97706);border-color:var(--amber,#d97706);margin-left:4px" onclick="app.untagLedgerRow('${t.id}')" title="Move back to inbox">↩ Untag</button>
                 </td>
               </tr>
             `}).join('')}
@@ -4483,14 +4589,27 @@ const app = {
     }
   },
 
-  async bulkDeleteLedger() {
+  async bulkUntagLedger() {
     const checked = [...document.querySelectorAll('.ledger-check:checked')];
     if (!checked.length) return;
-    if (!confirm(`Delete ${checked.length} transaction${checked.length !== 1 ? 's' : ''} from the ledger? This cannot be undone.`)) return;
     const ids = checked.map(c => c.closest('tr[data-txn-id]')?.dataset.txnId).filter(Boolean);
+    if (!confirm(`Move ${ids.length} transaction${ids.length !== 1 ? 's' : ''} back to inbox for re-classification?`)) return;
+
+    // Get raw_transaction_ids to reset classified flag
+    const { data: txns } = await supabaseClient.from('transactions').select('id, raw_transaction_id').in('id', ids);
+    const rawIds = (txns || []).map(t => t.raw_transaction_id).filter(Boolean);
+
     const { error } = await supabaseClient.from('transactions').delete().in('id', ids);
-    if (error) { this.showToast('Delete failed — see console', 'error'); console.error(error); return; }
-    this.showToast(`${ids.length} transaction${ids.length !== 1 ? 's' : ''} deleted`, 'success');
+    if (error) { this.showToast('Untag failed — see console', 'error'); console.error(error); return; }
+
+    if (rawIds.length) {
+      await supabaseClient.from('raw_transactions')
+        .update({ classified: false, classified_at: null })
+        .in('id', rawIds);
+    }
+
+    this.showToast(`${ids.length} transaction${ids.length !== 1 ? 's' : ''} moved back to inbox`, 'success');
+    this.updateSidebarBadges();
     await this.renderLedger();
   },
 
@@ -4546,11 +4665,104 @@ const app = {
     await this.renderLedger();
   },
 
-  async deleteLedgerRow(txnId) {
-    if (!confirm('Delete this transaction from the ledger? This cannot be undone.')) return;
+  async untagLedgerRow(txnId) {
+    if (!confirm('Move this transaction back to the inbox for re-classification?')) return;
+    const { data: txn } = await supabaseClient.from('transactions')
+      .select('raw_transaction_id').eq('id', txnId).single();
+
     const { error } = await supabaseClient.from('transactions').delete().eq('id', txnId);
-    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
-    this.toast('Deleted ✓');
+    if (error) { this.toast('Untag failed — see console'); console.error(error); return; }
+
+    if (txn?.raw_transaction_id) {
+      await supabaseClient.from('raw_transactions')
+        .update({ classified: false, classified_at: null })
+        .eq('id', txn.raw_transaction_id);
+    }
+
+    this.showToast('Moved back to inbox', 'success');
+    this.updateSidebarBadges();
+    await this.renderLedger();
+  },
+
+  async openAccrualSplitModal(txnId) {
+    const { data: t, error } = await supabaseClient.from('transactions')
+      .select('*, accounts(id, account_code, account_name, account_type)').eq('id', txnId).single();
+    if (error || !t) { this.showToast('Could not load transaction', 'error'); return; }
+
+    const origAmt = Math.abs(t.amount);
+    const acctLabel = t.accounts ? `${t.accounts.account_code} — ${t.accounts.account_name}` : 'Unknown';
+    const title = document.getElementById('modalTitle');
+    const body  = document.getElementById('modalBody');
+    if (title) title.textContent = 'Accrual Split';
+    if (body) body.innerHTML = `
+      <div style="background:var(--surface2);padding:12px;border-radius:var(--radius);margin-bottom:16px;font-size:13px">
+        <div style="margin-bottom:6px"><strong>Original:</strong> ${fmt(origAmt)} on ${t.acc_date}</div>
+        <div><strong>Account:</strong> ${acctLabel}</div>
+        <div><strong>Entity:</strong> ${t.entity || '—'}</div>
+        <div style="margin-top:4px;color:var(--text3);font-size:11px">Source data remains untouched. This creates an adjusting journal entry.</div>
+      </div>
+      <div class="form-group"><label>Amount to move to another period</label>
+        <input type="number" id="fSplitAmount" step="0.01" min="0.01" max="${origAmt}" placeholder="e.g. ${(origAmt/2).toFixed(2)}" style="width:100%"/></div>
+      <div class="form-group"><label>Target period (month to accrue into)</label>
+        <input type="month" id="fSplitPeriod" value="${t.acc_date ? t.acc_date.slice(0,7) : ''}" style="width:100%"/></div>
+      <div class="form-group"><label>Memo</label>
+        <input type="text" id="fSplitMemo" placeholder="e.g. Accrue Feb portion of advertising" style="width:100%"/></div>
+      <div class="form-actions">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.saveAccrualSplit('${txnId}')">Create Accrual Entry</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async saveAccrualSplit(txnId) {
+    const splitAmt = parseFloat(document.getElementById('fSplitAmount')?.value);
+    const targetPeriod = document.getElementById('fSplitPeriod')?.value;
+    const memo = document.getElementById('fSplitMemo')?.value?.trim() || 'Accrual adjustment';
+
+    if (isNaN(splitAmt) || splitAmt <= 0) { this.showToast('Enter a valid amount', 'error'); return; }
+    if (!targetPeriod) { this.showToast('Select a target period', 'error'); return; }
+
+    const { data: t } = await supabaseClient.from('transactions')
+      .select('*, accounts(id, account_code, account_name, account_type)').eq('id', txnId).single();
+    if (!t) { this.showToast('Transaction not found', 'error'); return; }
+
+    const origAmt = Math.abs(t.amount);
+    if (splitAmt > origAmt) { this.showToast(`Amount cannot exceed original (${fmt(origAmt)})`, 'error'); return; }
+
+    const targetDate = targetPeriod + '-01';
+    const isExpense = t.amount < 0;
+
+    // Create journal entry for the accrual adjustment
+    const { data: je, error: jeErr } = await supabaseClient.from('journal_entries').insert({
+      accounting_date: targetDate,
+      description: `${memo} (split from ${t.acc_date} — ${t.description || ''})`,
+      entry_type: 'accrual',
+      period: targetPeriod,
+      entity: t.entity,
+      entity_id: null,
+    }).select().single();
+
+    if (jeErr) { this.showToast('Failed to create journal entry', 'error'); console.error(jeErr); return; }
+
+    // Create ledger entries: move amount from original period to target period
+    const debitAmt = isExpense ? splitAmt : 0;
+    const creditAmt = isExpense ? 0 : splitAmt;
+    const { error: leErr } = await supabaseClient.from('ledger_entries').insert([
+      { journal_entry_id: je.id, account_id: t.account_id, debit_amount: debitAmt, credit_amount: creditAmt, memo: `Accrual: ${memo}`, entity: t.entity },
+    ]);
+
+    if (leErr) { this.showToast('Failed to create ledger entry', 'error'); console.error(leErr); return; }
+
+    // Reduce the original transaction amount
+    const newAmt = isExpense ? -(origAmt - splitAmt) : (origAmt - splitAmt);
+    await supabaseClient.from('transactions').update({
+      amount: newAmt,
+      memo: (t.memo ? t.memo + ' | ' : '') + `✏️ Split: ${fmt(splitAmt)} accrued to ${targetPeriod}`
+    }).eq('id', txnId);
+
+    this.closeModal();
+    this.showToast(`${fmt(splitAmt)} accrued to ${targetPeriod}`, 'success');
     await this.renderLedger();
   },
 
@@ -5025,7 +5237,7 @@ const app = {
         </label>
         <select id="importEntitySelect" class="filter-select" style="width:100%;margin-top:6px;font-size:12px">
           <option value="">— ${isCCImport ? 'Select entity (required)' : 'Auto-detect / skip'} —</option>
-          ${(isCCImport ? ['LP','BP','SP1'] : ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'])
+          ${(isCCImport ? ['LP','BP','SP1'] : ALL_ENTITY_CODES)
             .map(e => `<option value="${e}" ${(state.globalEntity && state.globalEntity !== 'all' && e === state.globalEntity.toUpperCase()) ? 'selected' : ''}>${e}</option>`).join('')}
         </select>
         <div style="font-size:10px;color:var(--text3);margin-top:4px">Used when no per-row entity column is mapped</div>
@@ -5227,7 +5439,7 @@ const app = {
       (state.globalEntity && state.globalEntity !== 'all' ? state.globalEntity.toUpperCase() : '');
     const isCCImport = this._importType === 'cc';
     const ccCodes = ['LP','BP','SP1'];
-    const allCodes = ['WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+    const allCodes = ALL_ENTITY_CODES;
     const entityCodes = isCCImport ? ccCodes : allCodes;
     const blankOpt = `<option value="">— Select entity ${isCCImport ? '(required)' : ''}—</option>`;
     const entityOptions = blankOpt + entityCodes.map(e =>
@@ -5562,7 +5774,12 @@ const app = {
 
     const revenue  = sum(byType('revenue'));
     const expenses = Math.abs(sum(byType('expense')));
-    const cogs     = Math.abs(sum(bySubtype('cogs')));
+    const cogs     = Math.abs(sum(Object.values(groups).filter(g => {
+      const s = (g.account.account_subtype || '').toLowerCase();
+      const t = (g.account.account_type || '').toLowerCase();
+      const c = (g.account.account_code || '');
+      return s === 'cogs' || s.includes('cost of goods') || t.includes('cogs') || c.startsWith('50');
+    })));
     const adSpend  = Math.abs(sum(bySubtype('advertising')));
     const gp       = revenue - cogs;
     const np       = revenue - expenses;
