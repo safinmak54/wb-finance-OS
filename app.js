@@ -802,16 +802,19 @@ const app = {
 
         const revenueLines = byType('revenue', ['contra']);
         const contraLines  = bySubtype('contra');
-        const cogsLines    = Object.values(groups).filter(g => {
+        const isCogs = (g) => {
           const s = (g.account.account_subtype || '').toLowerCase();
           const t = (g.account.account_type || '').toLowerCase();
           const c = (g.account.account_code || '');
           return s === 'cogs' || s.includes('cost of goods') || t.includes('cogs') || c.startsWith('50');
-        });
+        };
+        const cogsLines    = Object.values(groups).filter(isCogs);
+        const cogsIds      = new Set(cogsLines.map(g => g.account.id));
         const adLines      = bySubtype('advertising');
         const payrollLines = bySubtype('payroll');
         const platformLines= bySubtype('platform');
-        const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission']);
+        const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission'])
+          .filter(g => !cogsIds.has(g.account.id));
 
         const totalRevenue  = sumLines(revenueLines);
         const totalContra   = Math.abs(sumLines(contraLines));
