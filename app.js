@@ -796,29 +796,40 @@ const app = {
         const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
         const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
-        const renderLines = (lines, isExpense = false) => lines.map(g =>
+        const sortByCode = (lines) => lines.sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
+        const renderLines = (lines, isExpense = false) => sortByCode(lines).map(g =>
           pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2, '', g.account.id)
         ).join('');
 
-        const revenueLines = byType('revenue', ['contra']);
-        const contraLines  = bySubtype('contra');
+        // Classify each account into its P&L section
         const isCogs = (g) => {
           const s = (g.account.account_subtype || '').toLowerCase();
           const t = (g.account.account_type || '').toLowerCase();
           const c = (g.account.account_code || '');
-          return s === 'cogs' || s.includes('cost of goods') || t.includes('cogs') || c.startsWith('50');
+          return s === 'cogs' || s === 'cost of goods sold' || s.includes('cost of goods') || t.includes('cogs') || /^500\d/.test(c);
         };
-        const cogsLines    = Object.values(groups).filter(isCogs);
+        const isReturn = (g) => {
+          const n = (g.account.account_name || '').toLowerCase();
+          const c = (g.account.account_code || '');
+          return n.includes('return') || n.includes('cancellation') || c === '4900';
+        };
+
+        const revenueLines = byType('revenue', ['contra']);
+        const contraLines  = bySubtype('contra');
+        const cogsLines    = Object.values(groups).filter(g => isCogs(g) && !g.account.is_elimination);
         const cogsIds      = new Set(cogsLines.map(g => g.account.id));
+        const returnLines  = Object.values(groups).filter(g => isReturn(g) && !cogsIds.has(g.account.id) && !g.account.is_elimination);
+        const returnIds    = new Set(returnLines.map(g => g.account.id));
         const adLines      = bySubtype('advertising');
         const payrollLines = bySubtype('payroll');
         const platformLines= bySubtype('platform');
         const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission'])
-          .filter(g => !cogsIds.has(g.account.id));
+          .filter(g => !cogsIds.has(g.account.id) && !returnIds.has(g.account.id));
 
         const totalRevenue  = sumLines(revenueLines);
         const totalContra   = Math.abs(sumLines(contraLines));
-        const totalIncome   = totalRevenue - totalContra;
+        const totalReturns  = Math.abs(sumLines(returnLines));
+        const totalIncome   = totalRevenue - totalContra - totalReturns;
         const totalCogs     = Math.abs(sumLines(cogsLines));
         const grossProfit   = totalIncome - totalCogs;
         const totalAd       = Math.abs(sumLines(adLines));
@@ -846,6 +857,7 @@ const app = {
           ${pnlSection('Gross Revenue')}
           ${renderLines(revenueLines)}
           ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
+          ${returnLines.length ? `${renderLines(returnLines, true)}` : ''}
           ${pnlTotal('Total Revenue', totalIncome, 'pos')}
           ${pnlSection('Cost of Goods Sold')}
           ${renderLines(cogsLines, true)}
@@ -5781,7 +5793,7 @@ const app = {
       const s = (g.account.account_subtype || '').toLowerCase();
       const t = (g.account.account_type || '').toLowerCase();
       const c = (g.account.account_code || '');
-      return s === 'cogs' || s.includes('cost of goods') || t.includes('cogs') || c.startsWith('50');
+      return s === 'cogs' || s === 'cost of goods sold' || s.includes('cost of goods') || t.includes('cogs') || /^500\d/.test(c);
     })));
     const adSpend  = Math.abs(sum(bySubtype('advertising')));
     const gp       = revenue - cogs;
