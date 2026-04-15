@@ -793,102 +793,131 @@ const app = {
         const isClosed = !!(closedRow?.data);
 
         const groups = this.groupByAccount(data.txns);
-        const bySubtype = (sub) => Object.values(groups).filter(g => g.account.account_subtype === sub && !g.account.is_elimination);
-        const byType = (type, excludeSubs = []) => Object.values(groups).filter(g => g.account.account_type === type && !g.account.is_elimination && !excludeSubs.includes(g.account.account_subtype));
+        const all = Object.values(groups).filter(g => !g.account.is_elimination);
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
-        const sortByCode = (lines) => lines.sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
-        const renderLines = (lines, isExpense = false) => sortByCode(lines).map(g =>
-          pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2, '', g.account.id)
-        ).join('');
+        const sortByCode = (lines) => [...lines].sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
 
-        // Classify each account into its P&L section
-        const isCogs = (g) => {
-          const s = (g.account.account_subtype || '').toLowerCase();
-          const t = (g.account.account_type || '').toLowerCase();
-          const c = (g.account.account_code || '');
-          return s === 'cogs' || s === 'cost of goods sold' || s.includes('cost of goods') || t.includes('cogs') || /^500\d/.test(c);
+        // Classifier functions
+        const _s = g => (g.account.account_subtype || '').toLowerCase();
+        const _t = g => (g.account.account_type || '').toLowerCase();
+        const _c = g => (g.account.account_code || '');
+        const _n = g => (g.account.account_name || '').toLowerCase();
+
+        const isRevenue     = g => _t(g) === 'revenue' && _s(g) !== 'contra';
+        const isReturn      = g => _n(g).includes('return') || _n(g).includes('cancellation') || _c(g) === '4900';
+        const isPlatformFee = g => _s(g) === 'platform' || _n(g).includes('platform fee');
+        const isCogs        = g => (_s(g) === 'cogs' || _s(g) === 'cost of goods sold' || _s(g).includes('cost of goods') || /^500\d/.test(_c(g))) && !isSalesTax(g);
+        const isSalesTax    = g => _c(g) === '5040' || _n(g).includes('sales tax');
+        const isAd          = g => _s(g) === 'advertising' || _n(g).includes(' ads') || _n(g).includes('ad agency') || /^600[0-4]/.test(_c(g));
+        const isLabour      = g => _s(g) === 'payroll' || _n(g).includes('wages') || _n(g).includes('contractor') || _c(g) === '6115' || _c(g) === '6121';
+
+        // Assign accounts to groups (each account goes to first match only)
+        const assigned = new Set();
+        const pick = (matcher) => {
+          const matched = all.filter(g => !assigned.has(g.account.id) && matcher(g));
+          matched.forEach(g => assigned.add(g.account.id));
+          return matched;
         };
-        const isReturn = (g) => {
-          const n = (g.account.account_name || '').toLowerCase();
-          const c = (g.account.account_code || '');
-          return n.includes('return') || n.includes('cancellation') || c === '4900';
-        };
+        const revLines      = pick(g => isRevenue(g) && !isReturn(g) && !isPlatformFee(g));
+        const returnLines   = pick(isReturn);
+        const platFeeLines  = pick(isPlatformFee);
+        const cogsLines     = pick(isCogs);
+        const salesTaxLines = pick(isSalesTax);
+        const adLines       = pick(isAd);
+        const labourLines   = pick(isLabour);
+        const otherOpex     = pick(g => _t(g) === 'expense'); // remaining expenses
 
-        const revenueLines = byType('revenue', ['contra']);
-        const contraLines  = bySubtype('contra');
-        const cogsLines    = Object.values(groups).filter(g => isCogs(g) && !g.account.is_elimination);
-        const cogsIds      = new Set(cogsLines.map(g => g.account.id));
-        const returnLines  = Object.values(groups).filter(g => isReturn(g) && !cogsIds.has(g.account.id) && !g.account.is_elimination);
-        const returnIds    = new Set(returnLines.map(g => g.account.id));
-        const adLines      = bySubtype('advertising');
-        const payrollLines = bySubtype('payroll');
-        const platformLines= bySubtype('platform');
-        const opexLines    = byType('expense', ['cogs','advertising','payroll','platform','commission'])
-          .filter(g => !cogsIds.has(g.account.id) && !returnIds.has(g.account.id));
-
-        const totalRevenue  = sumLines(revenueLines);
-        const totalContra   = Math.abs(sumLines(contraLines));
+        // Totals
+        const totalRev      = sumLines(revLines);
         const totalReturns  = Math.abs(sumLines(returnLines));
-        const totalIncome   = totalRevenue - totalContra - totalReturns;
+        const totalPlatFee  = Math.abs(sumLines(platFeeLines));
+        const totalRevenue  = totalRev - totalReturns - totalPlatFee;
         const totalCogs     = Math.abs(sumLines(cogsLines));
-        const grossProfit   = totalIncome - totalCogs;
+        const totalSalesTax = Math.abs(sumLines(salesTaxLines));
+        const grossProfit   = totalRevenue - totalCogs - totalSalesTax;
         const totalAd       = Math.abs(sumLines(adLines));
-        const totalPayroll  = Math.abs(sumLines(payrollLines));
-        const totalPlatform = Math.abs(sumLines(platformLines));
-        const totalOpex     = Math.abs(sumLines(opexLines));
-        const totalExpenses = totalCogs + totalAd + totalPayroll + totalPlatform + totalOpex;
-        const noi           = totalIncome - totalExpenses;
+        const totalLabour   = Math.abs(sumLines(labourLines));
+        const totalOtherOpex= Math.abs(sumLines(otherOpex));
+        const totalOpex     = totalAd + totalLabour + totalOtherOpex;
+        const netProfit     = grossProfit - totalOpex;
 
         const adjusting = (data.journals || []).filter(j => j.entry_type === 'adjusting');
         const totalAdj  = adjusting.reduce((s, j) => s + (j.netAmount || 0), 0);
-        const netProfit = noi + totalAdj;
-        const marginPct = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(1) : '—';
-        const grossPct  = totalIncome > 0 ? ((grossProfit / totalIncome) * 100).toFixed(1) : '—';
+        const adjNetProfit = netProfit + totalAdj;
+        const marginPct = totalRevenue > 0 ? ((adjNetProfit / totalRevenue) * 100).toFixed(1) : '—';
+        const grossPct  = totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(1) : '—';
+
+        // Distributions (journal entries of type 'distribution')
+        const distributions = (data.journals || []).filter(j => j.entry_type === 'distribution');
+        const totalDist = distributions.reduce((s, j) => s + Math.abs(j.netAmount || 0), 0);
+
+        // Collapsible group renderer
+        let _grpIdx = 0;
+        const renderGroup = (label, lines, isExpense = false) => {
+          if (!lines.length) return '';
+          const gid = 'pnl-grp-' + (_grpIdx++);
+          const total = isExpense ? Math.abs(sumLines(lines)) : sumLines(lines);
+          const totalStr = total < 0 ? `(${fmt(Math.abs(total))})` : fmt(total);
+          const totalColor = isExpense ? '' : (total >= 0 ? 'color:var(--green)' : 'color:var(--red)');
+          return `
+            <div class="report-line indent1" style="cursor:pointer;user-select:none" onclick="document.getElementById('${gid}').style.display=document.getElementById('${gid}').style.display==='none'?'':'none'">
+              <span style="font-weight:600">▸ ${label}</span>
+              <span class="report-amount" style="${totalColor}">${totalStr}</span>
+            </div>
+            <div id="${gid}">
+              ${sortByCode(lines).map(g =>
+                pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2, '', g.account.id)
+              ).join('')}
+            </div>`;
+        };
 
         const entityLabel = Array.isArray(entity) ? entity.join(', ') : (entity === 'all' ? 'Consolidated' : entity);
         const cmpMeta = _pnlCmp ? JSON.parse(localStorage.getItem('pnlComparison') || '{}') : null;
         el.innerHTML = `
           <div class="report-header">
-            <h2>Profit & Loss Statement</h2>
-            <p>WB Brands LLC — ${entityLabel} · ${this.getPeriodLabel(period)} · Accrual basis</p>
+            <h2>Profit & Loss</h2>
+            <p>${entityLabel} · ${this.getPeriodLabel(period)}</p>
             ${cmpMeta ? `<p style="font-size:11px;color:var(--accent);margin-top:4px">Comparing vs: ${cmpMeta.label || 'Prior period'} · <button class="btn-outline" style="font-size:11px;padding:1px 8px" onclick="app.clearComparison()">Clear</button></p>` : ''}
           </div>
-          ${_pnlCmp ? `<div class="report-cmp-header"><span>Account</span><span>${this.getPeriodLabel(period)}</span><span>${cmpMeta?.label || 'Prior'}</span><span>Variance</span></div>` : ''}
+
           ${pnlSection('Gross Revenue')}
-          ${renderLines(revenueLines)}
-          ${contraLines.length ? pnlLine('Returns and cancellations', -totalContra, 1, 'neg') : ''}
-          ${returnLines.length ? `${renderLines(returnLines, true)}` : ''}
-          ${pnlTotal('Total Revenue', totalIncome, 'pos')}
+          ${renderGroup('Revenue', revLines)}
+          ${renderGroup('Sales Return', returnLines, true)}
+          ${renderGroup('Platform Fee', platFeeLines, true)}
+          ${pnlTotal('Total Revenue', totalRevenue, totalRevenue >= 0 ? 'pos' : 'neg')}
+
           ${pnlSection('Cost of Goods Sold')}
-          ${renderLines(cogsLines, true)}
+          ${renderGroup('COGS', cogsLines, true)}
+          ${renderGroup('Sales Tax', salesTaxLines, true)}
           ${pnlTotal('Gross Profit', grossProfit, grossProfit >= 0 ? 'pos' : 'neg')}
           ${pnlLine(`Gross margin: ${grossPct}%`, null, 1, 'muted')}
+
+          ${pnlSection('Marketing')}
+          ${renderGroup('Ads Spends & Ad Agency Fee', adLines, true)}
+
           ${pnlSection('Operating Expenses')}
-          ${adLines.length ? pnlLine('Advertisement', null, 1, 'group') + renderLines(adLines, true) : ''}
-          ${payrollLines.length ? pnlLine('Wages & Payroll', null, 1, 'group') + renderLines(payrollLines, true) : ''}
-          ${platformLines.length ? pnlLine('Platform fees', null, 1, 'group') + renderLines(platformLines, true) : ''}
-          ${opexLines.length ? pnlLine('Other operating expenses', null, 1, 'group') + renderLines(opexLines, true) : ''}
-          ${pnlTotal('Total Operating Expenses', totalExpenses)}
-          ${pnlGrand('Net Operating Income', noi, noi >= 0 ? 'pos' : 'neg')}
+          ${renderGroup('Labour Cost', labourLines, true)}
+          ${renderGroup('Other operating expenses', otherOpex, true)}
+          ${pnlTotal('Total Operating Expenses', totalOpex)}
+
+          ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
+          ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
+
           ${adjusting.length ? `
             ${pnlSection('Adjusting Entries')}
             ${adjusting.map(j => pnlLine(j.description || 'Adjustment', j.netAmount, 1)).join('')}
             ${pnlTotal('Total Adjustments', totalAdj, totalAdj >= 0 ? 'pos' : 'neg')}
+            ${pnlGrand('Adjusted Net Profit', adjNetProfit, adjNetProfit >= 0 ? 'pos' : 'neg')}
           ` : ''}
-          ${pnlGrand('Net Profit', netProfit, netProfit >= 0 ? 'pos' : 'neg')}
-          ${pnlLine(`Net margin: ${marginPct}%`, null, 1, 'muted')}
-          ${isClosed && totalAdj !== 0 ? `
-            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px">
-              <p style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);margin-bottom:8px">Period Comparison</p>
-              <table style="width:100%;font-size:13px">
-                <tr><td>Cash basis net income</td><td style="text-align:right">${fmt(noi)}</td></tr>
-                <tr><td>Adjusting entries</td><td style="text-align:right">${totalAdj >= 0 ? fmt(totalAdj) : '(' + fmt(Math.abs(totalAdj)) + ')'}</td></tr>
-                <tr style="font-weight:600;border-top:1px solid var(--border)"><td>Accrual basis net income</td><td style="text-align:right">${fmt(netProfit)}</td></tr>
-              </table>
-            </div>
+
+          ${totalDist > 0 ? `
+            ${pnlSection('Distribution')}
+            ${distributions.map(j => pnlLine(j.description || 'Distribution', Math.abs(j.netAmount), 1)).join('')}
+            ${pnlTotal('Balance', adjNetProfit - totalDist, (adjNetProfit - totalDist) >= 0 ? 'pos' : 'neg')}
           ` : ''}
+
           ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
-          ${totalIncome === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
+          ${totalRevenue === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
         `;
       });
   },
