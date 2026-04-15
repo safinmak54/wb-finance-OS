@@ -1519,8 +1519,8 @@ const app = {
     const uniqueJEs = [...new Set(displayRows.map(r => r.jeId))].length;
 
     const acctOptions = (DATA.coa || [])
-      .sort((a,b) => (a.account_code||'').localeCompare(b.account_code||''))
-      .map(a => `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`).join('');
+      .sort((a,b) => (a.code||'').localeCompare(b.code||''))
+      .map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
     const entityCodes = ['WB-ALL','WB','WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
     const entityOpts = entityCodes.map(e => `<option value="${e}">${e}</option>`).join('');
     const today = new Date().toISOString().slice(0,10);
@@ -1632,8 +1632,8 @@ const app = {
 
   openAddJournalEntry() {
     const acctOptions = (DATA.coa || [])
-      .sort((a,b) => (a.account_code||'').localeCompare(b.account_code||''))
-      .map(a => `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`).join('');
+      .sort((a,b) => (a.code||'').localeCompare(b.code||''))
+      .map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
     const entityOptions = ['WB-ALL', ...ALL_ENTITY_CODES].map(e => `<option value="${e}">${e}</option>`).join('');
     const today = new Date().toISOString().slice(0,10);
 
