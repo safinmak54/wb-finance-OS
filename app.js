@@ -714,7 +714,7 @@ const app = {
     const range = periodRange || state.globalPeriodRange;
     let txnQuery = supabaseClient
       .from('transactions')
-      .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, line, is_elimination)')
+      .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype)')
       .gte('acc_date', range.from)
       .lte('acc_date', range.to);
     // entity can be a string (single/group/all) or an array of entity codes
@@ -1543,20 +1543,15 @@ const app = {
             <select id="fJeEntity" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">${entityOpts}</select>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 140px auto;gap:10px;align-items:end;margin-top:10px">
+        <div style="display:grid;grid-template-columns:1fr 140px auto;gap:10px;align-items:end;margin-top:10px">
           <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Debit Account</div>
-            <select id="fJeDebitAcct" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
-              <option value="">— select —</option>${acctOptions}</select>
-          </div>
-          <div>
-            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Credit Account</div>
-            <select id="fJeCreditAcct" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
-              <option value="">— select —</option>${acctOptions}</select>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Account</div>
+            <select id="fJeAccount" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+              <option value="">— select account —</option>${acctOptions}</select>
           </div>
           <div>
             <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Amount</div>
-            <input type="number" id="fJeAmount" placeholder="0.00" step="0.01" min="0" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+            <input type="number" id="fJeAmount" placeholder="Negative = expense" step="0.01" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
           </div>
           <button class="btn-primary" style="font-size:12px;padding:6px 16px;white-space:nowrap" onclick="app.saveJournalEntry()">+ Add</button>
         </div>
@@ -1671,20 +1666,19 @@ const app = {
   },
 
   async saveJournalEntry() {
-    const date      = document.getElementById('fJeDate')?.value;
-    const desc      = document.getElementById('fJeDesc')?.value?.trim();
-    const entity    = document.getElementById('fJeEntity')?.value;
-    const debitAcct = document.getElementById('fJeDebitAcct')?.value;
-    const creditAcct= document.getElementById('fJeCreditAcct')?.value;
-    const amount    = parseFloat(document.getElementById('fJeAmount')?.value);
+    const date    = document.getElementById('fJeDate')?.value;
+    const desc    = document.getElementById('fJeDesc')?.value?.trim();
+    const entity  = document.getElementById('fJeEntity')?.value;
+    const acctId  = document.getElementById('fJeAccount')?.value || document.getElementById('fJeDebitAcct')?.value;
+    const amount  = parseFloat(document.getElementById('fJeAmount')?.value);
 
     if (!date || !desc) { this.showToast('Date and description are required', 'error'); return; }
-    if (!debitAcct || !creditAcct) { this.showToast('Select both debit and credit accounts', 'error'); return; }
-    if (isNaN(amount) || amount <= 0) { this.showToast('Enter a positive amount', 'error'); return; }
-    if (debitAcct === creditAcct) { this.showToast('Debit and credit accounts must be different', 'error'); return; }
+    if (!acctId) { this.showToast('Select an account', 'error'); return; }
+    if (isNaN(amount) || amount === 0) { this.showToast('Enter an amount (negative = expense)', 'error'); return; }
 
     const period = date.slice(0,7);
     const entityId = window._entityByCode[entity] || null;
+    const isDebit = amount < 0;
 
     // Create journal entry
     const { data: je, error: jeErr } = await supabaseClient.from('journal_entries').insert({
@@ -1698,13 +1692,22 @@ const app = {
 
     if (jeErr) { this.showToast('Failed to create journal entry', 'error'); console.error(jeErr); return; }
 
-    // Create debit and credit ledger lines
-    const { error: leErr } = await supabaseClient.from('ledger_entries').insert([
-      { journal_entry_id: je.id, account_id: debitAcct,  debit_amount: amount, credit_amount: 0, memo: desc, entity },
-      { journal_entry_id: je.id, account_id: creditAcct, debit_amount: 0, credit_amount: amount, memo: desc, entity },
-    ]);
+    // Create ledger line
+    const { error: leErr } = await supabaseClient.from('ledger_entries').insert({
+      journal_entry_id: je.id, account_id: acctId,
+      debit_amount: isDebit ? Math.abs(amount) : 0,
+      credit_amount: isDebit ? 0 : Math.abs(amount),
+      memo: desc, entity,
+    });
 
-    if (leErr) { this.showToast('Failed to create ledger lines', 'error'); console.error(leErr); return; }
+    if (leErr) { this.showToast('Failed to create ledger line', 'error'); console.error(leErr); return; }
+
+    // Also insert into transactions table so it appears in P&L
+    await supabaseClient.from('transactions').insert({
+      entity, account_id: acctId, amount,
+      txn_date: date, acc_date: date,
+      description: desc, memo: 'Journal entry',
+    });
 
     this.closeModal();
     this.showToast('Journal entry created', 'success');
