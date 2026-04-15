@@ -790,9 +790,10 @@ const app = {
 
     supabaseClient.from('closed_periods').select('closed_at').eq('period', state.globalPeriodRange.from.slice(0,7)).maybeSingle()
       .then(closedRow => {
+        try {
         const isClosed = !!(closedRow?.data);
 
-        const groups = this.groupByAccount(data.txns);
+        const groups = this.groupByAccount(data.txns || []);
         const all = Object.values(groups).filter(g => !g.account.is_elimination);
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
         const sortByCode = (lines) => [...lines].sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
@@ -919,6 +920,10 @@ const app = {
           ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
           ${totalRevenue === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
         `;
+        } catch(e) {
+          console.error('P&L render error:', e);
+          el.innerHTML = `<div style="padding:32px;color:var(--red)">Failed to render P&L — see console. ${e.message}</div>`;
+        }
       });
   },
 
@@ -1513,23 +1518,68 @@ const app = {
     // Count unique journal entries
     const uniqueJEs = [...new Set(displayRows.map(r => r.jeId))].length;
 
+    const acctOptions = (DATA.coa || [])
+      .sort((a,b) => (a.account_code||'').localeCompare(b.account_code||''))
+      .map(a => `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`).join('');
+    const entityCodes = ['WB-ALL','WB','WBP','LP','KP','BP','SWAG','RUSH','ONEOPS','SP1'];
+    const entityOpts = entityCodes.map(e => `<option value="${e}">${e}</option>`).join('');
+    const today = new Date().toISOString().slice(0,10);
+
     el.innerHTML = `
+      <!-- Add Journal Entry inline form -->
+      <div class="card" style="margin-bottom:16px;padding:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px">Add Journal Entry</div>
+        <div style="display:grid;grid-template-columns:130px 1fr 100px;gap:10px;align-items:end">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Date</div>
+            <input type="date" id="fJeDate" value="${today}" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Description</div>
+            <input type="text" id="fJeDesc" placeholder="e.g. Accrue Feb advertising" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Entity</div>
+            <select id="fJeEntity" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">${entityOpts}</select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 140px auto;gap:10px;align-items:end;margin-top:10px">
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Debit Account</div>
+            <select id="fJeDebitAcct" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+              <option value="">— select —</option>${acctOptions}</select>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Credit Account</div>
+            <select id="fJeCreditAcct" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+              <option value="">— select —</option>${acctOptions}</select>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:4px">Amount</div>
+            <input type="number" id="fJeAmount" placeholder="0.00" step="0.01" min="0" style="width:100%;font-size:12px;padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <button class="btn-primary" style="font-size:12px;padding:6px 16px;white-space:nowrap" onclick="app.saveJournalEntry()">+ Add</button>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
       <div class="toolbar">
         <div class="toolbar-left">
           <span style="font-size:13px;color:var(--text3)">${uniqueJEs} journal entr${uniqueJEs !== 1 ? 'ies' : 'y'} · ${displayRows.length} lines</span>
           <button id="journalBulkDeleteBtn" class="btn-outline" style="display:none;color:var(--red);border-color:var(--red);font-size:12px;padding:4px 12px;margin-left:8px" onclick="app.bulkDeleteJournals()">Delete Selected</button>
         </div>
         <div class="toolbar-right" style="display:flex;gap:8px;align-items:center">
-          <button class="btn-primary" style="font-size:12px" onclick="app.openAddJournalEntry()">+ Add Journal Entry</button>
           ${isClosed
             ? `<span style="font-size:12px;font-weight:600;color:var(--green);background:var(--green-soft,#e6f9f0);padding:4px 10px;border-radius:6px;border:1px solid var(--green)">✓ ${periodLabel} Closed</span>`
             : `<button class="btn-outline" onclick="app.openCloseMonth()">Close Month: ${periodLabel}</button>`}
         </div>
       </div>
+
+      <!-- Entries list -->
       ${displayRows.length === 0 ? `
-        <div style="padding:64px;text-align:center;color:var(--text3)">
-          <p style="font-size:15px;margin-bottom:8px">No journal entries for ${periodLabel}</p>
-          <p style="font-size:13px">Journal entries will appear here after closing a month.</p>
+        <div style="padding:48px;text-align:center;color:var(--text3)">
+          <p style="font-size:14px">No journal entries for ${periodLabel}</p>
+          <p style="font-size:12px;margin-top:4px">Use the form above to add one.</p>
         </div>
       ` : `
         <div class="table-wrap">
@@ -1546,8 +1596,8 @@ const app = {
                   <td style="width:32px;padding:11px 8px"><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
                   <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${r.id}</td>
                   <td style="white-space:nowrap">${r.date}</td>
-                  <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.memo}</div></td>
-                  <td><div style="width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${r.account}</div></td>
+                  <td><div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.memo}</div></td>
+                  <td><div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${r.account}</div></td>
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--red,#dc2626);font-weight:600">${r.debit > 0 ? `(${fmt(r.debit)})` : ''}</td>
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--green,#059669);font-weight:600">${r.credit > 0 ? fmt(r.credit) : ''}</td>
                   <td style="white-space:nowrap"><span class="badge">${r.type}</span></td>
