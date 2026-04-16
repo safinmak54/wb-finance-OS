@@ -1636,14 +1636,12 @@ const app = {
 
   async deleteJournalEntry(jeId) {
     if (!confirm('Delete this journal entry? This will also remove it from P&L.')) return;
-    const { data: je } = await supabaseClient.from('journal_entries')
-      .select('description, accounting_date, entry_date').eq('id', jeId).single();
-    if (je) {
-      await supabaseClient.from('transactions').delete()
-        .eq('description', je.description)
-        .eq('acc_date', je.accounting_date || je.entry_date)
-        .eq('memo', 'Journal entry');
-    }
+    // Delete only the transaction linked to this specific journal entry
+    await supabaseClient.from('transactions').delete().eq('memo', 'je:' + jeId);
+    // Also try legacy match for entries created before the je:ID format
+    await supabaseClient.from('transactions').delete()
+      .eq('memo', 'Journal entry')
+      .eq('description', (await supabaseClient.from('journal_entries').select('description').eq('id', jeId).single()).data?.description || '___none___');
     await supabaseClient.from('ledger_entries').delete().eq('journal_entry_id', jeId);
     await supabaseClient.from('journal_entries').delete().eq('id', jeId);
     this.showToast('Journal entry deleted', 'success');
@@ -1656,18 +1654,9 @@ const app = {
     if (!jeIds.length) return;
     if (!confirm(`Delete ${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'}? This will also remove them from P&L.`)) return;
 
-    // Get descriptions+dates to find matching transactions
     for (const jeId of jeIds) {
-      const { data: je } = await supabaseClient.from('journal_entries')
-        .select('description, accounting_date, entity').eq('id', jeId).single();
-      if (je) {
-        // Delete matching transaction row (created by saveJournalEntry)
-        await supabaseClient.from('transactions').delete()
-          .eq('description', je.description)
-          .eq('acc_date', je.accounting_date || je.entry_date)
-          .eq('memo', 'Journal entry');
-      }
-      // Delete ledger entries first (FK), then journal entry
+      // Delete only the transaction linked to this specific journal entry
+      await supabaseClient.from('transactions').delete().eq('memo', 'je:' + jeId);
       await supabaseClient.from('ledger_entries').delete().eq('journal_entry_id', jeId);
       await supabaseClient.from('journal_entries').delete().eq('id', jeId);
     }
@@ -1749,10 +1738,11 @@ const app = {
     if (leErr) { this.showToast('Failed to create ledger line', 'error'); console.error(leErr); return; }
 
     // Also insert into transactions table so it appears in P&L
+    // Store je.id in memo so we can delete exactly this row later
     await supabaseClient.from('transactions').insert({
       entity, account_id: acctId, amount,
       txn_date: date, acc_date: date,
-      description: desc, memo: 'Journal entry',
+      description: desc, memo: 'je:' + je.id,
     });
 
     this.closeModal();
