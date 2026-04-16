@@ -1503,18 +1503,30 @@ const app = {
     const displayRows = [];
     (journals || []).forEach(je => {
       const shortId = 'JE-' + je.id.slice(0,8).toUpperCase();
-      (je.ledger_entries || []).forEach(line => {
-        displayRows.push({
-          jeId:    je.id,      // full UUID for deletion
-          id:      shortId,
-          date:    je.accounting_date,
-          memo:    line.memo || je.description,
-          account: line.accounts ? line.accounts.account_code + ' — ' + line.accounts.account_name : '',
-          debit:   Number(line.debit_amount)  || 0,
-          credit:  Number(line.credit_amount) || 0,
-          type:    je.entry_type || 'manual'
+      const lines = je.ledger_entries || [];
+      if (lines.length > 0) {
+        lines.forEach(line => {
+          displayRows.push({
+            jeId: je.id, id: shortId,
+            date: je.accounting_date || je.entry_date || '',
+            memo: line.memo || je.description,
+            account: line.accounts ? line.accounts.account_code + ' — ' + line.accounts.account_name : '',
+            debit: Number(line.debit_amount) || 0,
+            credit: Number(line.credit_amount) || 0,
+            type: je.entry_type || 'journal'
+          });
         });
-      });
+      } else {
+        // Entry exists but no ledger lines (or FK join failed) — still show it
+        displayRows.push({
+          jeId: je.id, id: shortId,
+          date: je.accounting_date || je.entry_date || '',
+          memo: je.description || '',
+          account: '—',
+          debit: 0, credit: 0,
+          type: je.entry_type || 'journal'
+        });
+      }
     });
 
     // Count unique journal entries
@@ -1584,7 +1596,7 @@ const app = {
             <thead>
               <tr>
                 <th style="width:28px"><input type="checkbox" id="journalSelectAll" title="Select all" onchange="app.onJournalSelectAll(this)"></th>
-                <th style="white-space:nowrap">ID</th><th style="white-space:nowrap">Date</th><th>Memo</th><th>Account</th><th style="white-space:nowrap">Debit</th><th style="white-space:nowrap">Credit</th><th>Type</th>
+                <th style="white-space:nowrap">ID</th><th style="white-space:nowrap">Date</th><th>Memo</th><th>Account</th><th style="white-space:nowrap">Debit</th><th style="white-space:nowrap">Credit</th><th>Type</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -1598,6 +1610,7 @@ const app = {
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--red,#dc2626);font-weight:600">${r.debit > 0 ? `(${fmt(r.debit)})` : ''}</td>
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--green,#059669);font-weight:600">${r.credit > 0 ? fmt(r.credit) : ''}</td>
                   <td style="white-space:nowrap"><span class="badge">${r.type}</span></td>
+                  <td><button class="btn-primary" style="font-size:11px;padding:2px 8px;background:var(--red);border-color:var(--red)" onclick="app.deleteJournalEntry('${r.jeId}')">✕</button></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -1621,13 +1634,44 @@ const app = {
     }
   },
 
+  async deleteJournalEntry(jeId) {
+    if (!confirm('Delete this journal entry? This will also remove it from P&L.')) return;
+    const { data: je } = await supabaseClient.from('journal_entries')
+      .select('description, accounting_date, entry_date').eq('id', jeId).single();
+    if (je) {
+      await supabaseClient.from('transactions').delete()
+        .eq('description', je.description)
+        .eq('acc_date', je.accounting_date || je.entry_date)
+        .eq('memo', 'Journal entry');
+    }
+    await supabaseClient.from('ledger_entries').delete().eq('journal_entry_id', jeId);
+    await supabaseClient.from('journal_entries').delete().eq('id', jeId);
+    this.showToast('Journal entry deleted', 'success');
+    await this.renderJournals();
+  },
+
   async bulkDeleteJournals() {
     const checked = [...document.querySelectorAll('.journal-check:checked')];
     const jeIds = [...new Set(checked.map(c => c.dataset.jeId))].filter(Boolean);
     if (!jeIds.length) return;
-    if (!confirm(`Delete ${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'} and all their lines? This cannot be undone.`)) return;
-    const { error } = await supabaseClient.from('journal_entries').delete().in('id', jeIds);
-    if (error) { this.toast('Delete failed — see console'); console.error(error); return; }
+    if (!confirm(`Delete ${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'}? This will also remove them from P&L.`)) return;
+
+    // Get descriptions+dates to find matching transactions
+    for (const jeId of jeIds) {
+      const { data: je } = await supabaseClient.from('journal_entries')
+        .select('description, accounting_date, entity').eq('id', jeId).single();
+      if (je) {
+        // Delete matching transaction row (created by saveJournalEntry)
+        await supabaseClient.from('transactions').delete()
+          .eq('description', je.description)
+          .eq('acc_date', je.accounting_date || je.entry_date)
+          .eq('memo', 'Journal entry');
+      }
+      // Delete ledger entries first (FK), then journal entry
+      await supabaseClient.from('ledger_entries').delete().eq('journal_entry_id', jeId);
+      await supabaseClient.from('journal_entries').delete().eq('id', jeId);
+    }
+
     this.showToast(`${jeIds.length} journal entr${jeIds.length !== 1 ? 'ies' : 'y'} deleted`, 'success');
     await this.renderJournals();
   },
