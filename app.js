@@ -794,7 +794,9 @@ const app = {
         const isClosed = !!(closedRow?.data);
 
         const groups = this.groupByAccount(data.txns || []);
-        const all = Object.values(groups).filter(g => !g.account.is_elimination);
+        // Exclude assets, liabilities, equity from P&L — only revenue and expense accounts
+        const PNL_TYPES = new Set(['revenue', 'expense']);
+        const all = Object.values(groups).filter(g => !g.account.is_elimination && PNL_TYPES.has((g.account.account_type || '').toLowerCase()));
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
         const sortByCode = (lines) => [...lines].sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
 
@@ -809,7 +811,7 @@ const app = {
         const isPlatformFee = g => _s(g) === 'platform' || _n(g).includes('platform fee');
         const isCogs        = g => (_s(g) === 'cogs' || _s(g) === 'cost of goods sold' || _s(g).includes('cost of goods') || /^500\d/.test(_c(g))) && !isSalesTax(g);
         const isSalesTax    = g => _c(g) === '5040' || _n(g).includes('sales tax');
-        const isAd          = g => _s(g) === 'advertising' || _n(g).includes(' ads') || _n(g).includes('ad agency') || /^600[0-4]/.test(_c(g));
+        const isAd          = g => _s(g) === 'advertising' || _n(g).includes(' ads') || _n(g).includes('ad agency') || /^600\d/.test(_c(g)) || _c(g) === '6030' || _c(g) === '6031';
         const isLabour      = g => _s(g) === 'payroll' || _n(g).includes('wages') || _n(g).includes('contractor') || _c(g) === '6115' || _c(g) === '6121';
 
         // Assign accounts to groups (each account goes to first match only)
