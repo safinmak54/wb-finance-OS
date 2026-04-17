@@ -3732,16 +3732,32 @@ const app = {
       const color = amt >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
       const amtStr = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
       const isJE = (t.memo || '').startsWith('je:');
-      const untagBtn = isJE
-        ? `<button class="btn-outline" style="font-size:10px;padding:1px 6px;color:var(--amber,#d97706);border-color:var(--amber,#d97706)" onclick="app.untagFromPnl('${t.id}')">Untag</button>`
-        : `<button class="btn-outline" style="font-size:10px;padding:1px 6px;color:var(--red);border-color:var(--red)" onclick="app.untagFromPnl('${t.id}')">Untag</button>`;
+      const untagBtn = `<button class="btn-outline" style="font-size:10px;padding:1px 6px;color:${isJE ? 'var(--amber,#d97706)' : 'var(--red)'};border-color:${isJE ? 'var(--amber,#d97706)' : 'var(--red)'}" onclick="app.untagFromPnl('${t.id}')">Untag</button>`;
+
+      // Journal entries: inline editable fields for date, description, amount
+      if (isJE) {
+        const esc = s => (s||'').replace(/"/g,'&quot;');
+        return `<tr style="background:rgba(254,243,199,0.08)">
+          <td><input type="date" value="${t.acc_date||''}" onchange="app.editJeTxn('${t.id}','acc_date',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface);width:120px"></td>
+          <td><input type="text" value="${esc(t.description)}" onchange="app.editJeTxn('${t.id}','description',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface);width:180px"> <span style="font-size:9px;background:#FEF3C7;color:#92400E;padding:1px 4px;border-radius:3px">JE</span></td>
+          <td>${t.entity || ''}</td>
+          <td><input type="number" value="${amt}" step="0.01" onchange="app.editJeTxn('${t.id}','amount',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface);width:100px;text-align:right;font-weight:600;color:${color}"></td>
+          <td style="white-space:nowrap">
+            <select onchange="app.reTag('${t.id}',this.value,this)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
+              <option value="">— keep —</option>${acctOpts}
+            </select>
+            ${untagBtn}
+          </td>
+        </tr>`;
+      }
+
       return `<tr>
         <td style="white-space:nowrap">${t.acc_date || ''}</td>
-        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}${isJE ? ' <span style="font-size:9px;background:#FEF3C7;color:#92400E;padding:1px 4px;border-radius:3px">JE</span>' : ''}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</td>
         <td>${t.entity || ''}</td>
         <td style="color:${color};font-weight:600;font-variant-numeric:tabular-nums;text-align:right">${amtStr}</td>
         <td style="white-space:nowrap">
-          <select onchange="app.reTag('${t.id}',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
+          <select onchange="app.reTag('${t.id}',this.value,this)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
             <option value="">— keep —</option>${acctOpts}
           </select>
           ${untagBtn}
@@ -3804,14 +3820,48 @@ const app = {
     await this.renderPnl();
   },
 
-  async reTag(txnId, newAccountId) {
+  async editJeTxn(txnId, field, value) {
+    const update = {};
+    if (field === 'amount') update.amount = parseFloat(value) || 0;
+    else if (field === 'acc_date') { update.acc_date = value; update.txn_date = value; }
+    else if (field === 'description') update.description = value;
+    else return;
+    const { error } = await supabaseClient.from('transactions').update(update).eq('id', txnId);
+    if (error) { this.showToast('Update failed', 'error'); console.error(error); return; }
+    // Also update the journal_entries record if date/description changed
+    const { data: txn } = await supabaseClient.from('transactions').select('memo').eq('id', txnId).single();
+    if (txn?.memo?.startsWith('je:')) {
+      const jeId = txn.memo.replace('je:', '');
+      const jeUpdate = {};
+      if (field === 'acc_date') jeUpdate.accounting_date = value;
+      if (field === 'description') jeUpdate.description = value;
+      if (Object.keys(jeUpdate).length) await supabaseClient.from('journal_entries').update(jeUpdate).eq('id', jeId);
+      if (field === 'amount') {
+        const isDebit = parseFloat(value) < 0;
+        await supabaseClient.from('ledger_entries').update({
+          debit_amount: isDebit ? Math.abs(parseFloat(value)) : 0,
+          credit_amount: isDebit ? 0 : Math.abs(parseFloat(value)),
+        }).eq('journal_entry_id', jeId);
+      }
+    }
+  },
+
+  async reTag(txnId, newAccountId, selectEl) {
     if (!newAccountId) return;
     const { error } = await supabaseClient
       .from('transactions')
       .update({ account_id: newAccountId })
       .eq('id', txnId);
     if (error) { this.showToast('Re-tag failed', 'error'); return; }
-    this.showToast('Transaction re-tagged — refresh report to see updated totals', 'success');
+    // Show checkmark next to the dropdown to confirm
+    if (selectEl) {
+      const check = document.createElement('span');
+      check.textContent = ' ✓';
+      check.style.cssText = 'color:var(--green);font-weight:700;font-size:14px';
+      selectEl.parentNode.appendChild(check);
+      selectEl.disabled = true;
+      selectEl.style.opacity = '0.5';
+    }
   },
 
   // ---- INBOX ----
@@ -5471,11 +5521,17 @@ const app = {
       if (descCol >= 0 && maxLen > 15) guesses.description = descCol;
     }
 
+    // Also detect debit/credit separate columns (common in CC statements)
+    if (!guesses.debit) guesses.debit = detect(['debit','dr','withdrawal','charge']);
+    if (!guesses.credit) guesses.credit = detect(['credit','cr','deposit','payment']);
+
     // Column mapping UI
     const FIELDS = [
       { key:'date',        label:'Date *',               required:true  },
       { key:'description', label:'Description *',        required:true  },
-      { key:'amount',      label:'Amount',               required:false },
+      { key:'amount',      label:'Amount (single col)',  required:false },
+      { key:'debit',       label:'Debit (if 2-col)',     required:false },
+      { key:'credit',      label:'Credit (if 2-col)',    required:false },
       { key:'type',        label:'Type (Credit/Debit)',  required:false },
       { key:'entity',      label:'Entity (per-row)',      required:false },
     ];
@@ -5483,7 +5539,7 @@ const app = {
     const mappingUI = document.getElementById('importMappingUI');
     mappingUI.innerHTML = `
       <div style="margin-bottom:10px;padding:8px 10px;background:var(--surface2);border-radius:6px;font-size:11px;color:var(--text2)">
-        Map <b>Amount</b> and <b>Type</b> (Credit/Debit) columns. Type is needed when amounts are always positive.
+        Map <b>Amount</b> for a single column, or <b>Debit + Credit</b> for two-column statements. Type is needed when amounts are always positive.
       </div>
       ${FIELDS.map(f => {
         const gi = guesses[f.key];
@@ -5519,7 +5575,7 @@ const app = {
     if (!this._importData) return;
     const { rows } = this._importData;
     const mapping = {};
-    ['date','description','amount','type','entity'].forEach(f => {
+    ['date','description','amount','debit','credit','type','entity'].forEach(f => {
       const sel = document.getElementById(`map_${f}`);
       if (sel) mapping[f] = parseInt(sel.value, 10);
     });
@@ -5534,8 +5590,8 @@ const app = {
       document.getElementById('importEntitySelect')?.focus();
       return;
     }
-    if (mapping.amount < 0) {
-      this.showToast('Map the Amount column', 'error'); return;
+    if (mapping.amount < 0 && mapping.debit < 0 && mapping.credit < 0) {
+      this.showToast('Map the Amount column, or the Debit + Credit columns', 'error'); return;
     }
 
     // Direction map for BAI transaction type codes
@@ -5553,23 +5609,35 @@ const app = {
       const desc    = row[mapping.description]?.replace(/"/g,'').trim() || '';
       if (!accDate || !desc) { skipped++; return; }
 
-      const rawAmt = (row[mapping.amount] || '').replace(/[$,"\s]/g,'');
-      const val = parseFloat(rawAmt);
-      if (isNaN(val) || val === 0) { skipped++; return; }
-      const amount = Math.abs(val);
+      let amount, direction;
 
-      // Determine direction: Type column first, then amount sign fallback
-      let direction;
-      if (mapping.type >= 0) {
-        const typeStr = (row[mapping.type] || '').toUpperCase().trim();
-        if (TX_DIR_MAP[typeStr]) direction = TX_DIR_MAP[typeStr];
-        else if (typeStr.includes('CREDIT') || typeStr.includes('DEPOSIT')) direction = 'CREDIT';
-        else if (typeStr.includes('DEBIT') || typeStr.includes('CHECK') || typeStr.includes('WIRE TRANSFER DEBIT')) direction = 'DEBIT';
+      // Path A: Separate Debit + Credit columns
+      if (mapping.amount < 0 && (mapping.debit >= 0 || mapping.credit >= 0)) {
+        const dv = parseFloat((row[mapping.debit] || '').replace(/[$,"\s]/g,'')) || 0;
+        const cv = parseFloat((row[mapping.credit] || '').replace(/[$,"\s]/g,'')) || 0;
+        if (cv > 0) { amount = cv; direction = 'CREDIT'; }
+        else if (dv > 0) { amount = dv; direction = 'DEBIT'; }
+        else { skipped++; return; }
       }
-      if (!direction) {
-        direction = this._importType === 'cc'
-          ? (val >= 0 ? 'DEBIT' : 'CREDIT')
-          : (val < 0 ? 'DEBIT' : 'CREDIT');
+      // Path B: Single Amount column
+      else {
+        const rawAmt = (row[mapping.amount] || '').replace(/[$,"\s]/g,'');
+        const val = parseFloat(rawAmt);
+        if (isNaN(val) || val === 0) { skipped++; return; }
+        amount = Math.abs(val);
+
+        // Determine direction: Type column first, then amount sign fallback
+        if (mapping.type >= 0) {
+          const typeStr = (row[mapping.type] || '').toUpperCase().trim();
+          if (TX_DIR_MAP[typeStr]) direction = TX_DIR_MAP[typeStr];
+          else if (typeStr.includes('CREDIT') || typeStr.includes('DEPOSIT')) direction = 'CREDIT';
+          else if (typeStr.includes('DEBIT') || typeStr.includes('CHECK') || typeStr.includes('WIRE TRANSFER DEBIT')) direction = 'DEBIT';
+        }
+        if (!direction) {
+          direction = this._importType === 'cc'
+            ? (val >= 0 ? 'DEBIT' : 'CREDIT')
+            : (val < 0 ? 'DEBIT' : 'CREDIT');
+        }
       }
 
       // Entity resolution: raw value → exact code match → keyword match → global fallback
