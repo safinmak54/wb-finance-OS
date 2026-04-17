@@ -1492,13 +1492,29 @@ const app = {
       .from('closed_periods').select('id, closed_at').eq('period', period).maybeSingle();
     const isClosed = !!closedCheck;
 
-    const { data: journals, error } = await supabaseClient
+    // Query journal entries — try period filter, fall back to date range if period column is empty
+    let journals = null, jeError = null;
+    const periodFrom = state.globalPeriodRange.from.slice(0,7);
+    const periodTo = state.globalPeriodRange.to.slice(0,7);
+    const { data: jeData, error: jeErr1 } = await supabaseClient
       .from('journal_entries')
-      .select('id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name))')
-      .gte('period', state.globalPeriodRange.from.slice(0,7))
-      .lte('period', state.globalPeriodRange.to.slice(0,7))
+      .select('id, accounting_date, entry_date, description, entry_type, period, entity_id, entity, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name))')
+      .gte('period', periodFrom)
+      .lte('period', periodTo)
       .order('accounting_date', { ascending: false });
-    if (error) console.error('Journal load error:', error);
+    if (jeErr1) {
+      console.error('Journal load error:', jeErr1);
+      // Fallback: load all and filter client-side
+      const { data: allJe } = await supabaseClient.from('journal_entries')
+        .select('id, accounting_date, entry_date, description, entry_type, period, entity_id, entity, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name))')
+        .order('accounting_date', { ascending: false });
+      journals = (allJe || []).filter(je => {
+        const p = je.period || (je.accounting_date || je.entry_date || '').slice(0,7);
+        return p >= periodFrom && p <= periodTo;
+      });
+    } else {
+      journals = jeData || [];
+    }
 
     const displayRows = [];
     (journals || []).forEach(je => {
@@ -1712,28 +1728,36 @@ const app = {
     if (isNaN(amount) || amount === 0) { this.showToast('Enter an amount (negative = expense)', 'error'); return; }
 
     const period = date.slice(0,7);
-    const entityId = window._entityByCode[entity] || null;
+    // Resolve entity_id — WB-ALL is virtual (not in entities table), use first real entity as fallback
+    let entityId = window._entityByCode[entity] || null;
+    if (!entityId && entity === 'WB-ALL') {
+      entityId = window._entityByCode['WBP'] || Object.values(window._entityByCode)[0] || null;
+    }
     const isDebit = amount < 0;
 
     // Create journal entry
-    const { data: je, error: jeErr } = await supabaseClient.from('journal_entries').insert({
+    const jePayload = {
       accounting_date: date,
       description: desc,
       entry_type: 'journal',
       period,
-      entity_id: entityId,
       entity: entity,
-    }).select().single();
+    };
+    if (entityId) jePayload.entity_id = entityId;
+    const { data: je, error: jeErr } = await supabaseClient.from('journal_entries')
+      .insert(jePayload).select().single();
 
     if (jeErr) { this.showToast('Failed to create journal entry', 'error'); console.error(jeErr); return; }
 
-    // Create ledger line
-    const { error: leErr } = await supabaseClient.from('ledger_entries').insert({
+    // Create ledger line (entity_id required by production schema)
+    const lePayload = {
       journal_entry_id: je.id, account_id: acctId,
       debit_amount: isDebit ? Math.abs(amount) : 0,
       credit_amount: isDebit ? 0 : Math.abs(amount),
       memo: desc, entity,
-    });
+    };
+    if (entityId) lePayload.entity_id = entityId;
+    const { error: leErr } = await supabaseClient.from('ledger_entries').insert(lePayload);
 
     if (leErr) { this.showToast('Failed to create ledger line', 'error'); console.error(leErr); return; }
 
