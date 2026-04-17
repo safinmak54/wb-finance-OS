@@ -1739,14 +1739,15 @@ const app = {
 
     // Also insert into transactions table so it appears in P&L
     // Store je.id in memo so we can delete exactly this row later
-    await supabaseClient.from('transactions').insert({
+    const { error: txnErr } = await supabaseClient.from('transactions').insert({
       entity, account_id: acctId, amount,
       txn_date: date, acc_date: date,
       description: desc, memo: 'je:' + je.id,
     });
+    if (txnErr) console.error('Transaction insert error:', txnErr);
 
-    this.closeModal();
     this.showToast('Journal entry created', 'success');
+    // Re-render the page to show the new entry in the list
     await this.renderJournals();
   },
 
