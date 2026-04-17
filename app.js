@@ -1516,14 +1516,18 @@ const app = {
       journals = jeData || [];
     }
 
+    // Build display rows from journal_entries + ledger_entries
     const displayRows = [];
+    const seenJeIds = new Set();
     (journals || []).forEach(je => {
+      seenJeIds.add(je.id);
       const shortId = 'JE-' + je.id.slice(0,8).toUpperCase();
+      const status = (je.status || 'POSTED').toUpperCase() === 'DRAFT' ? 'Draft' : 'Posted';
       const lines = je.ledger_entries || [];
       if (lines.length > 0) {
         lines.forEach(line => {
           displayRows.push({
-            jeId: je.id, id: shortId,
+            jeId: je.id, id: shortId, status,
             date: je.accounting_date || je.entry_date || '',
             memo: line.memo || je.description,
             account: line.accounts ? line.accounts.account_code + ' — ' + line.accounts.account_name : '',
@@ -1533,16 +1537,37 @@ const app = {
           });
         });
       } else {
-        // Entry exists but no ledger lines (or FK join failed) — still show it
         displayRows.push({
-          jeId: je.id, id: shortId,
+          jeId: je.id, id: shortId, status,
           date: je.accounting_date || je.entry_date || '',
           memo: je.description || '',
-          account: '—',
-          debit: 0, credit: 0,
+          account: '—', debit: 0, credit: 0,
           type: je.entry_type || 'journal'
         });
       }
+    });
+
+    // Fallback: also find journal-entry transactions from the transactions table
+    // This catches entries where ledger_entries FK join failed
+    const { data: jeTxns } = await supabaseClient.from('transactions')
+      .select('id, acc_date, description, amount, memo, account_id, accounts(account_code, account_name)')
+      .like('memo', 'je:%')
+      .gte('acc_date', state.globalPeriodRange.from)
+      .lte('acc_date', state.globalPeriodRange.to);
+    (jeTxns || []).forEach(t => {
+      const jeId = (t.memo || '').replace('je:', '');
+      if (seenJeIds.has(jeId)) return; // already have this one from journal_entries query
+      const shortId = 'JE-' + jeId.slice(0,8).toUpperCase();
+      const amt = Number(t.amount) || 0;
+      displayRows.push({
+        jeId, id: shortId, status: 'Posted',
+        date: t.acc_date || '',
+        memo: t.description || '',
+        account: t.accounts ? t.accounts.account_code + ' — ' + t.accounts.account_name : '—',
+        debit: amt < 0 ? Math.abs(amt) : 0,
+        credit: amt > 0 ? amt : 0,
+        type: 'journal'
+      });
     });
 
     // Count unique journal entries
@@ -1612,12 +1637,21 @@ const app = {
             <thead>
               <tr>
                 <th style="width:28px"><input type="checkbox" id="journalSelectAll" title="Select all" onchange="app.onJournalSelectAll(this)"></th>
-                <th style="white-space:nowrap">ID</th><th style="white-space:nowrap">Date</th><th>Memo</th><th>Account</th><th style="white-space:nowrap">Debit</th><th style="white-space:nowrap">Credit</th><th>Type</th><th></th>
+                <th style="white-space:nowrap">ID</th><th style="white-space:nowrap">Date</th><th>Memo</th><th>Account</th><th style="white-space:nowrap">Debit</th><th style="white-space:nowrap">Credit</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              ${displayRows.map(r => `
-                <tr data-je-id="${r.jeId}">
+              ${displayRows.map(r => {
+                const isDraft = r.status === 'Draft';
+                const statusBadge = isDraft
+                  ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Draft</span>'
+                  : '<span style="background:#DCFCE7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Posted</span>';
+                const actions = isDraft
+                  ? `<button class="btn-primary" style="font-size:11px;padding:2px 8px" onclick="app.repostJournalEntry('${r.jeId}')">Post</button>
+                     <button class="btn-primary" style="font-size:11px;padding:2px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteJournalEntry('${r.jeId}')">✕</button>`
+                  : `<button class="btn-outline" style="font-size:11px;padding:2px 8px" onclick="app.untagJournalEntry('${r.jeId}')">Untag</button>
+                     <button class="btn-primary" style="font-size:11px;padding:2px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteJournalEntry('${r.jeId}')">✕</button>`;
+                return `<tr data-je-id="${r.jeId}" style="${isDraft ? 'opacity:0.7;background:rgba(254,243,199,0.1)' : ''}">
                   <td style="width:32px;padding:11px 8px"><input type="checkbox" class="journal-check" data-je-id="${r.jeId}" onchange="app.onJournalCheck()"></td>
                   <td style="font-family:var(--mono);font-size:12px;white-space:nowrap">${r.id}</td>
                   <td style="white-space:nowrap">${r.date}</td>
@@ -1625,14 +1659,52 @@ const app = {
                   <td><div style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${r.account}</div></td>
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--red,#dc2626);font-weight:600">${r.debit > 0 ? `(${fmt(r.debit)})` : ''}</td>
                   <td style="white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--green,#059669);font-weight:600">${r.credit > 0 ? fmt(r.credit) : ''}</td>
-                  <td style="white-space:nowrap"><span class="badge">${r.type}</span></td>
-                  <td><button class="btn-primary" style="font-size:11px;padding:2px 8px;background:var(--red);border-color:var(--red)" onclick="app.deleteJournalEntry('${r.jeId}')">✕</button></td>
-                </tr>`).join('')}
+                  <td style="white-space:nowrap">${statusBadge}</td>
+                  <td style="white-space:nowrap">${actions}</td>
+                </tr>`}).join('')}
             </tbody>
           </table>
         </div>
       `}
     `;
+  },
+
+  async untagJournalEntry(jeId) {
+    if (!confirm('Untag this journal entry? It will be removed from P&L and marked as Draft.')) return;
+    // Remove from transactions (removes from P&L)
+    await supabaseClient.from('transactions').delete().eq('memo', 'je:' + jeId);
+    // Mark journal entry as draft
+    await supabaseClient.from('journal_entries').update({ status: 'draft' }).eq('id', jeId);
+    this.showToast('Journal entry untagged — now in Draft', 'success');
+    await this.renderJournals();
+  },
+
+  async repostJournalEntry(jeId) {
+    // Load journal entry + ledger line to rebuild transaction
+    const { data: je } = await supabaseClient.from('journal_entries')
+      .select('*, ledger_entries(account_id, debit_amount, credit_amount)').eq('id', jeId).single();
+    if (!je) { this.showToast('Journal entry not found', 'error'); return; }
+
+    const le = (je.ledger_entries || [])[0];
+    const amount = le
+      ? (le.debit_amount > 0 ? -le.debit_amount : le.credit_amount)
+      : 0;
+    const acctId = le?.account_id || null;
+
+    if (!acctId) { this.showToast('No account found — edit and re-add', 'error'); return; }
+
+    // Re-insert into transactions
+    const { error } = await supabaseClient.from('transactions').insert({
+      entity: je.entity, account_id: acctId, amount,
+      txn_date: je.accounting_date, acc_date: je.accounting_date,
+      description: je.description, memo: 'je:' + je.id,
+    });
+    if (error) { this.showToast('Failed to post — see console', 'error'); console.error(error); return; }
+
+    // Update status back to posted
+    await supabaseClient.from('journal_entries').update({ status: 'POSTED' }).eq('id', jeId);
+    this.showToast('Journal entry posted to P&L', 'success');
+    await this.renderJournals();
   },
 
   onJournalSelectAll(cb) {
@@ -3644,7 +3716,7 @@ const app = {
     const range = state.globalPeriodRange;
     let q = supabaseClient
       .from('transactions')
-      .select('id, acc_date, description, entity, amount, account_id')
+      .select('id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id')
       .eq('account_id', accountId)
       .order('acc_date', { ascending: false });
     if (range) q = q.gte('acc_date', range.from).lte('acc_date', range.to);
@@ -3659,15 +3731,20 @@ const app = {
       const amt = Number(t.amount);
       const color = amt >= 0 ? 'var(--green,#059669)' : 'var(--red,#dc2626)';
       const amtStr = amt < 0 ? `(${fmt(Math.abs(amt))})` : fmt(amt);
+      const isJE = (t.memo || '').startsWith('je:');
+      const untagBtn = isJE
+        ? `<button class="btn-outline" style="font-size:10px;padding:1px 6px;color:var(--amber,#d97706);border-color:var(--amber,#d97706)" onclick="app.untagFromPnl('${t.id}')">Untag</button>`
+        : `<button class="btn-outline" style="font-size:10px;padding:1px 6px;color:var(--red);border-color:var(--red)" onclick="app.untagFromPnl('${t.id}')">Untag</button>`;
       return `<tr>
         <td style="white-space:nowrap">${t.acc_date || ''}</td>
-        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.description || ''}${isJE ? ' <span style="font-size:9px;background:#FEF3C7;color:#92400E;padding:1px 4px;border-radius:3px">JE</span>' : ''}</td>
         <td>${t.entity || ''}</td>
         <td style="color:${color};font-weight:600;font-variant-numeric:tabular-nums;text-align:right">${amtStr}</td>
-        <td>
+        <td style="white-space:nowrap">
           <select onchange="app.reTag('${t.id}',this.value)" style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface)">
             <option value="">— keep —</option>${acctOpts}
           </select>
+          ${untagBtn}
         </td>
       </tr>`;
     }).join('');
@@ -3696,6 +3773,35 @@ const app = {
       </div>
     `;
     document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async untagFromPnl(txnId) {
+    const { data: txn } = await supabaseClient.from('transactions')
+      .select('id, memo, raw_transaction_id').eq('id', txnId).single();
+    if (!txn) { this.showToast('Transaction not found', 'error'); return; }
+
+    const isJE = (txn.memo || '').startsWith('je:');
+    if (isJE) {
+      // Journal entry: remove from P&L, mark as draft
+      const jeId = txn.memo.replace('je:', '');
+      await supabaseClient.from('transactions').delete().eq('id', txnId);
+      await supabaseClient.from('journal_entries').update({ status: 'draft' }).eq('id', jeId);
+      this.showToast('Journal entry untagged → Draft', 'success');
+    } else if (txn.raw_transaction_id) {
+      // Bank transaction: return to inbox
+      await supabaseClient.from('transactions').delete().eq('id', txnId);
+      await supabaseClient.from('raw_transactions')
+        .update({ classified: false, classified_at: null })
+        .eq('id', txn.raw_transaction_id);
+      this.showToast('Transaction returned to inbox', 'success');
+      this.updateSidebarBadges();
+    } else {
+      // Unknown source — just delete
+      await supabaseClient.from('transactions').delete().eq('id', txnId);
+      this.showToast('Transaction removed from P&L', 'success');
+    }
+    this.closeModal();
+    await this.renderPnl();
   },
 
   async reTag(txnId, newAccountId) {
