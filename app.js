@@ -714,7 +714,7 @@ const app = {
     const range = periodRange || state.globalPeriodRange;
     let txnQuery = supabaseClient
       .from('transactions')
-      .select('amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype)')
+      .select('amount, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)')
       .gte('acc_date', range.from)
       .lte('acc_date', range.to);
     // entity can be a string (single/group/all) or an array of entity codes
@@ -796,7 +796,7 @@ const app = {
         const groups = this.groupByAccount(data.txns || []);
         // Exclude assets, liabilities, equity from P&L — only revenue and expense accounts
         const PNL_TYPES = new Set(['revenue', 'expense']);
-        const all = Object.values(groups).filter(g => !g.account.is_elimination && PNL_TYPES.has((g.account.account_type || '').toLowerCase()));
+        const all = Object.values(groups).filter(g => g.account && !g.account.is_elimination && PNL_TYPES.has((g.account.account_type || '').toLowerCase()));
         const sumLines = (lines) => lines.reduce((s, g) => s + g.total, 0);
         const sortByCode = (lines) => [...lines].sort((a,b) => (a.account.account_code||'').localeCompare(b.account.account_code||''));
 
@@ -920,7 +920,7 @@ const app = {
           ` : ''}
 
           ${isClosed ? `<div style="margin-top:8px;font-size:12px;color:var(--text3)">✓ Period closed</div>` : ''}
-          ${totalRevenue === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
+          ${all.length === 0 ? `<div style="padding:24px;text-align:center;color:var(--text3);font-size:13px">No transactions classified for this period/entity.</div>` : ''}
         `;
         } catch(e) {
           console.error('P&L render error:', e);
@@ -2535,7 +2535,7 @@ const app = {
       }
     }
     // AR from invoices
-    if (ar === 0) ar = DATA.invoices.filter(i=>i.status!=='paid').reduce((s,i)=>s+(Number(i.amount)-Number(i.amount_paid||0)),0);
+    if (ar === 0) ar = (DATA.invoices || []).filter(i=>i.status!=='paid').reduce((s,i)=>s+(Number(i.amount)-Number(i.amount_paid||0)),0);
 
     const currentRatio = curLiab > 0 ? curAssets / curLiab : 0;
     const quickRatio   = curLiab > 0 ? (cash + ar) / curLiab : 0;
@@ -5357,7 +5357,7 @@ const app = {
         }
 
         // Standard format: auto-detect header row by keyword scoring
-        const headerKws = ['date','amount','debit','credit','description','desc','memo','account','balance','status','type','check','payee','vendor','category','reference'];
+        const headerKws = ['date','amount','debit','credit','description','desc','memo','account','balance','status','type','check','payee','vendor','category','reference','posting','merchant','transaction','card','payment'];
         const scoreRow = r => r.filter(c => { const k = String(c).toLowerCase().replace(/[^a-z]/g,''); return headerKws.some(kw => k.includes(kw)); }).length;
         let headerRowIdx = 0;
         for (let i = 1; i < Math.min(5, raw.length); i++) {
@@ -5439,11 +5439,11 @@ const app = {
       return -1;
     };
     let guesses = {
-      date:        detect(['date','dt']),
-      description: detect(['description','desc','memo','narration','detail']),
-      amount:      detect(['amount','amt']),
-      type:        detect(['type','transtype','trantype','txntype']),
-      entity:      detect(['entity','company','card']),
+      date:        detect(['date','dt','postingdate','transactiondate','postdate']),
+      description: detect(['description','desc','memo','narration','detail','merchant','payee']),
+      amount:      detect(['amount','amt','chargeamount','payment']),
+      type:        detect(['type','transtype','trantype','txntype','category']),
+      entity:      detect(['entity','company','card','cardmember']),
     };
     // BAI/non-standard format: if header detection fails, detect from data content
     if (guesses.date < 0) {
