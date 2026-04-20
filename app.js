@@ -3976,10 +3976,15 @@ const app = {
               </tr>
             </thead>
             <tbody>
-              ${txns.map(t => `
+              ${txns.map(t => {
+                const dateModified = t.accounting_date && t.transaction_date && t.accounting_date !== t.transaction_date;
+                return `
                 <tr data-id="${t.id}">
                   <td><input type="checkbox" class="row-check" onchange="app.onRowCheck()"></td>
-                  <td style="white-space:nowrap">${t.transaction_date || ''}</td>
+                  <td style="white-space:nowrap">
+                    <input type="date" value="${t.accounting_date || t.transaction_date || ''}" style="font-size:12px;padding:1px 3px;border:1px solid transparent;background:transparent;border-radius:3px;width:125px" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent'" onchange="app.changeInboxDate('${t.id}',this.value,this)">
+                    ${dateModified ? `<span title="Original: ${t.transaction_date}" style="cursor:help;font-size:10px;color:var(--amber,#d97706)">📝</span>` : ''}
+                  </td>
                   <td style="font-size:12px;color:var(--text);white-space:nowrap;cursor:default" title="Read-only — from CSV">${t.bank_account || '—'}</td>
                   <td style="font-size:12px;color:var(--text);white-space:nowrap;font-family:var(--mono);cursor:default" title="Read-only — from CSV">${t.account_number || '—'}</td>
                   <td><input type="text" class="desc-edit" data-id="${t.id}" value="${(t.description || '').replace(/"/g,'&quot;')}" style="font-size:13px;border:1px solid transparent;background:transparent;width:100%;min-width:180px;padding:2px 4px;border-radius:4px" onblur="app.saveDescEdit(this)" onfocus="this.style.borderColor='var(--border)'" onblur="this.style.borderColor='transparent';app.saveDescEdit(this)"></td>
@@ -4004,10 +4009,11 @@ const app = {
                   </td>
                   <td style="white-space:nowrap">
                     <button class="btn-primary classify-btn" style="font-size:12px;padding:4px 10px;background:var(--green,#16a34a);border-color:var(--green,#16a34a);opacity:0.35" onclick="app.classifyRow('${t.id}')">Classify</button>
+                    <button class="btn-outline" style="font-size:11px;padding:3px 8px;margin-left:4px" onclick="app.openSplitModal('${t.id}')" title="Split across months">✂</button>
                     <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
                   </td>
                 </tr>
-              `).join('')}
+              `}).join('')}
             </tbody>
           </table>
         </div>
@@ -4116,6 +4122,7 @@ const app = {
                   </td>
                   <td style="white-space:nowrap">
                     <button class="btn-primary classify-btn" style="font-size:12px;padding:4px 10px;background:var(--green,#16a34a);border-color:var(--green,#16a34a);opacity:0.35" onclick="app.classifyRow('${t.id}')">Classify</button>
+                    <button class="btn-outline" style="font-size:11px;padding:3px 8px;margin-left:4px" onclick="app.openSplitModal('${t.id}')" title="Split across months">✂</button>
                     <button class="btn-primary" style="font-size:12px;padding:4px 8px;background:var(--red);border-color:var(--red);margin-left:4px" onclick="app.deleteRow('${t.id}')">✕</button>
                   </td>
                 </tr>
@@ -4538,6 +4545,133 @@ const app = {
       countEl.textContent = n + ' to classify';
     }
     this.toast('Deleted');
+  },
+
+  // ---- CHANGE ACCOUNTING DATE (inbox) ----
+  async changeInboxDate(rawId, newDate, inputEl) {
+    if (!newDate) return;
+    const { error } = await supabaseClient.from('raw_transactions')
+      .update({ accounting_date: newDate }).eq('id', rawId);
+    if (error) { this.showToast('Failed to update date', 'error'); return; }
+    // Show modified indicator if date differs from original
+    const orig = inputEl?.dataset?.orig || '';
+    const parent = inputEl?.parentNode;
+    if (parent && orig && newDate !== orig) {
+      // Remove old indicator if any
+      parent.querySelectorAll('.date-mod').forEach(e => e.remove());
+      const badge = document.createElement('span');
+      badge.className = 'date-mod';
+      badge.title = 'Original: ' + orig;
+      badge.style.cssText = 'cursor:help;font-size:10px;color:var(--amber,#d97706);margin-left:2px';
+      badge.textContent = '📝';
+      parent.appendChild(badge);
+    }
+  },
+
+  // ---- SPLIT TRANSACTION (inbox) ----
+  async openSplitModal(rawId) {
+    const { data: t } = await supabaseClient.from('raw_transactions')
+      .select('*').eq('id', rawId).single();
+    if (!t) { this.showToast('Transaction not found', 'error'); return; }
+
+    const acctOptions = (DATA.coa || [])
+      .sort((a,b) => (a.code||'').localeCompare(b.code||''))
+      .map(a => `<option value="${a.id}">${a.code} — ${a.name}</option>`).join('');
+    const amt = Math.abs(Number(t.amount));
+    const title = document.getElementById('modalTitle');
+    const body = document.getElementById('modalBody');
+    if (title) title.textContent = 'Split Transaction';
+    if (body) body.innerHTML = `
+      <div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:6px;font-size:12px">
+        <strong>${t.description || ''}</strong><br>
+        Original date: ${t.transaction_date || ''} · Amount: ${fmt(amt)} · ${t.direction || ''}
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">Split into two parts:</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Part 1 — Keep</div>
+          <div class="form-group"><label style="font-size:11px">Amount</label>
+            <input type="number" id="splitAmt1" value="${amt}" step="0.01" min="0" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)"
+              oninput="document.getElementById('splitAmt2').value=(${amt}-parseFloat(this.value||0)).toFixed(2)">
+          </div>
+          <div class="form-group"><label style="font-size:11px">Date</label>
+            <input type="date" id="splitDate1" value="${t.accounting_date || t.transaction_date || ''}" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div class="form-group"><label style="font-size:11px">Account</label>
+            <select id="splitAcct1" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+              <option value="">— select —</option>${acctOptions}</select>
+          </div>
+        </div>
+        <div class="card" style="padding:12px">
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text3);margin-bottom:8px">Part 2 — Split off</div>
+          <div class="form-group"><label style="font-size:11px">Amount</label>
+            <input type="number" id="splitAmt2" value="0" step="0.01" min="0" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div class="form-group"><label style="font-size:11px">Date (target month)</label>
+            <input type="date" id="splitDate2" value="${t.accounting_date || t.transaction_date || ''}" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+          </div>
+          <div class="form-group"><label style="font-size:11px">Account</label>
+            <select id="splitAcct2" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)">
+              <option value="">— same as Part 1 —</option>${acctOptions}</select>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions" style="margin-top:12px">
+        <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="app.executeSplit('${rawId}')">Split & Classify</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  },
+
+  async executeSplit(rawId) {
+    const amt1 = parseFloat(document.getElementById('splitAmt1')?.value);
+    const amt2 = parseFloat(document.getElementById('splitAmt2')?.value);
+    const date1 = document.getElementById('splitDate1')?.value;
+    const date2 = document.getElementById('splitDate2')?.value;
+    const acct1 = document.getElementById('splitAcct1')?.value;
+    const acct2 = document.getElementById('splitAcct2')?.value || acct1;
+
+    if (!acct1) { this.showToast('Select an account for Part 1', 'error'); return; }
+    if (isNaN(amt1) || amt1 <= 0) { this.showToast('Part 1 amount must be positive', 'error'); return; }
+    if (isNaN(amt2) || amt2 <= 0) { this.showToast('Part 2 amount must be positive', 'error'); return; }
+    if (!date1 || !date2) { this.showToast('Both dates are required', 'error'); return; }
+
+    const { data: t } = await supabaseClient.from('raw_transactions')
+      .select('*').eq('id', rawId).single();
+    if (!t) { this.showToast('Transaction not found', 'error'); return; }
+
+    // Resolve entity
+    let entityCode = (window._entityById[t.entity_id] || '').toUpperCase();
+    if (!entityCode) entityCode = detectEntityFromBankAccount(t.description) || 'WBP';
+
+    const dir = t.direction || 'DEBIT';
+    const sign = dir === 'DEBIT' ? -1 : 1;
+
+    // Insert Part 1 into transactions
+    await supabaseClient.from('transactions').insert({
+      raw_transaction_id: rawId, entity: entityCode, account_id: acct1,
+      amount: sign * amt1, txn_date: t.transaction_date, acc_date: date1,
+      description: t.description, memo: 'split:1of2'
+    });
+
+    // Insert Part 2 into transactions
+    await supabaseClient.from('transactions').insert({
+      raw_transaction_id: rawId, entity: entityCode, account_id: acct2,
+      amount: sign * amt2, txn_date: t.transaction_date, acc_date: date2,
+      description: t.description, memo: 'split:2of2'
+    });
+
+    // Mark raw transaction as classified
+    await supabaseClient.from('raw_transactions').update({
+      classified: true, classified_at: new Date().toISOString(),
+      accounting_date: date1 // track the primary date
+    }).eq('id', rawId);
+
+    this.closeModal();
+    this.showToast('Transaction split and classified', 'success');
+    document.querySelector(`tr[data-id="${rawId}"]`)?.remove();
+    this.updateSidebarBadges();
   },
 
   // ---- INLINE DESCRIPTION EDIT ----
