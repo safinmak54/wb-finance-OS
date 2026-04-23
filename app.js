@@ -3,30 +3,41 @@
 // ============================================================
 
 // ---- SUPABASE CONFIG ----
-// Auto-detects environment: QA branch uses QA database, everything else uses production
-const _SUPABASE_ENVS = {
-  prod: {
-    url: 'https://fxwjadkbvlvxtxxkjqkw.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410',
-  },
-  qa: {
-    url: 'https://jvemtsgnrfzmmbuwmmrj.supabase.co',
-    key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2ZW10c2ducmZ6bW1idXdtbXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NDMxMTEsImV4cCI6MjA5MTQxOTExMX0.aMmT-A2FgTeMVtZTVV-1Oa_YPs-e_01fXwBpDLTw8xY',
-  },
-};
+// On Vercel: keys loaded from /api/config (server-side env vars, not in source code)
+// Locally: falls back to direct connection for development
 const _ENV = (() => {
   const h = window.location.hostname.toLowerCase();
   const params = new URLSearchParams(window.location.search);
-  // Production: known prod domain or local dev. Everything else = QA.
   const PROD_HOSTS = ['wb-company.vercel.app', 'localhost', '127.0.0.1', ''];
   if (params.get('env') === 'qa') return 'qa';
   if (params.get('env') === 'prod') return 'prod';
   if (PROD_HOSTS.some(ph => h === ph) || h === '') return 'prod';
-  // Any other Vercel preview deploy = QA
   return 'qa';
 })();
-const SUPABASE_URL = _SUPABASE_ENVS[_ENV].url;
-const SUPABASE_ANON_KEY = _SUPABASE_ENVS[_ENV].key;
+let SUPABASE_URL = '';
+let SUPABASE_ANON_KEY = '';
+async function _loadSupabaseConfig() {
+  const isLocal = ['localhost', '127.0.0.1', ''].includes(window.location.hostname.toLowerCase());
+  if (!isLocal) {
+    // Fetch keys from server-side API (never hardcoded in deployed code)
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const cfg = await res.json();
+        SUPABASE_URL = cfg.url;
+        SUPABASE_ANON_KEY = cfg.key;
+        return;
+      }
+    } catch(e) { console.warn('Config API unavailable, using fallback'); }
+  }
+  // Local development fallback
+  const _fb = {
+    prod: { url: 'https://fxwjadkbvlvxtxxkjqkw.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ4d2phZGtidmx2eHR4eGtqcWt3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjU5MDIsImV4cCI6MjA4OTAwMTkwMn0.nrLSqv0rPrMNlIQHjlKxNS8U3k-_R33ADKcteVUO410' },
+    qa: { url: 'https://jvemtsgnrfzmmbuwmmrj.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2ZW10c2ducmZ6bW1idXdtbXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4NDMxMTEsImV4cCI6MjA5MTQxOTExMX0.aMmT-A2FgTeMVtZTVV-1Oa_YPs-e_01fXwBpDLTw8xY' },
+  };
+  SUPABASE_URL = _fb[_ENV].url;
+  SUPABASE_ANON_KEY = _fb[_ENV].key;
+}
 
 let supabaseClient = null;
 
@@ -5081,14 +5092,20 @@ const app = {
 
     const title = document.getElementById('modalTitle');
     const body  = document.getElementById('modalBody');
+    const isJE = (t.memo || '').startsWith('je:');
     if (title) title.textContent = 'Edit Transaction';
     if (body) body.innerHTML = `
+      <div class="form-group"><label>Amount</label>
+        <input type="number" id="fEditAmount" value="${t.amount || 0}" step="0.01" style="width:100%"/>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">Negative = expense/debit, Positive = income/credit</div></div>
       <div class="form-group"><label>Category (COA)</label>
         <select id="fEditAcct">${acctOptions}</select></div>
       <div class="form-group"><label>Accounting Date</label>
         <input type="date" id="fEditAccDate" value="${t.acc_date || ''}"/></div>
+      <div class="form-group"><label>Description</label>
+        <input type="text" id="fEditDesc" value="${(t.description || '').replace(/"/g,'&quot;')}"/></div>
       <div class="form-group"><label>Memo</label>
-        <input type="text" id="fEditMemo" value="${t.memo || ''}"/></div>
+        <input type="text" id="fEditMemo" value="${(t.memo || '').replace(/"/g,'&quot;')}" ${isJE ? 'readonly style="opacity:0.5"' : ''}/></div>
       <div class="form-actions">
         <button class="btn-outline" onclick="app.closeModal()">Cancel</button>
         <button class="btn-primary" onclick="app.saveLedgerEdit('${txnId}')">Save</button>
@@ -5098,15 +5115,31 @@ const app = {
   },
 
   async saveLedgerEdit(txnId) {
+    const amount    = parseFloat(document.getElementById('fEditAmount')?.value);
     const accountId = document.getElementById('fEditAcct')?.value;
     const accDate   = document.getElementById('fEditAccDate')?.value;
+    const desc      = document.getElementById('fEditDesc')?.value?.trim();
     const memo      = document.getElementById('fEditMemo')?.value?.trim();
     if (!accountId || !accDate) { this.toast('Category and date are required'); return; }
+    if (isNaN(amount)) { this.toast('Amount is required'); return; }
 
     const { error } = await supabaseClient.from('transactions').update({
-      account_id: accountId, acc_date: accDate, memo: memo || null
+      amount, account_id: accountId, acc_date: accDate, description: desc || null, memo: memo || null
     }).eq('id', txnId);
     if (error) { this.toast('Save failed — see console'); console.error(error); return; }
+
+    // If this is a journal entry, cascade changes to journal_entries + ledger_entries
+    if (memo && memo.startsWith('je:')) {
+      const jeId = memo.replace('je:', '');
+      await supabaseClient.from('journal_entries').update({
+        accounting_date: accDate, description: desc || null
+      }).eq('id', jeId);
+      const isDebit = amount < 0;
+      await supabaseClient.from('ledger_entries').update({
+        debit_amount: isDebit ? Math.abs(amount) : 0,
+        credit_amount: isDebit ? 0 : Math.abs(amount),
+      }).eq('journal_entry_id', jeId);
+    }
 
     this.toast('Updated ✓');
     this.closeModal();
@@ -7286,6 +7319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  await _loadSupabaseConfig();
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   // Show environment badge if not production
