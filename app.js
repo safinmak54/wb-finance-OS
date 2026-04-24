@@ -4068,7 +4068,7 @@ const app = {
     const acctOptions = (accounts || []).map(a =>
       `<option value="${a.id}">${a.account_code} — ${a.account_name}</option>`
     ).join('');
-    const ccEntityCodes = ['LP','BP','SP1'];
+    const ccEntityCodes = ['LP','BP','KP','SP1'];
 
     el.innerHTML = `
       <div class="toolbar">
@@ -5724,7 +5724,7 @@ const app = {
         </label>
         <select id="importEntitySelect" class="filter-select" style="width:100%;margin-top:6px;font-size:12px">
           <option value="">— ${isCCImport ? 'Select entity (required)' : 'Auto-detect / skip'} —</option>
-          ${(isCCImport ? ['LP','BP','SP1'] : ALL_ENTITY_CODES)
+          ${(isCCImport ? ['LP','BP','KP','SP1'] : ALL_ENTITY_CODES)
             .map(e => `<option value="${e}" ${(state.globalEntity && state.globalEntity !== 'all' && e === state.globalEntity.toUpperCase()) ? 'selected' : ''}>${e}</option>`).join('')}
         </select>
         <div style="font-size:10px;color:var(--text3);margin-top:4px">Used when no per-row entity column is mapped</div>
@@ -5937,7 +5937,7 @@ const app = {
     const preEntity = this._csvImportEntity ||
       (state.globalEntity && state.globalEntity !== 'all' ? state.globalEntity.toUpperCase() : '');
     const isCCImport = this._importType === 'cc';
-    const ccCodes = ['LP','BP','SP1'];
+    const ccCodes = ['LP','BP','KP','SP1'];
     const allCodes = ALL_ENTITY_CODES;
     const entityCodes = isCCImport ? ccCodes : allCodes;
     const blankOpt = `<option value="">— Select entity ${isCCImport ? '(required)' : ''}—</option>`;
