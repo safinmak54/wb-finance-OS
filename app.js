@@ -873,15 +873,18 @@ const app = {
           const total = isExpense ? Math.abs(sumLines(lines)) : sumLines(lines);
           const totalStr = total < 0 ? `(${fmt(Math.abs(total))})` : fmt(total);
           const totalColor = isExpense ? '' : (total >= 0 ? 'color:var(--green)' : 'color:var(--red)');
+          const pct = totalRevenue > 0 ? (Math.abs(total) / totalRevenue * 100).toFixed(1) + '%' : '';
           return `
             <div class="report-line indent1" style="cursor:pointer;user-select:none" onclick="document.getElementById('${gid}').style.display=document.getElementById('${gid}').style.display==='none'?'':'none'">
               <span style="font-weight:600">▸ ${label}</span>
-              <span class="report-amount" style="${totalColor}">${totalStr}</span>
+              <span class="report-amount" style="${totalColor}">${totalStr} ${pct ? `<span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:6px">${pct}</span>` : ''}</span>
             </div>
             <div id="${gid}">
-              ${sortByCode(lines).map(g =>
-                pnlLine(`${g.account.account_code} — ${g.account.account_name}`, isExpense ? Math.abs(g.total) : g.total, 2, '', g.account.id)
-              ).join('')}
+              ${sortByCode(lines).map(g => {
+                const lineAmt = isExpense ? Math.abs(g.total) : g.total;
+                const linePct = totalRevenue > 0 ? (Math.abs(g.total) / totalRevenue * 100).toFixed(1) + '%' : '';
+                return pnlLine(`${g.account.account_code} — ${g.account.account_name}`, lineAmt, 2, '', g.account.id, linePct);
+              }).join('')}
             </div>`;
         };
 
@@ -6260,48 +6263,77 @@ const app = {
       if (el) el.textContent = val !== null ? fmt(val) : '—';
     };
 
-    ['m-revenue','m-income','m-gp','m-np','m-adspend'].forEach(id => set(id, 0));
+    ['m-revenue','m-cogs','m-gp','m-np','m-adspend','m-opex'].forEach(id => set(id, 0));
     if (!supabaseClient) return;
 
     const data = await this.fetchReportData(entity, state.globalPeriodRange);
     if (!data) return;
 
-    const groups    = this.groupByAccount(data.txns);
-    const byType    = (type) => Object.values(groups).filter(g => g.account.account_type === type);
-    const bySubtype = (sub)  => Object.values(groups).filter(g => g.account.account_subtype === sub);
-    const sum       = (arr)  => arr.reduce((s, g) => s + g.total, 0);
+    // Use same classifiers as P&L _renderPnlSummary
+    const groups = this.groupByAccount(data.txns);
+    const PNL_TYPES = new Set(['revenue', 'expense']);
+    const all = Object.values(groups).filter(g => g.account && !g.account.is_elimination && PNL_TYPES.has((g.account.account_type || '').toLowerCase()));
+    const sumG = (arr) => arr.reduce((s, g) => s + g.total, 0);
 
-    const revenue  = sum(byType('revenue'));
-    const expenses = Math.abs(sum(byType('expense')));
-    const cogs     = Math.abs(sum(Object.values(groups).filter(g => {
-      const s = (g.account.account_subtype || '').toLowerCase();
-      const t = (g.account.account_type || '').toLowerCase();
-      const c = (g.account.account_code || '');
-      return s === 'cogs' || s === 'cost of goods sold' || s.includes('cost of goods') || t.includes('cogs') || /^500\d/.test(c);
-    })));
-    const adSpend  = Math.abs(sum(bySubtype('advertising')));
-    const gp       = revenue - cogs;
-    const np       = revenue - expenses;
+    const _s = g => (g.account.account_subtype || '').toLowerCase();
+    const _t = g => (g.account.account_type || '').toLowerCase();
+    const _c = g => (g.account.account_code || '');
+    const _n = g => (g.account.account_name || '').toLowerCase();
 
-    set('m-revenue', revenue);
-    set('m-income',  cogs);       // renamed to COGS in HTML
-    set('m-gp',      gp);
-    set('m-np',      np);
-    set('m-adspend', adSpend);
+    const isReturn      = g => _n(g).includes('return') || _n(g).includes('cancellation') || _c(g) === '4900';
+    const isPlatformFee = g => _s(g) === 'platform' || _n(g).includes('platform fee');
+    const isCogs        = g => (_s(g) === 'cogs' || _s(g) === 'cost of goods sold' || _s(g).includes('cost of goods') || /^500\d/.test(_c(g))) && !isSalesTax(g);
+    const isSalesTax    = g => _c(g) === '5040' || _n(g).includes('sales tax');
+    const isAd          = g => _s(g) === 'advertising' || _n(g).includes(' ads') || _n(g).includes('ad agency') || /^600\d/.test(_c(g)) || _c(g) === '6030' || _c(g) === '6031';
+    const isLabour      = g => _s(g) === 'payroll' || _n(g).includes('wages') || _n(g).includes('contractor') || _c(g) === '6115' || _c(g) === '6121';
 
-    // Margin deltas on KPI cards
-    const setDelta = (elId, text, isNeg) => {
-      const card = document.getElementById(elId)?.closest('.metric-card');
-      const d = card?.querySelector('.metric-delta');
-      if (!d) return;
-      d.textContent = text;
-      d.className = 'metric-delta' + (isNeg ? ' neg' : '');
+    // Assign to groups (same pick logic as P&L)
+    const assigned = new Set();
+    const pick = (matcher) => {
+      const matched = all.filter(g => !assigned.has(g.account.id) && matcher(g));
+      matched.forEach(g => assigned.add(g.account.id));
+      return matched;
     };
-    if (revenue > 0) {
-      setDelta('m-np',     ((np / revenue) * 100).toFixed(1) + '% margin',       np < 0);
-      setDelta('m-gp',     ((gp / revenue) * 100).toFixed(1) + '% gross margin', gp < 0);
-      setDelta('m-income', ((cogs / revenue) * 100).toFixed(1) + '% of revenue', false);
-    }
+    const revLines      = pick(g => _t(g) === 'revenue' && !isReturn(g) && !isPlatformFee(g));
+    const returnLines   = pick(isReturn);
+    const platFeeLines  = pick(isPlatformFee);
+    const cogsLines     = pick(isCogs);
+    const salesTaxLines = pick(isSalesTax);
+    const adLines       = pick(isAd);
+    const labourLines   = pick(isLabour);
+    const otherOpex     = pick(g => _t(g) === 'expense');
+
+    const totalRev      = sumG(revLines);
+    const totalReturns  = Math.abs(sumG(returnLines));
+    const totalPlatFee  = Math.abs(sumG(platFeeLines));
+    const totalRevenue  = totalRev - totalReturns - totalPlatFee;
+    const totalCogs     = Math.abs(sumG(cogsLines)) + Math.abs(sumG(salesTaxLines));
+    const grossProfit   = totalRevenue - totalCogs;
+    const totalAd       = Math.abs(sumG(adLines));
+    const totalLabour   = Math.abs(sumG(labourLines));
+    const totalOtherOpex= Math.abs(sumG(otherOpex));
+    const totalOpex     = totalAd + totalLabour + totalOtherOpex;
+    const netProfit     = grossProfit - totalOpex;
+
+    set('m-revenue',  totalRevenue);
+    set('m-cogs',     totalCogs);
+    set('m-gp',       grossProfit);
+    set('m-adspend',  totalAd);
+    set('m-opex',     totalOpex);
+    set('m-np',       netProfit);
+
+    // Percentage of Total Revenue below each KPI
+    const setPct = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = totalRevenue > 0 ? (val / totalRevenue * 100).toFixed(1) + '%' : '—';
+    };
+    const pctEl = document.getElementById('pct-revenue');
+    if (pctEl) pctEl.textContent = '100%';
+    setPct('pct-cogs', totalCogs);
+    setPct('pct-gp', grossProfit);
+    setPct('pct-ads', totalAd);
+    setPct('pct-opex', totalOpex);
+    setPct('pct-np', netProfit);
 
     // Cash Runway KPI
     let bankBalance = 0;
@@ -7184,17 +7216,18 @@ function _cmpCols(label, curAmt) {
   const varStr = varAmt === 0 ? '—' : (varAmt > 0 ? `+${fmt(varAmt)}` : `(${fmt(Math.abs(varAmt))})`);
   return `<span class="report-amount-cmp">${cmpAmt < 0 ? `(${fmt(Math.abs(cmpAmt))})` : fmt(cmpAmt)}</span><span class="report-amount-var" style="color:${varColor}">${varStr}</span>`;
 }
-function pnlLine(label, amount, indent, style = '', accountId = null) {
+function pnlLine(label, amount, indent, style = '', accountId = null, pctStr = '') {
   const cls = indent === 2 ? 'indent2' : 'indent1';
   if (!amount && amount !== 0) return `<div class="report-line ${cls}"><span style="font-weight:${style==='group'?'500':'400'}">${label}</span>${_pnlCmp ? '<span></span><span></span><span></span>' : ''}</div>`;
   const muted = style === 'muted';
   const amtStr = amount < 0 ? `(${fmt(Math.abs(amount))})` : fmt(amount);
+  const pctSpan = pctStr ? ` <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:4px">${pctStr}</span>` : '';
   const drillAttr = (accountId && amount !== null && amount !== undefined)
     ? `onclick="app.drillDown('${accountId}','${label.replace(/'/g,"\\'")}')" style="cursor:pointer;text-decoration:underline dotted var(--text3)"`
     : '';
   return `<div class="report-line ${cls}">
     <span style="color:${muted?'var(--text3)':'inherit'};font-size:${muted?'11px':'13px'}">${label}</span>
-    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':''}" ${drillAttr}>${amtStr}</span>${_cmpCols(label, amount)}` : `${_pnlCmp ? '<span></span><span></span><span></span>' : ''}`}
+    ${!muted ? `<span class="report-amount ${style==='pos'?'pos':style==='neg'?'neg':''}" ${drillAttr}>${amtStr}${pctSpan}</span>${_cmpCols(label, amount)}` : `${_pnlCmp ? '<span></span><span></span><span></span>' : ''}`}
   </div>`;
 }
 function pnlTotal(label, amount, style = '') {
