@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — mirror the legacy palette in legacy/styles.css.
+ * Naming follows the shadcn convention so utilities read naturally:
+ *   bg-background, text-foreground, bg-surface, border-border, ...
+ */
+@theme {
+  --color-background: #f0f2f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8f9fa;
+
+  --color-border: #e8ecf0;
+  --color-border-strong: #d0d7de;
+
+  --color-foreground: #0f172a;
+  --color-muted: #64748b;
+  --color-subtle: #94a3b8;
+
+  --color-primary: #1e3a5f;
+  --color-primary-hover: #16304f;
+  --color-primary-foreground: #ffffff;
+  --color-primary-soft: #ebf2ff;
+
+  --color-sidebar: #1e3a5f;
+  --color-sidebar-foreground: #ffffff;
+
+  --color-success: #059669;
+  --color-success-bright: #10b981;
+  --color-success-soft: #ecfdf5;
+
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
+
+  --color-info: #2563eb;
+  --color-info-soft: #eff6ff;
+
+  --color-purple: #7c3aed;
+  --color-purple-soft: #f5f3ff;
+
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), ui-monospace, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-pop: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+
+  --layout-sidebar-w: 224px;
+  --layout-sidebar-collapsed-w: 56px;
+  --layout-topbar-h: 58px;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 4px;
+  }
+}

@@ -1,0 +1,21 @@
+-- ============================================================
+-- 0001_baseline_schema.sql
+-- Baseline schema as known at the time of the Next.js migration.
+--
+-- This file is a placeholder for `supabase db dump` output. Run
+--   supabase db dump --schema public --data-only=false > 0001_baseline_schema.sql
+-- against the production Supabase project to populate it. The
+-- live schema is the authoritative source — this file just gives
+-- us a checked-in baseline so subsequent migrations can layer on
+-- predictably.
+--
+-- The tables we know are in use (from legacy/app.js):
+--   entities, accounts, vendors, invoices,
+--   raw_transactions, transactions, journal_entries, ledger_entries,
+--   classification_rules, closed_periods, cash_balances,
+--   reconciliation_matches, ap_items, profiles, cfo_notes,
+--   bank_connections.
+-- ============================================================
+
+-- Intentionally empty: replace with the dump from the live DB before
+-- applying 0002+.
