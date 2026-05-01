@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -38,7 +38,7 @@ export async function createAccount(
   const me = await requireRole(ACCOUNT_ROLES);
   const parsed = CreateAccountSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data, error } = await supabase
     .from("accounts")
     .insert({
@@ -73,7 +73,7 @@ export async function updateAccount(
   const me = await requireRole(ACCOUNT_ROLES);
   const parsed = UpdateAccountSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { id, ...fields } = parsed;
   const { error } = await supabase
     .from("accounts")
@@ -102,7 +102,7 @@ export async function updateAccount(
 
 export async function deactivateAccount(id: string) {
   const me = await requireRole(ACCOUNT_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("accounts")
     .update({ is_active: false })

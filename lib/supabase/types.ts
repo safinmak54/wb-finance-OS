@@ -159,12 +159,14 @@ export type ReconciliationMatch = {
 
 export type ApItem = {
   id: string;
-  vendor_id: string | null;
-  vendor_name: string | null;
+  vendor: string;
+  entity: string | null;
+  invoice_date: string | null;
+  due_date: string;
   amount: number;
-  due_date: string | null;
-  status: string | null;
-  created_at: string;
+  paid: boolean;
+  dispute_note: string | null;
+  created_at: string | null;
 }
 
 export type Profile = {

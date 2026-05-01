@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listLedgerView } from "@/lib/queries/transactions";
 import { listReconciliationMatches } from "@/lib/queries/reconcile";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
@@ -17,7 +17,7 @@ export default async function ReconcilePage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const [bookSide, matches] = await Promise.all([
     listLedgerView(supabase, {
       entity,

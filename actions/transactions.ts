@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 import { normalizeDate } from "@/lib/format";
@@ -26,7 +26,7 @@ export async function classifyTransaction(
   const me = await requireRole(TXN_ROLES);
   const parsed = ClassifyOneSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   const { data: raw, error: loadErr } = await supabase
     .from("raw_transactions")
@@ -141,7 +141,7 @@ export async function splitTransaction(input: z.input<typeof SplitSchema>) {
   const me = await requireRole(TXN_ROLES);
   const parsed = SplitSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data: parent, error } = await supabase
     .from("raw_transactions")
     .select("*")
@@ -197,7 +197,7 @@ export async function splitTransaction(input: z.input<typeof SplitSchema>) {
 
 export async function deleteRawTransaction(id: string) {
   const me = await requireRole(TXN_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("raw_transactions")
     .delete()
@@ -229,7 +229,7 @@ export async function editTransaction(input: z.input<typeof EditTxnSchema>) {
   const parsed = EditTxnSchema.parse(input);
   const { id, ...fields } = parsed;
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("transactions")
     .update(fields)

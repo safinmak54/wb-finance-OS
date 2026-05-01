@@ -8,7 +8,8 @@ export async function listReconciliationMatches(
     .from("reconciliation_matches")
     .select("id, statement_txn_id, book_txn_id, match_status, amount");
   if (error) {
-    if ((error as { code?: string }).code === "42P01") return [];
+    const code = (error as { code?: string }).code;
+    if (code === "42P01" || code === "PGRST205") return [];
     throw error;
   }
   return data ?? [];

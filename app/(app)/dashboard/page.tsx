@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { fetchReportData, totals } from "@/lib/queries/reports";
 import { listOpenInvoices } from "@/lib/queries/invoices";
 import { listCashBalances } from "@/lib/queries/cash";
@@ -18,7 +18,7 @@ export default async function DashboardPage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   const [reportData, openInvoices, cashRows] = await Promise.all([
     fetchReportData(supabase, {

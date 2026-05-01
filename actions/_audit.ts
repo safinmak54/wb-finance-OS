@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import type { Json } from "@/lib/supabase/types";
 
 type AuditOp = "INSERT" | "UPDATE" | "DELETE";
@@ -17,7 +17,7 @@ export async function writeAuditLog(args: {
   before?: Json | null;
   after?: Json | null;
 }): Promise<void> {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase.from("audit_log").insert({
     actor_user_id: args.actorUserId,
     table_name: args.table,
@@ -27,9 +27,10 @@ export async function writeAuditLog(args: {
     after: args.after ?? null,
   });
   if (error) {
-    // 42P01 = table does not exist; tolerate until Phase E migration runs.
+    // 42P01 / PGRST205 = table does not exist; tolerate until Phase E
+    // migration runs (PGRST205 is the PostgREST schema-cache variant).
     const code = (error as { code?: string }).code;
-    if (code === "42P01") return;
+    if (code === "42P01" || code === "PGRST205") return;
     console.error("[audit_log]", error);
   }
 }

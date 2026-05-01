@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 import { parseSpreadsheet, detectColumns } from "@/lib/import/parse";
@@ -66,7 +66,7 @@ export async function commitImport(
   const buf = Buffer.from(await file.arrayBuffer());
   const parsed = await parseSpreadsheet(file.name, buf);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data: entitiesData } = await supabase
     .from("entities")
     .select("id, code");

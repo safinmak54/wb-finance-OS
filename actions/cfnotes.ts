@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -23,7 +23,7 @@ export async function createCfoNote(input: z.input<typeof CreateNoteSchema>) {
   const me = await requireRole(NOTE_ROLES);
   const parsed = CreateNoteSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data, error } = await supabase
     .from("cfo_notes")
     .insert({
@@ -50,7 +50,7 @@ export async function updateCfoNote(input: z.input<typeof UpdateNoteSchema>) {
   const me = await requireRole(NOTE_ROLES);
   const parsed = UpdateNoteSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("cfo_notes")
     .update({
@@ -74,7 +74,7 @@ export async function updateCfoNote(input: z.input<typeof UpdateNoteSchema>) {
 
 export async function deleteCfoNote(id: string) {
   const me = await requireRole(NOTE_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase.from("cfo_notes").delete().eq("id", id);
   if (error) throw new Error(error.message);
 

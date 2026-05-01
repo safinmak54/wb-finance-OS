@@ -1,12 +1,12 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listCfoNotes } from "@/lib/queries/notes";
 import { CfNotesClient } from "./CfNotesClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function CfNotesPage() {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const notes = await listCfoNotes(supabase);
 
   return (

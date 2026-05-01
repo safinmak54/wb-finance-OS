@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -28,7 +28,7 @@ export async function createBankConnection(
   const me = await requireRole(BANK_ROLES);
   const parsed = CreateBankSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data, error } = await supabase
     .from("bank_connections")
     .insert({
@@ -59,7 +59,7 @@ export async function updateBankConnection(
   const me = await requireRole(BANK_ROLES);
   const parsed = UpdateBankSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { id, ...fields } = parsed;
   const { error } = await supabase
     .from("bank_connections")
@@ -85,7 +85,7 @@ export async function updateBankConnection(
 
 export async function deleteBankConnection(id: string) {
   const me = await requireRole(BANK_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("bank_connections")
     .delete()

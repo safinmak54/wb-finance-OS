@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listInvoices } from "@/lib/queries/invoices";
 import { listVendors } from "@/lib/queries/vendors";
 import { InvoicesClient } from "./InvoicesClient";
@@ -7,7 +7,7 @@ import { InvoicesClient } from "./InvoicesClient";
 export const dynamic = "force-dynamic";
 
 export default async function InvoicesPage() {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const [invoices, vendors] = await Promise.all([
     listInvoices(supabase),
     listVendors(supabase),

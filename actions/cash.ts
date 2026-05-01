@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -20,7 +20,7 @@ export async function saveCashBalance(
   const me = await requireRole(CASH_ROLES);
   const parsed = SaveCashBalanceSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   if (parsed.value === null || parsed.value === 0) {
     const { error } = await supabase

@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listCashBalances } from "@/lib/queries/cash";
 import { fetchReportData, totals } from "@/lib/queries/reports";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
@@ -23,7 +23,7 @@ export default async function ForecastPage({
 }) {
   const sp = await searchParams;
   const entity = entityFilterFromSearchParams(sp);
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   const today = new Date().toISOString().slice(0, 10);
   const trailing30 = new Date(

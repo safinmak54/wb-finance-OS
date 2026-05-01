@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -28,7 +28,7 @@ export async function createInvoice(
   const me = await requireRole(INVOICE_ROLES);
   const parsed = CreateInvoiceSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data, error } = await supabase
     .from("invoices")
     .insert({
@@ -61,7 +61,7 @@ export async function recordPayment(input: z.input<typeof PayInvoiceSchema>) {
   const me = await requireRole(INVOICE_ROLES);
   const parsed = PayInvoiceSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data: existing } = await supabase
     .from("invoices")
     .select("amount, amount_paid")
@@ -95,7 +95,7 @@ export async function recordPayment(input: z.input<typeof PayInvoiceSchema>) {
 
 export async function deleteInvoice(id: string) {
   const me = await requireRole(INVOICE_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) throw new Error(error.message);
 

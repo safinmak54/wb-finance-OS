@@ -16,7 +16,11 @@ export type LedgerRow = Transaction & {
   > | null;
 };
 
-/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources. */
+const CC_SOURCES = "(credit_card,amex,capital_one)";
+const CAPONE_DESC_LIKE = "%CAPITAL ONE ONLINE%";
+
+/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources
+ *  AND Capital One Online description matches (mirrors legacy renderInbox). */
 export async function listUnclassifiedBank(
   supabase: Sb,
   opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
@@ -31,15 +35,18 @@ export async function listUnclassifiedBank(
     q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
   }
 
-  // Exclude credit-card sources from the bank inbox
-  q = q.not("source", "in", "(credit_card,amex,capital_one)");
+  q = q
+    .not("source", "in", CC_SOURCES)
+    .not("description", "ilike", CAPONE_DESC_LIKE);
 
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
 }
 
-/** CC-side inbox: unclassified credit-card rows. */
+/** CC-side inbox: unclassified credit-card rows. Mirrors legacy renderCCInbox
+ *  which uses `or(source.in.(…), description.ilike.%CAPITAL ONE ONLINE%)`
+ *  so untagged Capital One Online rows still surface here. */
 export async function listUnclassifiedCC(
   supabase: Sb,
   opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
@@ -54,7 +61,9 @@ export async function listUnclassifiedCC(
     q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
   }
 
-  q = q.in("source", ["credit_card", "amex", "capital_one"]);
+  q = q.or(
+    `source.in.${CC_SOURCES},description.ilike.${CAPONE_DESC_LIKE}`,
+  );
 
   const { data, error } = await q;
   if (error) throw error;
@@ -97,15 +106,56 @@ export async function inboxCounts(supabase: Sb): Promise<{
       .from("raw_transactions")
       .select("id", { count: "exact", head: true })
       .eq("classified", false)
-      .not("source", "in", "(credit_card,amex,capital_one)"),
+      .not("source", "in", CC_SOURCES)
+      .not("description", "ilike", CAPONE_DESC_LIKE),
     supabase
       .from("raw_transactions")
       .select("id", { count: "exact", head: true })
       .eq("classified", false)
-      .in("source", ["credit_card", "amex", "capital_one"]),
+      .or(`source.in.${CC_SOURCES},description.ilike.${CAPONE_DESC_LIKE}`),
   ]);
   return {
     bank: bank.count ?? 0,
     cc: cc.count ?? 0,
   };
+}
+
+export type DrillDownTxn = {
+  id: string;
+  acc_date: string;
+  description: string | null;
+  entity: string;
+  amount: number;
+  account_id: string | null;
+  memo: string | null;
+  raw_transaction_id: string | null;
+};
+
+/** P&L drill-down: transactions for a single account in a period.
+ *  Mirrors `app.drillDown()` from legacy/app.js (~line 3726). */
+export async function listTxnsForAccount(
+  supabase: Sb,
+  args: {
+    accountId: string;
+    range: { from: string; to: string };
+    entity?: EntityFilterValue;
+  },
+): Promise<DrillDownTxn[]> {
+  let q = supabase
+    .from("transactions")
+    .select(
+      "id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id",
+    )
+    .eq("account_id", args.accountId)
+    .gte("acc_date", args.range.from)
+    .lte("acc_date", args.range.to)
+    .order("acc_date", { ascending: false });
+
+  if (args.entity && args.entity !== "all") {
+    q = applyEntityCodeFilter(q, "entity", args.entity);
+  }
+
+  const { data, error } = await q.returns<DrillDownTxn[]>();
+  if (error) throw error;
+  return data ?? [];
 }

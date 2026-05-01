@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listUnclassifiedCC } from "@/lib/queries/transactions";
 import { listAccounts } from "@/lib/queries/accounts";
 import { entityCodeToId, listEntities } from "@/lib/queries/entities";
@@ -16,7 +16,7 @@ export default async function CcInboxPage({
   const sp = await searchParams;
   const entity = entityFilterFromSearchParams(sp);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const codeToId = await entityCodeToId(supabase);
   const idToCode: Record<string, string> = {};
   for (const [code, id] of Object.entries(codeToId)) idToCode[id] = code;

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -47,7 +47,7 @@ export async function createJournal(
   const parsed = CreateJournalSchema.parse(input);
   assertBalanced(parsed.lines);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   // Resolve entity_id (text code → uuid). Tolerate WB-ALL by leaving null.
   const { data: ent } = await supabase
@@ -119,7 +119,7 @@ export async function createJournal(
 
 export async function deleteJournal(id: string) {
   const me = await requireRole(WRITE_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   // Remove the mirrored book-side transactions first
   await supabase.from("transactions").delete().eq("memo", `je:${id}`);
@@ -152,7 +152,7 @@ export async function closeMonth(input: z.input<typeof CloseMonthSchema>) {
   const me = await requireRole(WRITE_ROLES);
   const parsed = CloseMonthSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase.from("closed_periods").insert({
     period: parsed.period,
     entity: parsed.entity ?? null,
@@ -174,7 +174,7 @@ export async function reopenMonth(input: z.input<typeof CloseMonthSchema>) {
   const me = await requireRole(WRITE_ROLES);
   const parsed = CloseMonthSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   let q = supabase.from("closed_periods").delete().eq("period", parsed.period);
   if (parsed.entity) q = q.eq("entity", parsed.entity);
   const { error } = await q;

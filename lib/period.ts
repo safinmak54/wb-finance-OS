@@ -10,7 +10,7 @@
  *   - "custom"     → use provided from/to
  *   - "YYYY-MM"    → that single month
  *
- * Default: current month (matches legacy default landing).
+ * Default: year-to-date (covers sparse activity better than current-month).
  */
 
 export type PeriodKey =
@@ -60,7 +60,7 @@ export function resolvePeriod(input: {
   to?: string | null;
 }): PeriodRange {
   const today = todayUtc();
-  const key = (input.key ?? "month") as PeriodKey;
+  const key = (input.key ?? "ytd") as PeriodKey;
 
   // YYYY-MM
   if (/^\d{4}-\d{2}$/.test(key)) {

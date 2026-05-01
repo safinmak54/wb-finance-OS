@@ -18,7 +18,8 @@ export async function listBankConnections(
     .order("institution");
   if (error) {
     // Table may not exist yet in some envs; return empty rather than crash.
-    if ((error as { code?: string }).code === "42P01") return [];
+    const code = (error as { code?: string }).code;
+    if (code === "42P01" || code === "PGRST205") return [];
     throw error;
   }
   return data ?? [];

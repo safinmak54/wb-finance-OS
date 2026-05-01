@@ -8,24 +8,46 @@ import { Button } from "@/components/ui/Button";
 import { Field, TextInput } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDate } from "@/lib/format";
-import { recordPayment } from "@/actions/invoices";
+import { payApItem, disputeApItem } from "@/actions/ap";
 import { cn } from "@/lib/utils/cn";
-import type { InvoiceWithVendor } from "@/lib/queries/invoices";
+import type { ApItem } from "@/lib/supabase/types";
 
-type Props = { invoices: InvoiceWithVendor[]; today: string };
+type Props = { items: ApItem[]; today: string };
 
-export function ApClient({ invoices, today }: Props) {
+export function ApClient({ items, today }: Props) {
   const toast = useToast();
-  const [paying, setPaying] = useState<InvoiceWithVendor | null>(null);
+  const [disputing, setDisputing] = useState<ApItem | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
-  const columns = useMemo<ColumnDef<InvoiceWithVendor>[]>(
+  async function onPay(item: ApItem) {
+    setPendingId(item.id);
+    try {
+      await payApItem({ id: item.id });
+      toast.push("Marked as paid", "success");
+    } catch (err) {
+      toast.push((err as Error).message, "error");
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  const columns = useMemo<ColumnDef<ApItem>[]>(
     () => [
       {
-        accessorFn: (r) => r.vendors?.name ?? "—",
-        id: "vendor",
+        accessorKey: "vendor",
         header: "Vendor",
       },
-      { accessorKey: "invoice_number", header: "Number" },
+      { accessorKey: "entity", header: "Entity" },
+      {
+        accessorKey: "invoice_date",
+        header: "Invoice date",
+        cell: (c) => {
+          const d = c.getValue<string | null>();
+          return (
+            <span className="font-mono text-[11px]">{d ? fmtDate(d) : "—"}</span>
+          );
+        },
+      },
       {
         accessorKey: "due_date",
         header: "Due",
@@ -42,89 +64,111 @@ export function ApClient({ invoices, today }: Props) {
       },
       {
         accessorKey: "amount",
-        header: "Total",
-        cell: (c) => <span className="font-mono">{fmt(c.getValue<number>())}</span>,
-      },
-      {
-        accessorKey: "amount_paid",
-        header: "Paid",
+        header: "Amount",
         cell: (c) => (
-          <span className="font-mono text-success">
-            {fmt(c.getValue<number>() ?? 0)}
+          <span className="font-mono font-semibold">
+            {fmt(c.getValue<number>())}
           </span>
         ),
       },
       {
-        accessorFn: (r) => Number(r.amount) - Number(r.amount_paid ?? 0),
-        id: "remaining",
-        header: "Remaining",
-        cell: (c) => (
-          <span className="font-mono font-semibold">{fmt(c.getValue<number>())}</span>
-        ),
+        id: "aging",
+        header: "Aging",
+        cell: (c) => {
+          const due = c.row.original.due_date;
+          const days = Math.floor(
+            (new Date(today).getTime() - new Date(due).getTime()) / 86400000,
+          );
+          const label =
+            days < 0
+              ? "Current"
+              : days <= 30
+                ? "1–30d"
+                : days <= 60
+                  ? "31–60d"
+                  : days <= 90
+                    ? "61–90d"
+                    : "90+d";
+          const tone =
+            days < 0
+              ? "text-success"
+              : days <= 60
+                ? "text-warning"
+                : "text-danger";
+          return <span className={cn("text-[11px] font-medium", tone)}>{label}</span>;
+        },
       },
       {
         id: "actions",
         header: "",
         cell: (c) => (
-          <button
-            type="button"
-            className="text-[11px] font-medium text-info hover:underline"
-            onClick={() => setPaying(c.row.original)}
-          >
-            Pay
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="text-[11px] font-medium text-info hover:underline disabled:opacity-50"
+              disabled={pendingId === c.row.original.id}
+              onClick={() => onPay(c.row.original)}
+            >
+              {pendingId === c.row.original.id ? "Saving…" : "Pay"}
+            </button>
+            <button
+              type="button"
+              className="text-[11px] font-medium text-warning hover:underline"
+              onClick={() => setDisputing(c.row.original)}
+            >
+              Dispute
+            </button>
+          </div>
         ),
       },
     ],
-    [today],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [today, pendingId],
   );
 
   return (
     <>
       <DataTable
         columns={columns}
-        data={invoices}
+        data={items}
         searchPlaceholder="Search payables…"
       />
 
-      <PayModal
-        key={paying?.id ?? "pay-empty"}
-        open={paying !== null}
-        invoice={paying}
-        onClose={() => setPaying(null)}
+      <DisputeModal
+        key={disputing?.id ?? "dispute-empty"}
+        open={disputing !== null}
+        item={disputing}
+        onClose={() => setDisputing(null)}
         onSubmitted={() => {
-          setPaying(null);
-          toast.push("Payment recorded", "success");
+          setDisputing(null);
+          toast.push("Dispute note saved", "success");
         }}
       />
     </>
   );
 }
 
-function PayModal({
+function DisputeModal({
   open,
-  invoice,
+  item,
   onClose,
   onSubmitted,
 }: {
   open: boolean;
-  invoice: InvoiceWithVendor | null;
+  item: ApItem | null;
   onClose: () => void;
   onSubmitted: () => void;
 }) {
-  const remaining = invoice
-    ? Number(invoice.amount) - Number(invoice.amount_paid ?? 0)
-    : 0;
-  const [amount, setAmount] = useState(String(remaining));
+  const [note, setNote] = useState(item?.dispute_note ?? "");
   const [error, setError] = useState<string | null>(null);
 
-  if (!invoice) return null;
+  if (!item) return null;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await recordPayment({ id: invoice!.id, amount_paid: Number(amount) });
+      await disputeApItem({ id: item!.id, note });
       onSubmitted();
     } catch (err) {
       setError((err as Error).message);
@@ -132,21 +176,20 @@ function PayModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={`Pay ${invoice.invoice_number}`}>
+    <Modal open={open} onClose={onClose} title={`Dispute · ${item.vendor}`}>
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
         <div className="rounded-md bg-surface-2 p-3 text-xs">
-          <div>Vendor: <strong>{invoice.vendors?.name}</strong></div>
-          <div>Remaining: <span className="font-mono">{fmt(remaining)}</span></div>
+          <div>Vendor: <strong>{item.vendor}</strong></div>
+          <div>Amount: <span className="font-mono">{fmt(item.amount)}</span></div>
+          <div>Due: <span className="font-mono">{item.due_date}</span></div>
         </div>
-        <Field label="Payment amount">
+        <Field label="Dispute note">
           <TextInput
-            type="number"
             required
-            min="0"
-            max={String(remaining)}
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            minLength={1}
+            maxLength={500}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
           />
         </Field>
         {error ? <div className="text-[11px] text-danger">{error}</div> : null}
@@ -155,7 +198,7 @@ function PayModal({
             Cancel
           </Button>
           <Button type="submit" size="sm">
-            Record payment
+            Save note
           </Button>
         </div>
       </form>

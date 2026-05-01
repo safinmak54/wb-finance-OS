@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listRevenue, bucketByDay } from "@/lib/queries/sales";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { periodFromSearchParams } from "@/lib/period";
@@ -16,7 +16,7 @@ export default async function SalesPage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const txns = await listRevenue(supabase, {
     entity,
     from: period.from,

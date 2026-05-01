@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { fetchReportData, totals } from "@/lib/queries/reports";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { periodFromSearchParams } from "@/lib/period";
@@ -17,7 +17,7 @@ export default async function RatiosPage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
 
   // Period P&L data
   const periodData = await fetchReportData(supabase, {

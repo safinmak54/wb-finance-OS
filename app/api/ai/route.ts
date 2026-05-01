@@ -3,10 +3,10 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { readServerEnv } from "@/lib/env";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { getCurrentProfile } from "@/lib/auth/profile";
 import { canDoAction } from "@/lib/auth/permissions";
-import { fetchReportData, totals } from "@/lib/queries/reports";
+import { fetchReportData, totals, pnlAdjustment } from "@/lib/queries/reports";
 import { listOpenInvoices } from "@/lib/queries/invoices";
 import { listCashBalances } from "@/lib/queries/cash";
 import { fmt } from "@/lib/format";
@@ -55,7 +55,7 @@ async function buildContext(opts: {
   period?: string;
   entity?: string;
 }): Promise<string> {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const period = periodFromSearchParams({ period: opts.period });
   const entity = (opts.entity ?? "all") as Parameters<typeof fetchReportData>[1]["entity"];
 
@@ -70,8 +70,12 @@ async function buildContext(opts: {
   ]);
 
   const t = totals(report.txns);
-  const grossProfit = t.revenue - t.cogs;
-  const netIncome = grossProfit - t.expense;
+  const adj = pnlAdjustment(report.journals);
+  const adjRevenue = t.revenue + adj.revenue;
+  const adjCogs = t.cogs + adj.cogs;
+  const adjExpense = t.expense + adj.expense;
+  const grossProfit = adjRevenue - adjCogs;
+  const netIncome = grossProfit - adjExpense;
 
   const sec1Keys = ["tfb", "hunt", "vend_pay", "cc", "int_xfer", "google", "hunt_bal"];
   const payableKeys = ["cc_pay", "vend_pmts", "goog_pend", "fedex"];
@@ -96,9 +100,9 @@ async function buildContext(opts: {
   return [
     `Period: ${period.label} (${period.from} → ${period.to})`,
     `Entity scope: ${opts.entity ?? "all"}`,
-    `Revenue: ${fmt(t.revenue)}`,
-    `COGS: ${fmt(t.cogs)}`,
-    `Operating expenses: ${fmt(t.expense)}`,
+    `Revenue: ${fmt(adjRevenue)}${adj.revenue ? ` (incl. ${fmt(adj.revenue)} JE adj)` : ""}`,
+    `COGS: ${fmt(adjCogs)}${adj.cogs ? ` (incl. ${fmt(adj.cogs)} JE adj)` : ""}`,
+    `Operating expenses: ${fmt(adjExpense)}${adj.expense ? ` (incl. ${fmt(adj.expense)} JE adj)` : ""}`,
     `Gross profit: ${fmt(grossProfit)}`,
     `Net income: ${fmt(netIncome)}`,
     `Cash position (latest manual): ${fmt(cash - payables)}`,

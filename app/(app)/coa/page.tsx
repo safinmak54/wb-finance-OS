@@ -1,5 +1,5 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listAccountsWithBalances } from "@/lib/queries/accounts";
 import { periodFromSearchParams } from "@/lib/period";
 import { CoaClient } from "./CoaClient";
@@ -13,7 +13,7 @@ export default async function CoaPage({
 }) {
   const sp = await searchParams;
   const period = periodFromSearchParams(sp);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const accounts = await listAccountsWithBalances(supabase, {
     from: period.from,
     to: period.to,

@@ -1,12 +1,12 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listCashBalances } from "@/lib/queries/cash";
 import { CashBalancesClient } from "./CashBalancesClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function CashBalancesPage() {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const rows = await listCashBalances(supabase);
 
   const latest = rows.reduce<string | null>((acc, r) => {

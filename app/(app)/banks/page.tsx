@@ -1,12 +1,12 @@
 import { PageShell } from "@/components/shell/PageShell";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { listBankConnections } from "@/lib/queries/cash";
 import { BanksClient } from "./BanksClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function BanksPage() {
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const banks = await listBankConnections(supabase);
 
   return (

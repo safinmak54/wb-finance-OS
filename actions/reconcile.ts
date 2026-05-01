@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -19,7 +19,7 @@ export async function markMatched(input: z.input<typeof MatchSchema>) {
   const me = await requireRole(RECON_ROLES);
   const parsed = MatchSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("reconciliation_matches")
     .upsert(parsed, { onConflict: "statement_txn_id" });
@@ -37,7 +37,7 @@ export async function markMatched(input: z.input<typeof MatchSchema>) {
 
 export async function unmatch(statementTxnId: string) {
   const me = await requireRole(RECON_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("reconciliation_matches")
     .delete()

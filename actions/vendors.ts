@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -23,7 +23,7 @@ export async function createVendor(input: z.input<typeof CreateVendorSchema>) {
   const me = await requireRole(VENDOR_ROLES);
   const parsed = CreateVendorSchema.parse(input);
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { data, error } = await supabase
     .from("vendors")
     .insert({
@@ -52,7 +52,7 @@ export async function updateVendor(input: z.input<typeof UpdateVendorSchema>) {
   const parsed = UpdateVendorSchema.parse(input);
   const { id, ...fields } = parsed;
 
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("vendors")
     .update({
@@ -75,7 +75,7 @@ export async function updateVendor(input: z.input<typeof UpdateVendorSchema>) {
 
 export async function deleteVendor(id: string) {
   const me = await requireRole(VENDOR_ROLES);
-  const supabase = await createClient();
+  const supabase = createDataClient();
   const { error } = await supabase
     .from("vendors")
     .update({ is_active: false })

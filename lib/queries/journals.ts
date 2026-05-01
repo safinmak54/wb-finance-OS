@@ -71,3 +71,44 @@ export async function listClosedPeriods(
   if (error) throw error;
   return data ?? [];
 }
+
+export type JeTaggedTxn = {
+  id: string;
+  acc_date: string;
+  description: string | null;
+  amount: number;
+  memo: string | null;
+  account_id: string | null;
+  accounts: Pick<Account, "account_code" | "account_name"> | null;
+};
+
+/**
+ * Fallback for the journals view: transactions tagged with `memo LIKE 'je:%'`.
+ * Mirrors legacy/app.js (~line 1563): catches journal-derived postings whose
+ * `journal_entries` FK join failed but the offsetting transaction was posted.
+ * Caller dedupes by JE id (memo strips the `je:` prefix).
+ */
+export async function listJeTaggedTransactions(
+  supabase: Sb,
+  opts: {
+    range: { from: string; to: string };
+    entity?: EntityFilterValue;
+  },
+): Promise<JeTaggedTxn[]> {
+  let q = supabase
+    .from("transactions")
+    .select(
+      "id, acc_date, description, amount, memo, account_id, accounts(account_code, account_name)",
+    )
+    .like("memo", "je:%")
+    .gte("acc_date", opts.range.from)
+    .lte("acc_date", opts.range.to);
+
+  if (opts.entity && opts.entity !== "all") {
+    q = applyEntityCodeFilter(q, "entity", opts.entity);
+  }
+
+  const { data, error } = await q.returns<JeTaggedTxn[]>();
+  if (error) throw error;
+  return data ?? [];
+}

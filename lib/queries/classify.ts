@@ -10,7 +10,8 @@ export async function listClassificationRules(
     .eq("is_active", true)
     .order("created_at");
   if (error) {
-    if ((error as { code?: string }).code === "42P01") return [];
+    const code = (error as { code?: string }).code;
+    if (code === "42P01" || code === "PGRST205") return [];
     throw error;
   }
   return data ?? [];

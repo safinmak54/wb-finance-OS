@@ -8,7 +8,8 @@ export async function listCfoNotes(supabase: Sb): Promise<CfoNote[]> {
     .order("period", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
-    if ((error as { code?: string }).code === "42P01") return [];
+    const code = (error as { code?: string }).code;
+    if (code === "42P01" || code === "PGRST205") return [];
     throw error;
   }
   return data ?? [];
