@@ -9,6 +9,7 @@ import { canDoAction } from "@/lib/auth/permissions";
 import { fetchReportData, totals, pnlAdjustment } from "@/lib/queries/reports";
 import { listOpenInvoices } from "@/lib/queries/invoices";
 import { listCashBalances } from "@/lib/queries/cash";
+import { listTopVendorsByYtdSpend } from "@/lib/queries/vendors";
 import { fmt } from "@/lib/format";
 import { periodFromSearchParams } from "@/lib/period";
 
@@ -59,7 +60,7 @@ async function buildContext(opts: {
   const period = periodFromSearchParams({ period: opts.period });
   const entity = (opts.entity ?? "all") as Parameters<typeof fetchReportData>[1]["entity"];
 
-  const [report, openInvoices, cashRows] = await Promise.all([
+  const [report, openInvoices, cashRows, topSpendVendors] = await Promise.all([
     fetchReportData(supabase, {
       entity,
       from: period.from,
@@ -67,6 +68,7 @@ async function buildContext(opts: {
     }),
     listOpenInvoices(supabase),
     listCashBalances(supabase),
+    listTopVendorsByYtdSpend(supabase, 3),
   ]);
 
   const t = totals(report.txns);
@@ -109,7 +111,12 @@ async function buildContext(opts: {
     `Open invoices: ${openInvoices.length} totaling ${fmt(openInvoices.reduce((s, i) => s + Number(i.amount) - Number(i.amount_paid ?? 0), 0))}`,
     `Overdue: ${overdue.length} invoices`,
     `Top open balances: ${topVendors.map((i) => `${i.vendors?.name ?? "?"} ${fmt(Number(i.amount) - Number(i.amount_paid ?? 0))}`).join(", ")}`,
-  ].join("\n");
+    topSpendVendors.length
+      ? `Top vendors YTD spend: ${topSpendVendors.map((v) => `${v.name} ${fmt(Number(v.ytd_spend ?? 0))}`).join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 const SYSTEM_PROMPT = `You are a financial thinking partner for WB Brands, a multi-entity holding company.

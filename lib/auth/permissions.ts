@@ -31,6 +31,7 @@ export const PAGES = [
   "cashflow",
   "forecast",
   "cash-balances",
+  "cashbook",
   "ratios",
   "cfnotes",
   "sales",
@@ -39,6 +40,7 @@ export const PAGES = [
   "banks",
   "import",
   "admin-users",
+  "admin-rules",
 ] as const;
 export type PageId = (typeof PAGES)[number];
 
@@ -58,6 +60,7 @@ export const PAGE_ACCESS: Record<PageId, readonly Role[]> = {
   cashflow:        ["coo", "cpa", "admin"],
   forecast:        ["coo", "admin"],
   "cash-balances": ["coo", "bookkeeper", "cpa", "admin"],
+  cashbook:        ["coo", "cpa", "admin"],
   ratios:          ["coo", "cpa", "admin"],
   cfnotes:         ["coo", "cpa", "admin"],
   sales:           ["coo", "admin"],
@@ -66,6 +69,7 @@ export const PAGE_ACCESS: Record<PageId, readonly Role[]> = {
   banks:           ["coo", "admin"],
   import:          ["coo", "bookkeeper", "cpa", "admin"],
   "admin-users":   ["admin"],
+  "admin-rules":   ["admin"],
 };
 
 /** Discrete capabilities (topbar buttons, dashboard cards, etc.). */
@@ -110,6 +114,7 @@ export const PAGE_PATHS: Record<PageId, string> = {
   cashflow: "/cashflow",
   forecast: "/forecast",
   "cash-balances": "/cash-balances",
+  cashbook: "/cashbook",
   ratios: "/ratios",
   cfnotes: "/cfnotes",
   sales: "/sales",
@@ -118,6 +123,7 @@ export const PAGE_PATHS: Record<PageId, string> = {
   banks: "/banks",
   import: "/import",
   "admin-users": "/admin/users",
+  "admin-rules": "/admin/rules",
 };
 
 /** Pretty labels used in the sidebar. */
@@ -136,6 +142,7 @@ export const PAGE_LABELS: Record<PageId, string> = {
   cashflow: "Cash Flow",
   forecast: "Cash Forecast",
   "cash-balances": "Cash Balances",
+  cashbook: "Cashbook",
   ratios: "Ratios & KPIs",
   cfnotes: "CFO Notes",
   sales: "Sales Metrics",
@@ -144,6 +151,7 @@ export const PAGE_LABELS: Record<PageId, string> = {
   banks: "Bank Connections",
   import: "Import Data",
   "admin-users": "Users",
+  "admin-rules": "Classification Rules",
 };
 
 /** Sidebar groups (label + ordered page ids). */
@@ -156,11 +164,11 @@ export const SIDEBAR_GROUPS: Array<{ label: string; pages: readonly PageId[] }> 
   { label: "Payables", pages: ["vendors", "invoices", "ap"] },
   {
     label: "Reports",
-    pages: ["pnl", "balance", "cashflow", "forecast", "cash-balances", "ratios", "cfnotes"],
+    pages: ["pnl", "balance", "cashflow", "forecast", "cashbook", "cash-balances", "ratios", "cfnotes"],
   },
   { label: "Sales", pages: ["sales", "productmix"] },
   { label: "Setup", pages: ["coa", "banks", "import"] },
-  { label: "Admin", pages: ["admin-users"] },
+  { label: "Admin", pages: ["admin-users", "admin-rules"] },
 ];
 
 // ---------- helpers ----------

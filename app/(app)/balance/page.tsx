@@ -44,7 +44,7 @@ export default async function BalancePage({
     type: "asset" | "liability" | "equity",
   ): { lines: StatementLine[]; total: number } {
     const filtered = groups.filter(
-      (g) => g.account?.account_type === type && !g.account?.is_elimination,
+      (g) => g.account?.account_type === type,
     );
     const lines: StatementLine[] = filtered
       .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))

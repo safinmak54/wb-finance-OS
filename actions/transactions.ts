@@ -198,6 +198,19 @@ export async function splitTransaction(input: z.input<typeof SplitSchema>) {
 export async function deleteRawTransaction(id: string) {
   const me = await requireRole(TXN_ROLES);
   const supabase = createDataClient();
+
+  const { data: existing, error: loadErr } = await supabase
+    .from("raw_transactions")
+    .select("source")
+    .eq("id", id)
+    .single();
+  if (loadErr || !existing) throw new Error("Transaction not found");
+  if (existing.source !== "manual") {
+    throw new Error(
+      "Cannot delete bank-imported transactions — use Untag in Ledger instead.",
+    );
+  }
+
   const { error } = await supabase
     .from("raw_transactions")
     .delete()

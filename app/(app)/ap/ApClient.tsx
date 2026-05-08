@@ -3,23 +3,19 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/DataTable";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
-import { Field, TextInput } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDate } from "@/lib/format";
-import { payApItem, disputeApItem } from "@/actions/ap";
+import { payApItem } from "@/actions/ap";
 import { cn } from "@/lib/utils/cn";
-import type { ApItem } from "@/lib/supabase/types";
+import type { ApItemView } from "@/lib/supabase/types";
 
-type Props = { items: ApItem[]; today: string };
+type Props = { items: ApItemView[]; today: string };
 
 export function ApClient({ items, today }: Props) {
   const toast = useToast();
-  const [disputing, setDisputing] = useState<ApItem | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  async function onPay(item: ApItem) {
+  async function onPay(item: ApItemView) {
     setPendingId(item.id);
     try {
       await payApItem({ id: item.id });
@@ -31,11 +27,12 @@ export function ApClient({ items, today }: Props) {
     }
   }
 
-  const columns = useMemo<ColumnDef<ApItem>[]>(
+  const columns = useMemo<ColumnDef<ApItemView>[]>(
     () => [
       {
-        accessorKey: "vendor",
+        accessorKey: "vendor_name",
         header: "Vendor",
+        cell: (c) => c.getValue<string | null>() ?? "—",
       },
       { accessorKey: "entity", header: "Entity" },
       {
@@ -111,13 +108,6 @@ export function ApClient({ items, today }: Props) {
             >
               {pendingId === c.row.original.id ? "Saving…" : "Pay"}
             </button>
-            <button
-              type="button"
-              className="text-[11px] font-medium text-warning hover:underline"
-              onClick={() => setDisputing(c.row.original)}
-            >
-              Dispute
-            </button>
           </div>
         ),
       },
@@ -127,81 +117,10 @@ export function ApClient({ items, today }: Props) {
   );
 
   return (
-    <>
-      <DataTable
-        columns={columns}
-        data={items}
-        searchPlaceholder="Search payables…"
-      />
-
-      <DisputeModal
-        key={disputing?.id ?? "dispute-empty"}
-        open={disputing !== null}
-        item={disputing}
-        onClose={() => setDisputing(null)}
-        onSubmitted={() => {
-          setDisputing(null);
-          toast.push("Dispute note saved", "success");
-        }}
-      />
-    </>
-  );
-}
-
-function DisputeModal({
-  open,
-  item,
-  onClose,
-  onSubmitted,
-}: {
-  open: boolean;
-  item: ApItem | null;
-  onClose: () => void;
-  onSubmitted: () => void;
-}) {
-  const [note, setNote] = useState(item?.dispute_note ?? "");
-  const [error, setError] = useState<string | null>(null);
-
-  if (!item) return null;
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      await disputeApItem({ id: item!.id, note });
-      onSubmitted();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  return (
-    <Modal open={open} onClose={onClose} title={`Dispute · ${item.vendor}`}>
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        <div className="rounded-md bg-surface-2 p-3 text-xs">
-          <div>Vendor: <strong>{item.vendor}</strong></div>
-          <div>Amount: <span className="font-mono">{fmt(item.amount)}</span></div>
-          <div>Due: <span className="font-mono">{item.due_date}</span></div>
-        </div>
-        <Field label="Dispute note">
-          <TextInput
-            required
-            minLength={1}
-            maxLength={500}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </Field>
-        {error ? <div className="text-[11px] text-danger">{error}</div> : null}
-        <div className="mt-2 flex justify-end gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" size="sm">
-            Save note
-          </Button>
-        </div>
-      </form>
-    </Modal>
+    <DataTable
+      columns={columns}
+      data={items}
+      searchPlaceholder="Search payables…"
+    />
   );
 }

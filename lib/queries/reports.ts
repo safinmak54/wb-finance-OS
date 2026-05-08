@@ -41,9 +41,11 @@ export type ReportData = {
   entity: EntityFilterValue;
 };
 
-/** Balance sheet rows include the elimination flag so consolidation can
- *  drop intercompany lines. Mirrors `app.fetchBalanceSheetData` from
- *  legacy/app.js (~line 1360). */
+/** Balance sheet rows. Mirrors `app.fetchBalanceSheetData` from
+ *  legacy/app.js (~line 1360). The legacy schema had an
+ *  `is_elimination` flag for filtering intercompany lines, but the
+ *  production `accounts` table does not include it — consolidated
+ *  views simply trust that intercompany account balances net out. */
 export type BalanceSheetTxn = {
   amount: number;
   account_id: string | null;
@@ -54,7 +56,6 @@ export type BalanceSheetTxn = {
     | "account_name"
     | "account_type"
     | "account_subtype"
-    | "is_elimination"
   > | null;
 };
 
@@ -110,7 +111,7 @@ export async function fetchReportData(
 /**
  * Mirrors `app.fetchBalanceSheetData()` from legacy/app.js (~line 1360).
  * No date filter — balance sheet uses cumulative balances across all
- * history. Includes `is_elimination` so intercompany lines can be dropped.
+ * history.
  */
 export async function fetchBalanceSheetData(
   supabase: Sb,
@@ -119,7 +120,7 @@ export async function fetchBalanceSheetData(
   let q = supabase
     .from("transactions")
     .select(
-      "amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype, is_elimination)",
+      "amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype)",
     );
 
   if (args.entity && args.entity !== "all") {

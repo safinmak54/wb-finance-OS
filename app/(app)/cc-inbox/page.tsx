@@ -4,6 +4,8 @@ import { listUnclassifiedCC } from "@/lib/queries/transactions";
 import { listAccounts } from "@/lib/queries/accounts";
 import { entityCodeToId, listEntities } from "@/lib/queries/entities";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
+import { listClassificationRules } from "@/lib/queries/classify";
+import { classifyMany } from "@/lib/classify-rules";
 import { InboxClient } from "../inbox/InboxClient";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +23,18 @@ export default async function CcInboxPage({
   const idToCode: Record<string, string> = {};
   for (const [code, id] of Object.entries(codeToId)) idToCode[id] = code;
 
-  const [rows, accounts, entities] = await Promise.all([
+  const [rows, accounts, entities, rules] = await Promise.all([
     listUnclassifiedCC(supabase, { entity, codeToId }),
     listAccounts(supabase, { activeOnly: true }),
     listEntities(supabase),
+    listClassificationRules(supabase),
   ]);
+
+  const classified = classifyMany(rows, rules);
+  const autoTags: Record<string, { accountId: string }> = {};
+  for (const [id, hit] of classified) {
+    if (hit.accountId) autoTags[id] = { accountId: hit.accountId };
+  }
 
   return (
     <PageShell
@@ -40,6 +49,7 @@ export default async function CcInboxPage({
         }))}
         accounts={accounts}
         entities={entities.map((e) => ({ id: e.id, code: e.code }))}
+        autoTags={autoTags}
       />
     </PageShell>
   );

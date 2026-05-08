@@ -46,6 +46,8 @@ export default async function ReconcilePage({
       subtitle={`${period.label} · ${entity === "all" ? "All entities" : entity}`}
     >
       <ReconcileClient
+        period={{ from: period.from, to: period.to }}
+        entity={entity}
         bank={(bankRows ?? []).map((r) => ({
           id: r.id,
           date: String(r.accounting_date ?? r.transaction_date ?? ""),

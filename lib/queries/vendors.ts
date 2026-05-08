@@ -22,3 +22,16 @@ export async function getVendor(
   if (error) throw error;
   return data ?? null;
 }
+
+export async function listTopVendorsByYtdSpend(
+  supabase: Sb,
+  limit = 3,
+): Promise<Array<Pick<Vendor, "name" | "ytd_spend">>> {
+  const { data, error } = await supabase
+    .from("vendors")
+    .select("name, ytd_spend")
+    .order("ytd_spend", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}

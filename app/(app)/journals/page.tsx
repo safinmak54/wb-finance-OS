@@ -9,6 +9,7 @@ import { listAccounts } from "@/lib/queries/accounts";
 import { listEntities } from "@/lib/queries/entities";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { periodFromSearchParams } from "@/lib/period";
+import { fetchReportData, totals } from "@/lib/queries/reports";
 import { JournalsClient } from "./JournalsClient";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function JournalsPage({
   const entity = entityFilterFromSearchParams(sp);
 
   const supabase = createDataClient();
-  const [journals, jeTagged, accounts, entities] = await Promise.all([
+  const [journals, jeTagged, accounts, entities, report] = await Promise.all([
     listJournals(supabase, {
       entity,
       range: { from: period.from, to: period.to },
@@ -34,7 +35,18 @@ export default async function JournalsPage({
     }),
     listAccounts(supabase, { activeOnly: true }),
     listEntities(supabase),
+    fetchReportData(supabase, {
+      entity,
+      from: period.from,
+      to: period.to,
+    }),
   ]);
+  const cashTotals = totals(report.txns);
+  const cashBasis = {
+    cashRevenue: cashTotals.revenue,
+    cashCogs: cashTotals.cogs,
+    cashExpenses: cashTotals.expense,
+  };
 
   // Merge: surface je-tagged transactions whose JE id isn't already loaded
   // (mirrors legacy renderJournals fallback at app.js:1563–1581).
@@ -49,14 +61,11 @@ export default async function JournalsPage({
       id: jeId,
       entity: null,
       entity_id: null,
-      transaction_date: null,
       accounting_date: t.acc_date,
       description: t.description ?? "",
       entry_type: "journal",
       period: t.acc_date.slice(0, 7),
-      source: null,
       status: "POSTED",
-      is_intercompany: null,
       ledger_entries: [
         {
           debit_amount: amt < 0 ? Math.abs(amt) : 0,
@@ -91,6 +100,8 @@ export default async function JournalsPage({
         accounts={accounts}
         entities={entities.map((e) => ({ id: e.id, code: e.code }))}
         period={period.from.slice(0, 7)}
+        entity={entity}
+        cashBasis={cashBasis}
       />
     </PageShell>
   );

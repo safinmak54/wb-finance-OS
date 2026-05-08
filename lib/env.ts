@@ -10,6 +10,9 @@ const ServerEnvSchema = PublicEnvSchema.extend({
   ANTHROPIC_API_KEY: z.string().min(20).optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(10).optional(),
+  ADMIN_API_BASE_URL: z.string().url().optional(),
+  ADMIN_API_CLIENT_ID: z.string().min(8).optional(),
+  ADMIN_API_CLIENT_SECRET: z.string().min(16).optional(),
 });
 
 export const publicEnv = PublicEnvSchema.parse({
@@ -25,5 +28,8 @@ export function readServerEnv() {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+    ADMIN_API_BASE_URL: process.env.ADMIN_API_BASE_URL,
+    ADMIN_API_CLIENT_ID: process.env.ADMIN_API_CLIENT_ID,
+    ADMIN_API_CLIENT_SECRET: process.env.ADMIN_API_CLIENT_SECRET,
   });
 }

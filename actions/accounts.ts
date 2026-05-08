@@ -22,8 +22,6 @@ const AccountBase = {
   account_type: z.enum(ACCOUNT_TYPES),
   account_subtype: z.string().trim().max(40).optional(),
   normal_balance: z.enum(["DEBIT", "CREDIT"]),
-  line: z.string().trim().max(80).optional(),
-  is_elimination: z.boolean().default(false),
 };
 
 const CreateAccountSchema = z.object(AccountBase);
@@ -47,8 +45,6 @@ export async function createAccount(
       account_type: parsed.account_type,
       account_subtype: parsed.account_subtype ?? null,
       normal_balance: parsed.normal_balance,
-      line: parsed.line ?? null,
-      is_elimination: parsed.is_elimination,
       is_active: true,
     })
     .select("id")
@@ -83,8 +79,6 @@ export async function updateAccount(
       account_type: fields.account_type,
       account_subtype: fields.account_subtype ?? null,
       normal_balance: fields.normal_balance,
-      line: fields.line ?? null,
-      is_elimination: fields.is_elimination,
     })
     .eq("id", id);
   if (error) throw new Error(error.message);

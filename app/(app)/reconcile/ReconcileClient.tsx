@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDateShort } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
-import { markMatched, unmatch } from "@/actions/reconcile";
+import { markMatched, unmatch, autoMatchPeriod } from "@/actions/reconcile";
 
 type Side = {
   id: string;
@@ -20,9 +20,11 @@ type Side = {
 type Props = {
   bank: Side[];
   book: Side[];
+  period: { from: string; to: string };
+  entity: string;
 };
 
-export function ReconcileClient({ bank, book }: Props) {
+export function ReconcileClient({ bank, book, period, entity }: Props) {
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [selectedBank, setSelectedBank] = useState<Side | null>(null);
@@ -69,15 +71,39 @@ export function ReconcileClient({ bank, book }: Props) {
     }
   }
 
+  function runAutoMatch() {
+    startTransition(async () => {
+      try {
+        const { matched, pending } = await autoMatchPeriod({
+          entity,
+          from: period.from,
+          to: period.to,
+        });
+        const msg =
+          matched === 0 && pending === 0
+            ? "No new matches found"
+            : `Matched ${matched}${pending ? ` · ${pending} pending` : ""}`;
+        toast.push(msg, matched > 0 ? "success" : "info");
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-3 py-2">
         <div className="text-xs text-muted">
           Click a row on each side, then click <strong>Match</strong>.
         </div>
-        <Button size="sm" onClick={pair} disabled={!selectedBank || !selectedBook}>
-          Match
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={runAutoMatch}>
+            Auto-match
+          </Button>
+          <Button size="sm" onClick={pair} disabled={!selectedBank || !selectedBook}>
+            Match
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

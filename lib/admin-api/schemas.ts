@@ -1,0 +1,97 @@
+import "server-only";
+import { z } from "zod";
+
+const num = z.number();
+const numNullable = z.number().nullable();
+
+const CompanyPaymentRow = z.object({
+  company_id: z.number().int(),
+  company_name: z.string(),
+  cc: num,
+  paypal: num,
+  gpay: num,
+  klarna: num,
+  check_wire: num,
+  gross_sales: num,
+  refunds: num,
+  refunds_cc: num,
+  refunds_paypal: num,
+  refunds_gpay: num,
+  refunds_klarna: num,
+  refunds_check_wire: num,
+  asi_pending: num,
+  store_credits: num,
+  net_sales: num,
+  website_po: numNullable,
+  website_pay_later: numNullable,
+  website_pending_total: numNullable,
+});
+export type CompanyPaymentRow = z.infer<typeof CompanyPaymentRow>;
+
+const TotalPaymentRow = CompanyPaymentRow.omit({
+  company_id: true,
+  company_name: true,
+});
+export type TotalPaymentRow = z.infer<typeof TotalPaymentRow>;
+
+export const PaymentMethodReport = z.object({
+  report_type: z.string(),
+  start_date: z.string(),
+  end_date: z.string(),
+  all_companies: z.array(
+    z.object({ id: z.number().int(), company_name: z.string() }),
+  ),
+  rows: z.array(
+    z.object({
+      date: z.string(),
+      companies: z.array(CompanyPaymentRow),
+      total: TotalPaymentRow,
+    }),
+  ),
+  totals: z.object({
+    companies: z.array(CompanyPaymentRow),
+    total: TotalPaymentRow,
+  }),
+});
+export type PaymentMethodReport = z.infer<typeof PaymentMethodReport>;
+
+// Sales-summary rows have a wide field set that varies slightly between
+// versions (the dev API adds per-segment breakdowns the doc doesn't list,
+// drops a few that the doc does, and renames `aov`→`avg_order_value` and
+// `profit_pct`→`gross_margin_pct`). We pin only the fields the Cashbook
+// page consumes; .passthrough() preserves the rest in the JSONB snapshot
+// so we can backfill UI without re-fetching.
+export const SalesSummaryRow = z
+  .object({
+    period: z.string(),
+    gross_sales: num,
+    net_sales: num,
+    orders_count: z.number().int(),
+    cogs: num,
+    cogs_invoiced: num.optional(),
+    cogs_estimated: num.optional(),
+    cogs_pct: num.optional(),
+    ads_cost_total: num,
+    ads_cost_google: num,
+    ads_cost_bing: num,
+    ads_cost_meta: num,
+    ads_cost_asi: num,
+    ads_pct: num.optional(),
+    roas: num.nullable().optional(),
+    avg_order_value: num.nullable().optional(),
+    total_refunds: num.optional(),
+    cancellations: num.optional(),
+    orders_cancelled: z.number().int().optional(),
+    orders_refunded: z.number().int().optional(),
+    orders_returned: z.number().int().optional(),
+    gross_margin_pct: num.optional(),
+    target_net_sales: num.nullable().optional(),
+  })
+  .passthrough();
+export type SalesSummaryRow = z.infer<typeof SalesSummaryRow>;
+
+export const SalesSummaryReport = z.object({
+  rows: z.array(SalesSummaryRow),
+  totals: SalesSummaryRow,
+});
+export type SalesSummaryReport = z.infer<typeof SalesSummaryReport>;

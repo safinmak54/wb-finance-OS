@@ -42,8 +42,6 @@ export type Account = {
   account_type: "asset" | "liability" | "equity" | "revenue" | "expense";
   account_subtype: string | null;
   normal_balance: "DEBIT" | "CREDIT";
-  line: string | null;
-  is_elimination: boolean;
   is_active: boolean;
 }
 
@@ -105,22 +103,17 @@ export type JournalEntry = {
   id: string;
   entity: string | null;
   entity_id: string | null;
-  transaction_date: string | null;
   accounting_date: string;
   description: string;
   entry_type: string;
   period: string | null;
-  source: string | null;
   status: JournalStatus | string;
-  is_intercompany: boolean | null;
 }
 
 export type LedgerEntry = {
   id: string;
   journal_entry_id: string;
   account_id: string;
-  entity: string | null;
-  entity_id: string | null;
   debit_amount: number;
   credit_amount: number;
   memo: string | null;
@@ -159,15 +152,20 @@ export type ReconciliationMatch = {
 
 export type ApItem = {
   id: string;
-  vendor: string;
+  vendor_id: string | null;
+  invoice_id: string | null;
   entity: string | null;
-  invoice_date: string | null;
   due_date: string;
   amount: number;
-  paid: boolean;
-  dispute_note: string | null;
+  status: string;
+  description: string | null;
   created_at: string | null;
 }
+
+export type ApItemView = ApItem & {
+  vendor_name: string | null;
+  invoice_date: string | null;
+};
 
 export type Profile = {
   user_id: string;
@@ -193,6 +191,21 @@ export type BankConnection = {
   current_balance: number | null;
   last_synced: string | null;
   status: string | null;
+}
+
+/**
+ * Raw responses from the SwagPrint Admin API, captured per fetch.
+ * Used by the Cashbook page to display monthly revenue / refunds /
+ * COGS / ad-spend without re-hitting the upstream API on every render.
+ */
+export type CashbookSnapshot = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  source: "payment_method" | "sales_summary";
+  payload: Json;
+  fetched_at: string;
+  fetched_by: string | null;
 }
 
 /** Append-only audit trail. Phase E. */
@@ -236,8 +249,11 @@ export type Database = {
       cfo_notes: TableShape<CfoNote>;
       bank_connections: TableShape<BankConnection>;
       audit_log: TableShape<AuditLogRow>;
+      cashbook_snapshots: TableShape<CashbookSnapshot>;
     };
-    Views: { [_ in never]: never };
+    Views: {
+      cashbook_snapshots_latest: TableShape<CashbookSnapshot>;
+    };
     Functions: { [_ in never]: never };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };

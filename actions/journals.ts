@@ -68,8 +68,6 @@ export async function createJournal(
       entry_type: parsed.entry_type,
       period,
       status: parsed.status,
-      is_intercompany: parsed.is_intercompany,
-      source: "MANUAL",
     })
     .select("id")
     .single();
@@ -81,8 +79,6 @@ export async function createJournal(
     debit_amount: l.debit_amount,
     credit_amount: l.credit_amount,
     memo: l.memo ?? parsed.description,
-    entity: parsed.entity,
-    entity_id: ent?.id ?? null,
   }));
   const { error: leErr } = await supabase.from("ledger_entries").insert(lines);
   if (leErr) throw new Error(leErr.message);

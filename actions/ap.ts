@@ -14,8 +14,7 @@ const DisputeSchema = z.object({
   note: z.string().trim().min(1).max(500),
 });
 
-/** Mark an `ap_items` row as paid. Mirrors legacy `app.payApItem()`
- *  (legacy/app.js:7158): just sets `paid=true`. */
+/** Mark an `ap_items` row as paid. */
 export async function payApItem(input: z.input<typeof PaySchema>) {
   const me = await requireRole(AP_ROLES);
   const { id } = PaySchema.parse(input);
@@ -23,7 +22,7 @@ export async function payApItem(input: z.input<typeof PaySchema>) {
   const supabase = createDataClient();
   const { error } = await supabase
     .from("ap_items")
-    .update({ paid: true })
+    .update({ status: "paid" })
     .eq("id", id);
   if (error) throw error;
 
@@ -32,32 +31,18 @@ export async function payApItem(input: z.input<typeof PaySchema>) {
     table: "ap_items",
     rowId: id,
     op: "UPDATE",
-    after: { paid: true },
+    after: { status: "paid" },
   });
 
   revalidatePath("/ap");
 }
 
-/** Attach a dispute note to an `ap_items` row. Mirrors legacy
- *  `app.disputeApItem()` (legacy/app.js:7167). */
+// Dispute is disabled: ap_items has no dispute_note column in the current
+// schema. Re-enable once the column is added.
 export async function disputeApItem(input: z.input<typeof DisputeSchema>) {
-  const me = await requireRole(AP_ROLES);
-  const parsed = DisputeSchema.parse(input);
-
-  const supabase = createDataClient();
-  const { error } = await supabase
-    .from("ap_items")
-    .update({ dispute_note: parsed.note })
-    .eq("id", parsed.id);
-  if (error) throw error;
-
-  await writeAuditLog({
-    actorUserId: me.userId,
-    table: "ap_items",
-    rowId: parsed.id,
-    op: "UPDATE",
-    after: { dispute_note: parsed.note },
-  });
-
-  revalidatePath("/ap");
+  await requireRole(AP_ROLES);
+  DisputeSchema.parse(input);
+  throw new Error(
+    "Dispute is unavailable: ap_items.dispute_note column does not exist.",
+  );
 }

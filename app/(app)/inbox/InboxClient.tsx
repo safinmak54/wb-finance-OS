@@ -21,16 +21,27 @@ type Props = {
   rows: Row[];
   accounts: Account[];
   entities: Array<{ id: string; code: string }>;
+  autoTags?: Record<string, { accountId: string }>;
 };
 
-export function InboxClient({ rows, accounts, entities }: Props) {
+export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [picks, setPicks] = useState<Record<string, { acct?: string; entity?: string }>>(
-    {},
+    () => {
+      const initial: Record<string, { acct?: string; entity?: string }> = {};
+      if (autoTags) {
+        for (const [id, hit] of Object.entries(autoTags)) {
+          initial[id] = { acct: hit.accountId };
+        }
+      }
+      return initial;
+    },
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitting, setSplitting] = useState<Row | null>(null);
+
+  const autoTagCount = autoTags ? Object.keys(autoTags).length : 0;
 
   function update(id: string, patch: { acct?: string; entity?: string }) {
     setPicks((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -46,6 +57,21 @@ export function InboxClient({ rows, accounts, entities }: Props) {
   function toggleAll() {
     if (selected.size === rows.length) setSelected(new Set());
     else setSelected(new Set(rows.map((r) => r.id)));
+  }
+
+  function selectRuleMatched() {
+    if (!autoTags) return;
+    const ids = rows
+      .map((r) => r.id)
+      .filter((id) => autoTags[id] && (picks[id]?.acct ?? autoTags[id].accountId));
+    setSelected(new Set(ids));
+    const missing = rows.filter((r) => autoTags[r.id]).length - ids.length;
+    toast.push(
+      missing > 0
+        ? `Selected ${ids.length} rule-matched · ${missing} missing account`
+        : `Selected ${ids.length} rule-matched rows`,
+      missing > 0 ? "error" : "info",
+    );
   }
 
   function classifyOne(r: Row) {
@@ -117,6 +143,11 @@ export function InboxClient({ rows, accounts, entities }: Props) {
     <>
       <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
         <span className="text-xs text-muted">{rows.length} unclassified</span>
+        {autoTagCount > 0 ? (
+          <Button size="sm" variant="outline" onClick={selectRuleMatched}>
+            Select rule-matched ({autoTagCount})
+          </Button>
+        ) : null}
         <span className="ml-auto" />
         {selected.size > 0 ? (
           <>
@@ -163,8 +194,16 @@ export function InboxClient({ rows, accounts, entities }: Props) {
                   r.direction === "DEBIT"
                     ? -Math.abs(Number(r.amount))
                     : Math.abs(Number(r.amount));
+                const ruleMatched = Boolean(autoTags?.[r.id]);
                 return (
-                  <tr key={r.id} className="border-t border-border align-top">
+                  <tr
+                    key={r.id}
+                    className={cn(
+                      "border-t border-border align-top",
+                      ruleMatched && "bg-info-soft/40",
+                    )}
+                    data-auto-tagged={ruleMatched ? "1" : undefined}
+                  >
                     <td className="px-2 py-1.5">
                       <input
                         type="checkbox"

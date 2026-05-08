@@ -155,7 +155,6 @@ function AccountFormModal({
   >(initial?.account_type ?? "expense");
   const [subtype, setSubtype] = useState(initial?.account_subtype ?? "");
   const [normal, setNormal] = useState(initial?.normal_balance ?? "DEBIT");
-  const [line, setLine] = useState(initial?.line ?? "");
   const [error, setError] = useState<string | null>(null);
 
   function onSubmit(e: React.FormEvent) {
@@ -169,8 +168,6 @@ function AccountFormModal({
           account_type: type as "asset" | "liability" | "equity" | "revenue" | "expense",
           account_subtype: subtype || undefined,
           normal_balance: normal as "DEBIT" | "CREDIT",
-          line: line || undefined,
-          is_elimination: false,
         };
         if (mode === "create") {
           await createAccount(payload);
@@ -251,14 +248,6 @@ function AccountFormModal({
             />
           </Field>
         </div>
-        <Field label="P&L line">
-          <TextInput
-            value={line}
-            onChange={(e) => setLine(e.target.value)}
-            placeholder="Subtotal label"
-          />
-        </Field>
-
         {error ? <div className="text-[11px] text-danger">{error}</div> : null}
 
         <div className="mt-2 flex items-center justify-between gap-2">

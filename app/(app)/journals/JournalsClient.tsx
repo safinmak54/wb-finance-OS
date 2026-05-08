@@ -11,21 +11,37 @@ import { cn } from "@/lib/utils/cn";
 import {
   createJournal,
   deleteJournal,
-  closeMonth,
 } from "@/actions/journals";
+import { closeMonthWithAdjustments } from "@/actions/period-close";
 import type { Account } from "@/lib/supabase/types";
 import type { JournalRow } from "@/lib/queries/journals";
+
+type CashBasis = {
+  cashRevenue: number;
+  cashCogs: number;
+  cashExpenses: number;
+};
 
 type Props = {
   journals: JournalRow[];
   accounts: Account[];
   entities: Array<{ id: string; code: string }>;
   period: string;
+  entity: string;
+  cashBasis: CashBasis;
 };
 
-export function JournalsClient({ journals, accounts, entities, period }: Props) {
+export function JournalsClient({
+  journals,
+  accounts,
+  entities,
+  period,
+  entity,
+  cashBasis,
+}: Props) {
   const toast = useToast();
   const [showAdd, setShowAdd] = useState(false);
+  const [showClose, setShowClose] = useState(false);
   const [, startTransition] = useTransition();
 
   async function onDelete(id: string) {
@@ -38,16 +54,12 @@ export function JournalsClient({ journals, accounts, entities, period }: Props) 
     }
   }
 
-  async function onCloseMonth() {
-    if (!confirm(`Close ${period}? No further postings allowed.`)) return;
-    startTransition(async () => {
-      try {
-        await closeMonth({ period });
-        toast.push("Month closed", "success");
-      } catch (err) {
-        toast.push((err as Error).message, "error");
-      }
-    });
+  function onCloseMonth() {
+    if (entity === "all") {
+      toast.push("Pick a single entity before closing the month", "error");
+      return;
+    }
+    setShowClose(true);
   }
 
   return (
@@ -160,7 +172,233 @@ export function JournalsClient({ journals, accounts, entities, period }: Props) 
         accounts={accounts}
         entities={entities}
       />
+
+      <CloseMonthModal
+        open={showClose}
+        period={period}
+        entity={entity}
+        cashBasis={cashBasis}
+        onClose={() => setShowClose(false)}
+        onClosed={(msg) => {
+          setShowClose(false);
+          toast.push(msg, "success");
+        }}
+      />
     </div>
+  );
+}
+
+function CloseMonthModal({
+  open,
+  period,
+  entity,
+  cashBasis,
+  onClose,
+  onClosed,
+}: {
+  open: boolean;
+  period: string;
+  entity: string;
+  cashBasis: CashBasis;
+  onClose: () => void;
+  onClosed: (msg: string) => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [accrualRevenue, setAccrualRevenue] = useState(
+    cashBasis.cashRevenue.toFixed(2),
+  );
+  const [accrualCogs, setAccrualCogs] = useState(cashBasis.cashCogs.toFixed(2));
+  const [memo, setMemo] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const accrualRev = Number(accrualRevenue) || 0;
+  const accrualCog = Number(accrualCogs) || 0;
+  const revenueAdj = accrualRev - cashBasis.cashRevenue;
+  const cogsAdj = accrualCog - cashBasis.cashCogs;
+  const netAdj = revenueAdj - cogsAdj;
+  const cashNet =
+    cashBasis.cashRevenue - cashBasis.cashCogs - cashBasis.cashExpenses;
+  const accrualNet = cashNet + netAdj;
+
+  function reset() {
+    setStep(1);
+    setAccrualRevenue(cashBasis.cashRevenue.toFixed(2));
+    setAccrualCogs(cashBasis.cashCogs.toFixed(2));
+    setMemo("");
+    setError(null);
+  }
+
+  function handleClose() {
+    reset();
+    onClose();
+  }
+
+  function confirm() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const res = await closeMonthWithAdjustments({
+          period,
+          entity,
+          cashRevenue: cashBasis.cashRevenue,
+          cashCogs: cashBasis.cashCogs,
+          accrualRevenue: accrualRev,
+          accrualCogs: accrualCog,
+          memo: memo || undefined,
+        });
+        const tail = res.posted ? "with adjusting entry" : "(no adjustments)";
+        onClosed(`${period} closed ${tail}`);
+        reset();
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title={`Close month: ${period} · ${entity}`}
+      size="md"
+    >
+      {step === 1 ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-muted">
+            Step 1 of 3 — Cash basis summary. These are the totals already
+            posted to {entity} for {period}.
+          </p>
+          <div className="rounded-md border border-border">
+            <table className="w-full text-xs">
+              <tbody>
+                <Row label="Cash revenue" value={cashBasis.cashRevenue} />
+                <Row label="Cash COGS" value={-cashBasis.cashCogs} />
+                <Row label="Cash expenses" value={-cashBasis.cashExpenses} />
+                <Row label="Cash net income" value={cashNet} bold />
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => setStep(2)}>
+              Next: accruals →
+            </Button>
+          </div>
+        </div>
+      ) : step === 2 ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-muted">
+            Step 2 of 3 — Accrual amounts. Enter what was earned/owed for the
+            period, not just what was paid.
+          </p>
+          <Field label={`Accrual revenue (cash: ${fmt(cashBasis.cashRevenue)})`}>
+            <TextInput
+              type="number"
+              step="0.01"
+              value={accrualRevenue}
+              onChange={(e) => setAccrualRevenue(e.target.value)}
+            />
+          </Field>
+          <Field label={`Accrual COGS (cash: ${fmt(cashBasis.cashCogs)})`}>
+            <TextInput
+              type="number"
+              step="0.01"
+              value={accrualCogs}
+              onChange={(e) => setAccrualCogs(e.target.value)}
+            />
+          </Field>
+          <Field label="Memo (optional)">
+            <TextInput
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder={`Adjusting entry — ${period}`}
+            />
+          </Field>
+          <div className="flex justify-between gap-2">
+            <Button variant="outline" size="sm" onClick={() => setStep(1)}>
+              ← Back
+            </Button>
+            <Button size="sm" onClick={() => setStep(3)}>
+              Next: review →
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-xs text-muted">
+            Step 3 of 3 — Review. Confirming will post an adjusting journal
+            entry (if needed) and lock {period} for {entity}.
+          </p>
+          <div className="rounded-md border border-border">
+            <table className="w-full text-xs">
+              <tbody>
+                <Row label="Revenue adjustment" value={revenueAdj} />
+                <Row label="COGS adjustment" value={-cogsAdj} />
+                <Row label="Net adjusting entry" value={netAdj} bold />
+              </tbody>
+            </table>
+          </div>
+          <div className="rounded-md bg-surface-2 p-3 text-xs">
+            <table className="w-full">
+              <tbody>
+                <Row label="Cash net income" value={cashNet} muted />
+                <Row label="Adjusting entry" value={netAdj} muted />
+                <Row label="Accrual net income" value={accrualNet} bold />
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[11px] text-warning">
+            ⚠ This will lock {period} for {entity}. No further classifications
+            will be allowed in this period.
+          </p>
+          {error ? (
+            <div className="text-[11px] text-danger">{error}</div>
+          ) : null}
+          <div className="flex justify-between gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStep(2)}
+              disabled={pending}
+            >
+              ← Back
+            </Button>
+            <Button size="sm" onClick={confirm} disabled={pending}>
+              {pending ? "Closing…" : "Confirm & close"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function Row({
+  label,
+  value,
+  bold,
+  muted,
+}: {
+  label: string;
+  value: number;
+  bold?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <tr className={cn(bold && "font-semibold")}>
+      <td className={cn("px-3 py-1", muted && "text-muted")}>{label}</td>
+      <td
+        className={cn(
+          "px-3 py-1 text-right font-mono",
+          value < 0 ? "text-danger" : value > 0 ? "text-success" : "",
+        )}
+      >
+        {value < 0 ? `(${fmt(Math.abs(value))})` : fmt(value)}
+      </td>
+    </tr>
   );
 }
 
