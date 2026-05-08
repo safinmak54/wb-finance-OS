@@ -17,6 +17,7 @@ const moneyFmtCents = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+
 const dateShort = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
