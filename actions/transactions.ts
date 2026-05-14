@@ -195,6 +195,73 @@ export async function splitTransaction(input: z.input<typeof SplitSchema>) {
   revalidatePath("/cc-inbox");
 }
 
+const MarkKindSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
+});
+
+/** Mark rows as internal bank transfers. Doesn't post to the ledger
+ *  (transfers between own accounts don't hit the P&L) — just removes
+ *  them from the inbox by flipping `classified` and `status`. */
+export async function markAsInternalTransfer(
+  input: z.input<typeof MarkKindSchema>,
+) {
+  const me = await requireRole(TXN_ROLES);
+  const parsed = MarkKindSchema.parse(input);
+
+  const supabase = createDataClient();
+  const { error } = await supabase
+    .from("raw_transactions")
+    .update({
+      classified: true,
+      classified_at: new Date().toISOString(),
+      status: "confirmed",
+      txn_type: "transfer",
+    })
+    .in("id", parsed.ids);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    op: "UPDATE",
+    after: { markedAs: "transfer", count: parsed.ids.length },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+}
+
+/** Mark rows as credit-card payments (bank → CC). Same treatment as
+ *  transfers — removed from inbox, no P&L impact. */
+export async function markAsCcPayment(
+  input: z.input<typeof MarkKindSchema>,
+) {
+  const me = await requireRole(TXN_ROLES);
+  const parsed = MarkKindSchema.parse(input);
+
+  const supabase = createDataClient();
+  const { error } = await supabase
+    .from("raw_transactions")
+    .update({
+      classified: true,
+      classified_at: new Date().toISOString(),
+      status: "confirmed",
+      txn_type: "cc_payment",
+    })
+    .in("id", parsed.ids);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    op: "UPDATE",
+    after: { markedAs: "cc_payment", count: parsed.ids.length },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+}
+
 export async function deleteRawTransaction(id: string) {
   const me = await requireRole(TXN_ROLES);
   const supabase = createDataClient();

@@ -159,7 +159,7 @@ export const SIDEBAR_GROUPS: Array<{ label: string; pages: readonly PageId[] }> 
   { label: "Overview", pages: ["dashboard"] },
   {
     label: "Accounting",
-    pages: ["inbox", "cc-inbox", "ledger", "journals", "reconcile"],
+    pages: ["inbox", "cc-inbox", "ledger", "journals", "reconcile", "coa", "admin-rules"],
   },
   { label: "Payables", pages: ["vendors", "invoices", "ap"] },
   {
@@ -167,8 +167,8 @@ export const SIDEBAR_GROUPS: Array<{ label: string; pages: readonly PageId[] }> 
     pages: ["pnl", "balance", "cashflow", "forecast", "cashbook", "cash-balances", "ratios", "cfnotes"],
   },
   { label: "Sales", pages: ["sales", "productmix"] },
-  { label: "Setup", pages: ["coa", "banks", "import"] },
-  { label: "Admin", pages: ["admin-users", "admin-rules"] },
+  { label: "Setup", pages: ["banks", "import"] },
+  { label: "Admin", pages: ["admin-users"] },
 ];
 
 // ---------- helpers ----------

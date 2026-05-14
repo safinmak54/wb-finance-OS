@@ -124,7 +124,6 @@ export function resolvePeriod(input: {
   };
 }
 
-/** Read `searchParams` (URL-style record) into a PeriodRange. */
 export function periodFromSearchParams(
   sp: Record<string, string | string[] | undefined>,
 ): PeriodRange {
@@ -147,7 +146,28 @@ export function subtractMonths(dateStr: string, months: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Returns the prior period (same length, immediately before `range`). */
+export function monthlyBuckets(year: number): PeriodRange[] {
+  const buckets: PeriodRange[] = [];
+  for (let m = 1; m <= 12; m += 1) {
+    buckets.push({
+      key: `${year}-${pad(m)}`,
+      from: ymd(year, m, 1),
+      to: ymd(year, m, lastDayOfMonth(year, m)),
+      label: `${MONTH_NAMES[m - 1]}`,
+    });
+  }
+  return buckets;
+}
+
+export function yearRange(year: number): PeriodRange {
+  return {
+    key: String(year),
+    from: ymd(year, 1, 1),
+    to: ymd(year, 12, 31),
+    label: `FY ${year}`,
+  };
+}
+
 export function priorPeriod(range: PeriodRange): PeriodRange {
   const fromD = new Date(`${range.from}T00:00:00Z`);
   const toD = new Date(`${range.to}T00:00:00Z`);

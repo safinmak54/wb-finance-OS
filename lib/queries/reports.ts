@@ -5,6 +5,8 @@ import type { EntityFilterValue } from "@/lib/entities";
 
 export type ReportTxn = {
   amount: number;
+  entity: string;
+  acc_date: string;
   account_id: string | null;
   memo: string | null;
   accounts: Pick<
@@ -73,7 +75,7 @@ export async function fetchReportData(
   let txnQ = supabase
     .from("transactions")
     .select(
-      "amount, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
+      "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
     )
     .gte("acc_date", args.from)
     .lte("acc_date", args.to);
@@ -150,6 +152,48 @@ export function groupByAccount(
     }
   }
   return [...groups.values()];
+}
+
+/** Aggregate transactions by (account_id, entity). Used by the multi-entity
+ *  P&L. Returns one entry per account, with a per-entity-code total and a
+ *  per-month-bucket total (keyed by YYYY-MM). */
+export type AccountAggregate = {
+  account: ReportTxn["accounts"];
+  byEntity: Map<string, number>;
+  byMonth: Map<string, number>;
+  byEntityMonth: Map<string, Map<string, number>>;
+};
+
+export function groupByAccountAndEntity(
+  txns: readonly ReportTxn[],
+): Map<string, AccountAggregate> {
+  const out = new Map<string, AccountAggregate>();
+  for (const t of txns) {
+    if (!t.accounts || !t.account_id) continue;
+    const amt = Number(t.amount ?? 0);
+    const monthKey = (t.acc_date ?? "").slice(0, 7);
+    let agg = out.get(t.account_id);
+    if (!agg) {
+      agg = {
+        account: t.accounts,
+        byEntity: new Map(),
+        byMonth: new Map(),
+        byEntityMonth: new Map(),
+      };
+      out.set(t.account_id, agg);
+    }
+    agg.byEntity.set(t.entity, (agg.byEntity.get(t.entity) ?? 0) + amt);
+    if (monthKey) {
+      agg.byMonth.set(monthKey, (agg.byMonth.get(monthKey) ?? 0) + amt);
+      let entMap = agg.byEntityMonth.get(t.entity);
+      if (!entMap) {
+        entMap = new Map();
+        agg.byEntityMonth.set(t.entity, entMap);
+      }
+      entMap.set(monthKey, (entMap.get(monthKey) ?? 0) + amt);
+    }
+  }
+  return out;
 }
 
 /** Group balance-sheet transactions by account_id (same shape, includes

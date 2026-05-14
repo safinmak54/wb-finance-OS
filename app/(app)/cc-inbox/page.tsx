@@ -5,7 +5,7 @@ import { listAccounts } from "@/lib/queries/accounts";
 import { entityCodeToId, listEntities } from "@/lib/queries/entities";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { listClassificationRules } from "@/lib/queries/classify";
-import { classifyMany } from "@/lib/classify-rules";
+import { classifyMany, detectTxnKind } from "@/lib/classify-rules";
 import { InboxClient } from "../inbox/InboxClient";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,14 @@ export default async function CcInboxPage({
     if (hit.accountId) autoTags[id] = { accountId: hit.accountId };
   }
 
+  const enrichedRows = rows.map((r) => ({
+    ...r,
+    entity_code: r.entity_id ? idToCode[r.entity_id] ?? null : null,
+    kind: detectTxnKind(r),
+  }));
+
+  const sources = Array.from(new Set(rows.map((r) => r.source))).sort();
+
   return (
     <PageShell
       page="cc-inbox"
@@ -43,13 +51,12 @@ export default async function CcInboxPage({
       subtitle={`${rows.length} to classify · ${entity === "all" ? "All entities" : entity}`}
     >
       <InboxClient
-        rows={rows.map((r) => ({
-          ...r,
-          entity_code: r.entity_id ? idToCode[r.entity_id] ?? null : null,
-        }))}
+        rows={enrichedRows}
         accounts={accounts}
         entities={entities.map((e) => ({ id: e.id, code: e.code }))}
         autoTags={autoTags}
+        sources={sources}
+        entityFilter={typeof sp.entity === "string" ? sp.entity : undefined}
       />
     </PageShell>
   );

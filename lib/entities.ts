@@ -52,6 +52,20 @@ export const ENTITY_LABELS: Record<EntityCode, string> = {
   SP1: "SP1",
 };
 
+export const PNL_ENTITY_COLUMNS: ReadonlyArray<{
+  key: string;
+  label: string;
+  entityCodes: readonly EntityCode[];
+}> = [
+  { key: "ALL", label: "ALL", entityCodes: ALL_ENTITY_CODES },
+  { key: "WB", label: "WB", entityCodes: ["WB"] },
+  { key: "WBP", label: "WBP", entityCodes: ["WBP"] },
+  { key: "LP", label: "LP", entityCodes: ["LP"] },
+  { key: "BP", label: "BP", entityCodes: ["BP"] },
+  { key: "SP", label: "SP", entityCodes: ["SP1"] },
+  { key: "ONEOPS", label: "One Ops", entityCodes: ["ONEOPS"] },
+];
+
 export const ENTITY_FILTER_OPTIONS: Array<{
   value: EntityFilterValue;
   label: string;

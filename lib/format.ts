@@ -92,6 +92,25 @@ export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Convert a list of records to a CSV string. Quotes any field that
+ *  contains a comma, quote, or newline. */
+export function toCsv<T extends Record<string, unknown>>(
+  rows: readonly T[],
+  columns: ReadonlyArray<{ key: keyof T & string; label: string }>,
+): string {
+  const escape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = String(v);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const header = columns.map((c) => escape(c.label)).join(",");
+  const body = rows
+    .map((r) => columns.map((c) => escape(r[c.key])).join(","))
+    .join("\n");
+  return `${header}\n${body}`;
+}
+
 /**
  * Normalize loose date strings to YYYY-MM-DD. Mirrors legacy
  * `normalizeDate()` (~line 555). Recognized: ISO, US m/d/yyyy,

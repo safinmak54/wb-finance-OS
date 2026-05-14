@@ -5,8 +5,15 @@ import { z } from "zod";
 import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
+import { classifyMany } from "@/lib/classify-rules";
+import { listClassificationRules } from "@/lib/queries/classify";
+import { listUnclassifiedBank, listUnclassifiedCC } from "@/lib/queries/transactions";
+import { entityCodeToId } from "@/lib/queries/entities";
+import { entityFilterFromSearchParams } from "@/lib/entity-filter";
+import { bulkClassifyTransactions } from "./transactions";
 
 const RULE_ROLES = ["admin"] as const;
+const AUTO_TAG_ROLES = ["bookkeeper", "admin"] as const;
 
 const UpsertSchema = z.object({
   id: z.string().uuid().optional(),
@@ -59,6 +66,71 @@ export async function upsertClassificationRule(
   revalidatePath("/admin/rules");
   revalidatePath("/inbox");
   revalidatePath("/cc-inbox");
+}
+
+const BulkAutoTagSchema = z.object({
+  entity: z.string().optional(),
+  source: z.enum(["bank", "cc"]).default("bank"),
+});
+
+/** Run classification rules over all unclassified rows in scope and
+ *  commit the ones that matched a rule with a complete (account+entity)
+ *  picture. Rows missing an entity are skipped (we can't post without
+ *  one). */
+export async function bulkAutoTag(
+  input: z.input<typeof BulkAutoTagSchema>,
+): Promise<{ tagged: number; skipped: number }> {
+  await requireRole(AUTO_TAG_ROLES);
+  const parsed = BulkAutoTagSchema.parse(input);
+
+  const supabase = createDataClient();
+  const codeToId = await entityCodeToId(supabase);
+  const idToCode: Record<string, string> = {};
+  for (const [code, id] of Object.entries(codeToId)) idToCode[id] = code;
+
+  const entity = entityFilterFromSearchParams({
+    entity: parsed.entity,
+  });
+
+  const rows =
+    parsed.source === "bank"
+      ? await listUnclassifiedBank(supabase, { entity, codeToId })
+      : await listUnclassifiedCC(supabase, { entity, codeToId });
+
+  const rules = await listClassificationRules(supabase);
+  const hits = classifyMany(rows, rules);
+
+  const targets: { rawId: string; accountId: string; entityCode: string }[] = [];
+  let skipped = 0;
+  for (const r of rows) {
+    const hit = hits.get(r.id);
+    if (!hit || !hit.accountId) {
+      skipped += 1;
+      continue;
+    }
+    const entityCode = r.entity_id ? idToCode[r.entity_id] : null;
+    if (!entityCode) {
+      skipped += 1;
+      continue;
+    }
+    targets.push({
+      rawId: r.id,
+      accountId: hit.accountId,
+      entityCode,
+    });
+  }
+
+  if (targets.length === 0) {
+    return { tagged: 0, skipped };
+  }
+
+  // bulkClassifyTransactions caps at 500 rows per call; chunk if needed.
+  const CHUNK = 500;
+  for (let i = 0; i < targets.length; i += CHUNK) {
+    await bulkClassifyTransactions({ rows: targets.slice(i, i + CHUNK) });
+  }
+
+  return { tagged: targets.length, skipped };
 }
 
 export async function deleteClassificationRule(id: string) {

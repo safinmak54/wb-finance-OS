@@ -62,3 +62,41 @@ export function classifyMany(
   }
   return out;
 }
+
+export type TxnKind = "transfer" | "cc_payment" | "other";
+
+const CC_PAYMENT_PATTERNS = [
+  /\bcapital one online\b/i,
+  /\bamex (?:epayment|payment)\b/i,
+  /\bchase (?:card )?payment\b/i,
+  /\bcitibank online payment\b/i,
+  /\bdiscover (?:card )?payment\b/i,
+  /\bbank of america credit card payment\b/i,
+  /\bcredit card payment\b/i,
+  /\bcc payment\b/i,
+];
+
+const TRANSFER_PATTERNS = [
+  /\binternal transfer\b/i,
+  /\bonline transfer\b/i,
+  /\bzelle (?:transfer|payment) (?:to|from) own\b/i,
+  /\bbook transfer\b/i,
+  /\bbetween accounts\b/i,
+];
+
+/** Classify a transaction by kind for inbox grouping. Uses txn_type when
+ *  set (already "transfer" from import), falls back to description regexes. */
+export function detectTxnKind(
+  row: Pick<RawTransaction, "description" | "vendor" | "txn_type">,
+): TxnKind {
+  if (row.txn_type === "transfer") return "transfer";
+  if (row.txn_type === "cc_payment") return "cc_payment";
+  const haystack = [row.description ?? "", row.vendor ?? ""].join(" | ");
+  for (const re of CC_PAYMENT_PATTERNS) {
+    if (re.test(haystack)) return "cc_payment";
+  }
+  for (const re of TRANSFER_PATTERNS) {
+    if (re.test(haystack)) return "transfer";
+  }
+  return "other";
+}

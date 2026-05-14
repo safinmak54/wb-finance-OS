@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Field, TextInput } from "@/components/ui/Field";
@@ -12,19 +13,34 @@ import {
   bulkClassifyTransactions,
   splitTransaction,
   deleteRawTransaction,
+  markAsInternalTransfer,
+  markAsCcPayment,
 } from "@/actions/transactions";
+import { bulkAutoTag } from "@/actions/classify";
 import type { Account, RawTransaction } from "@/lib/supabase/types";
+import type { TxnKind } from "@/lib/classify-rules";
 
-type Row = RawTransaction & { entity_code: string | null };
+type Row = RawTransaction & { entity_code: string | null; kind: TxnKind };
 
 type Props = {
   rows: Row[];
   accounts: Account[];
   entities: Array<{ id: string; code: string }>;
   autoTags?: Record<string, { accountId: string }>;
+  sources: string[];
+  entityFilter?: string;
 };
 
-export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
+type KindFilter = "all" | TxnKind;
+
+export function InboxClient({
+  rows,
+  accounts,
+  entities,
+  autoTags,
+  sources,
+  entityFilter,
+}: Props) {
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [picks, setPicks] = useState<Record<string, { acct?: string; entity?: string }>>(
@@ -40,8 +56,24 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitting, setSplitting] = useState<Row | null>(null);
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
 
   const autoTagCount = autoTags ? Object.keys(autoTags).length : 0;
+
+  const kindCounts = useMemo(() => {
+    const counts: Record<TxnKind, number> = { transfer: 0, cc_payment: 0, other: 0 };
+    for (const r of rows) counts[r.kind] += 1;
+    return counts;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((r) => {
+      if (kindFilter !== "all" && r.kind !== kindFilter) return false;
+      if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
+      return true;
+    });
+  }, [rows, kindFilter, sourceFilter]);
 
   function update(id: string, patch: { acct?: string; entity?: string }) {
     setPicks((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -55,17 +87,24 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
   }
 
   function toggleAll() {
-    if (selected.size === rows.length) setSelected(new Set());
-    else setSelected(new Set(rows.map((r) => r.id)));
+    const allIds = filteredRows.map((r) => r.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+    if (allSelected) {
+      const next = new Set(selected);
+      for (const id of allIds) next.delete(id);
+      setSelected(next);
+    } else {
+      setSelected(new Set([...selected, ...allIds]));
+    }
   }
 
   function selectRuleMatched() {
     if (!autoTags) return;
-    const ids = rows
+    const ids = filteredRows
       .map((r) => r.id)
       .filter((id) => autoTags[id] && (picks[id]?.acct ?? autoTags[id].accountId));
     setSelected(new Set(ids));
-    const missing = rows.filter((r) => autoTags[r.id]).length - ids.length;
+    const missing = filteredRows.filter((r) => autoTags[r.id]).length - ids.length;
     toast.push(
       missing > 0
         ? `Selected ${ids.length} rule-matched · ${missing} missing account`
@@ -129,6 +168,56 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
     });
   }
 
+  function autoTagAll() {
+    startTransition(async () => {
+      try {
+        const r = await bulkAutoTag({ entity: entityFilter, source: "bank" });
+        toast.push(
+          r.tagged > 0
+            ? `Auto-tagged ${r.tagged} · skipped ${r.skipped}`
+            : `No rules matched · ${r.skipped} skipped`,
+          r.tagged > 0 ? "success" : "info",
+        );
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
+  }
+
+  function markSelectedTransfer() {
+    if (selected.size === 0) {
+      toast.push("No rows selected", "error");
+      return;
+    }
+    const ids = Array.from(selected);
+    startTransition(async () => {
+      try {
+        await markAsInternalTransfer({ ids });
+        toast.push(`Marked ${ids.length} as internal transfer`, "success");
+        setSelected(new Set());
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
+  }
+
+  function markSelectedCcPayment() {
+    if (selected.size === 0) {
+      toast.push("No rows selected", "error");
+      return;
+    }
+    const ids = Array.from(selected);
+    startTransition(async () => {
+      try {
+        await markAsCcPayment({ ids });
+        toast.push(`Marked ${ids.length} as CC payment`, "success");
+        setSelected(new Set());
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
+  }
+
   async function onDelete(id: string) {
     if (!confirm("Delete this transaction?")) return;
     try {
@@ -141,17 +230,72 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
 
   return (
     <>
-      <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
-        <span className="text-xs text-muted">{rows.length} unclassified</span>
+      {/* Top action bar — upload + bulk auto-tag */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Link href="/import">
+          <Button size="sm" variant="primary">
+            Upload CSV/XLSX
+          </Button>
+        </Link>
+        <Button size="sm" variant="outline" onClick={autoTagAll}>
+          Auto-tag matching rows
+        </Button>
         {autoTagCount > 0 ? (
-          <Button size="sm" variant="outline" onClick={selectRuleMatched}>
+          <Button size="sm" variant="ghost" onClick={selectRuleMatched}>
             Select rule-matched ({autoTagCount})
           </Button>
         ) : null}
+      </div>
+
+      {/* Kind + source filters */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs">
+        <span className="text-muted">Filter:</span>
+        <KindChip label={`All (${rows.length})`} active={kindFilter === "all"} onClick={() => setKindFilter("all")} />
+        <KindChip
+          label={`Internal Transfer (${kindCounts.transfer})`}
+          active={kindFilter === "transfer"}
+          onClick={() => setKindFilter("transfer")}
+        />
+        <KindChip
+          label={`CC Payment (${kindCounts.cc_payment})`}
+          active={kindFilter === "cc_payment"}
+          onClick={() => setKindFilter("cc_payment")}
+        />
+        <KindChip
+          label={`Other (${kindCounts.other})`}
+          active={kindFilter === "other"}
+          onClick={() => setKindFilter("other")}
+        />
+        <span className="ml-3 text-muted">Source:</span>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="h-7 rounded-md border border-border bg-surface px-1.5 text-[11px]"
+        >
+          <option value="all">All sources</option>
+          {sources.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Selection action bar */}
+      <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
+        <span className="text-xs text-muted">
+          {filteredRows.length} of {rows.length} shown
+        </span>
         <span className="ml-auto" />
         {selected.size > 0 ? (
           <>
             <span className="text-[11px] text-muted">{selected.size} selected</span>
+            <Button size="sm" variant="outline" onClick={markSelectedTransfer}>
+              Mark as Transfer
+            </Button>
+            <Button size="sm" variant="outline" onClick={markSelectedCcPayment}>
+              Mark as CC Payment
+            </Button>
             <Button size="sm" onClick={bulk}>
               Finalize {selected.size}
             </Button>
@@ -166,7 +310,10 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
               <th className="px-2 py-2">
                 <input
                   type="checkbox"
-                  checked={selected.size === rows.length && rows.length > 0}
+                  checked={
+                    filteredRows.length > 0 &&
+                    filteredRows.every((r) => selected.has(r.id))
+                  }
                   onChange={toggleAll}
                   aria-label="Select all"
                 />
@@ -175,20 +322,21 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
               <th className="px-3 py-2 text-left">Description</th>
               <th className="px-3 py-2 text-left">Vendor</th>
               <th className="px-3 py-2 text-right">Amount</th>
+              <th className="px-3 py-2 text-left">Source</th>
               <th className="px-3 py-2 text-left">Entity</th>
               <th className="px-3 py-2 text-left">Account</th>
               <th className="px-3 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-muted">
-                  Inbox empty.
+                <td colSpan={9} className="px-3 py-8 text-center text-muted">
+                  {rows.length === 0 ? "Inbox empty." : "No rows match the current filter."}
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
+              filteredRows.map((r) => {
                 const pick = picks[r.id] ?? {};
                 const signed =
                   r.direction === "DEBIT"
@@ -226,6 +374,7 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
                     >
                       {fmt(signed)}
                     </td>
+                    <td className="px-3 py-1.5 text-[11px] text-muted">{r.source}</td>
                     <td className="px-3 py-1.5">
                       <select
                         value={pick.entity ?? r.entity_code ?? ""}
@@ -296,6 +445,31 @@ export function InboxClient({ rows, accounts, entities, autoTags }: Props) {
         }}
       />
     </>
+  );
+}
+
+function KindChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+        active
+          ? "border-info bg-info-soft text-info"
+          : "border-border bg-surface text-muted hover:border-info/40",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
