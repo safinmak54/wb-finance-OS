@@ -11,7 +11,10 @@ import {
   yearRange,
   monthlyBuckets,
 } from "@/lib/period";
-import { ALL_ENTITY_CODES } from "@/lib/entities";
+import {
+  PNL_ENTITY_COLUMNS,
+  type EntityCode,
+} from "@/lib/entities";
 import type { Account } from "@/lib/supabase/types";
 import { PnlClient, type PnlDocument, type PnlRow } from "./PnlClient";
 
@@ -86,8 +89,15 @@ export default async function PnlPage({
   const period = periodFromSearchParams(sp);
   const view = sp.view === "monthly" ? "monthly" : "annual";
 
-  // This page always shows consolidated "all entities" — the
-  // EntitySwitcher is ignored here per finance team's request.
+  // Monthly view is scoped to one entity column at a time (picker in the UI).
+  // Annual view shows all entity columns side by side.
+  const entityColKey = typeof sp.entityCol === "string" ? sp.entityCol : "ALL";
+  const monthlyEntityCol =
+    PNL_ENTITY_COLUMNS.find((c) => c.key === entityColKey) ??
+    PNL_ENTITY_COLUMNS[0];
+
+  // This page always pulls "all entities" data — we slice into entity-column
+  // buckets in memory.
   const year = Number(period.from.slice(0, 4));
   const range = view === "monthly" ? yearRange(year) : period;
   const months = view === "monthly" ? monthlyBuckets(year) : [];
@@ -165,18 +175,39 @@ export default async function PnlPage({
     return 1;
   }
 
-  // Value columns: annual = 1, monthly = 12 + Total
-  type Column = { key: string; label: string; monthKey?: string };
+  // ---- Value columns -----------------------------------------------------
+  // A column carries enough context to (a) compute its value from the
+  // aggregates, and (b) drive a drill-down query (entityCodes + date range).
+  type Column = {
+    key: string;
+    label: string;
+    entityCodes: readonly EntityCode[];
+    range: { from: string; to: string };
+    monthKey?: string; // present only for monthly columns
+  };
+
   let valueColumns: Column[];
   if (view === "monthly") {
     valueColumns = months.map((m) => ({
       key: m.key,
       label: m.label,
+      entityCodes: monthlyEntityCol.entityCodes,
+      range: { from: m.from, to: m.to },
       monthKey: m.key,
     }));
-    valueColumns.push({ key: "TOTAL", label: "Total" });
+    valueColumns.push({
+      key: "TOTAL",
+      label: "Total",
+      entityCodes: monthlyEntityCol.entityCodes,
+      range: { from: range.from, to: range.to },
+    });
   } else {
-    valueColumns = [{ key: "ALL", label: "Value" }];
+    valueColumns = PNL_ENTITY_COLUMNS.map((c) => ({
+      key: c.key,
+      label: c.label,
+      entityCodes: c.entityCodes,
+      range: { from: range.from, to: range.to },
+    }));
   }
 
   function valueFor(
@@ -187,12 +218,12 @@ export default async function PnlPage({
     if (!agg) return 0;
     let raw = 0;
     if (col.monthKey) {
-      for (const code of ALL_ENTITY_CODES) {
+      for (const code of col.entityCodes) {
         const m = agg.byEntityMonth.get(code);
         if (m) raw += m.get(col.monthKey) ?? 0;
       }
     } else {
-      for (const code of ALL_ENTITY_CODES) {
+      for (const code of col.entityCodes) {
         raw += agg.byEntity.get(code) ?? 0;
       }
     }
@@ -212,13 +243,13 @@ export default async function PnlPage({
     return r;
   }
 
-  // Compute section totals up-front so we can also derive group-level
-  // computed lines (Total Revenue, Gross Profit, Net Profit, Balance).
+  // Section totals + their underlying accountIds for drill-down.
   const sectionTotals = new Map<string, Record<string, number>>();
   const sectionAccountRows = new Map<
     string,
     Array<{ accountId: string; label: string; values: Record<string, number> }>
   >();
+  const sectionAccountIds = new Map<string, string[]>();
 
   for (const grp of STRUCTURE) {
     for (const sec of grp.sections) {
@@ -232,13 +263,26 @@ export default async function PnlPage({
       for (const c of valueColumns) {
         total[c.key] = rows.reduce((s, r) => s + r.values[c.key], 0);
       }
-      sectionTotals.set(`${grp.key}/${sec.key}`, total);
-      sectionAccountRows.set(`${grp.key}/${sec.key}`, rows);
+      const sectionId = `${grp.key}/${sec.key}`;
+      sectionTotals.set(sectionId, total);
+      sectionAccountRows.set(sectionId, rows);
+      sectionAccountIds.set(
+        sectionId,
+        accountsForSection.map((a) => a.id),
+      );
     }
   }
 
   function st(grpKey: string, secKey: string, colKey: string): number {
     return sectionTotals.get(`${grpKey}/${secKey}`)?.[colKey] ?? 0;
+  }
+
+  function ids(...sectionIds: string[]): string[] {
+    const out: string[] = [];
+    for (const id of sectionIds) {
+      for (const a of sectionAccountIds.get(id) ?? []) out.push(a);
+    }
+    return out;
   }
 
   function computeRow(fn: (colKey: string) => number): Record<string, number> {
@@ -267,17 +311,26 @@ export default async function PnlPage({
     (k) => netProfit[k] - st("distribution", "distribution", k),
   );
 
+  // Per-column denominator for % display. "Gross Revenue" = the Revenue
+  // section (accounts 4040-4080) — i.e. top-line sales before returns/fees.
+  const denomByCol: Record<string, number> = {};
+  for (const c of valueColumns) {
+    denomByCol[c.key] = st("gross_revenue", "revenue", c.key);
+  }
+
   // Emit a flat list of rows in render order.
   const rows: PnlRow[] = [];
   for (const grp of STRUCTURE) {
     rows.push({ kind: "group", label: grp.label });
     for (const sec of grp.sections) {
       const sectionId = `${grp.key}/${sec.key}`;
+      const secIds = sectionAccountIds.get(sectionId) ?? [];
       rows.push({
         kind: "section",
         sectionId,
         label: sec.label,
         total: sectionTotals.get(sectionId) ?? emptyRecord(),
+        accountIds: secIds,
       });
       for (const r of sectionAccountRows.get(sectionId) ?? []) {
         rows.push({
@@ -289,13 +342,17 @@ export default async function PnlPage({
         });
       }
     }
-    // Computed lines after their parent group
     if (grp.key === "gross_revenue") {
       rows.push({
         kind: "computed",
         label: "Total Revenue",
         values: totalRevenue,
         emphasis: "primary",
+        accountIds: ids(
+          "gross_revenue/revenue",
+          "gross_revenue/sales_return",
+          "gross_revenue/platform_fee",
+        ),
       });
     } else if (grp.key === "cogs") {
       rows.push({
@@ -303,6 +360,13 @@ export default async function PnlPage({
         label: "Gross Profit",
         values: grossProfit,
         emphasis: "primary",
+        accountIds: ids(
+          "gross_revenue/revenue",
+          "gross_revenue/sales_return",
+          "gross_revenue/platform_fee",
+          "cogs/cogs",
+          "cogs/sales_tax",
+        ),
       });
     } else if (grp.key === "opex") {
       rows.push({
@@ -310,6 +374,16 @@ export default async function PnlPage({
         label: "Net Profit",
         values: netProfit,
         emphasis: "highlight",
+        accountIds: ids(
+          "gross_revenue/revenue",
+          "gross_revenue/sales_return",
+          "gross_revenue/platform_fee",
+          "cogs/cogs",
+          "cogs/sales_tax",
+          "marketing/ad_spends",
+          "opex/labour",
+          "opex/other_opex",
+        ),
       });
     } else if (grp.key === "distribution") {
       rows.push({
@@ -317,15 +391,37 @@ export default async function PnlPage({
         label: "Balance",
         values: balance,
         emphasis: "highlight",
+        accountIds: ids(
+          "gross_revenue/revenue",
+          "gross_revenue/sales_return",
+          "gross_revenue/platform_fee",
+          "cogs/cogs",
+          "cogs/sales_tax",
+          "marketing/ad_spends",
+          "opex/labour",
+          "opex/other_opex",
+          "distribution/distribution",
+        ),
       });
     }
   }
 
   const document: PnlDocument = {
     view,
-    valueColumns: valueColumns.map((c) => ({ key: c.key, label: c.label })),
+    valueColumns: valueColumns.map((c) => ({
+      key: c.key,
+      label: c.label,
+      entityCodes: [...c.entityCodes],
+      range: c.range,
+    })),
+    denomByCol,
     rows,
     range,
+    entityCol: view === "monthly" ? monthlyEntityCol.key : null,
+    entityColOptions: PNL_ENTITY_COLUMNS.map((c) => ({
+      key: c.key,
+      label: c.label,
+    })),
     accounts: accounts.map((a) => ({
       id: a.id,
       code: a.account_code,
@@ -333,12 +429,13 @@ export default async function PnlPage({
     })),
   };
 
+  const subtitleSuffix =
+    view === "monthly"
+      ? `FY ${year} · ${monthlyEntityCol.label}`
+      : `${period.label} · All entity columns`;
+
   return (
-    <PageShell
-      page="pnl"
-      title="Profit & Loss"
-      subtitle={`${view === "monthly" ? `FY ${year}` : period.label} · All entities`}
-    >
+    <PageShell page="pnl" title="Profit & Loss" subtitle={subtitleSuffix}>
       <PnlClient doc={document} />
     </PageShell>
   );

@@ -159,3 +159,34 @@ export async function listTxnsForAccount(
   if (error) throw error;
   return data ?? [];
 }
+
+/** P&L drill-down for a set of accounts (section totals, computed lines).
+ *  Same shape as listTxnsForAccount but accepts multiple account IDs and an
+ *  explicit list of entity codes to restrict to (for entity-column drills). */
+export async function listTxnsForAccountSet(
+  supabase: Sb,
+  args: {
+    accountIds: string[];
+    range: { from: string; to: string };
+    entityCodes?: readonly string[];
+  },
+): Promise<DrillDownTxn[]> {
+  if (args.accountIds.length === 0) return [];
+  let q = supabase
+    .from("transactions")
+    .select(
+      "id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id",
+    )
+    .in("account_id", args.accountIds)
+    .gte("acc_date", args.range.from)
+    .lte("acc_date", args.range.to)
+    .order("acc_date", { ascending: false });
+
+  if (args.entityCodes && args.entityCodes.length > 0) {
+    q = q.in("entity", args.entityCodes as string[]);
+  }
+
+  const { data, error } = await q.returns<DrillDownTxn[]>();
+  if (error) throw error;
+  return data ?? [];
+}

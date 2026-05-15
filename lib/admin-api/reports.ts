@@ -30,6 +30,10 @@ export async function fetchSalesSummaryLive(args: {
   endDate: string;
   groupBy?: SalesSummaryGroupBy;
   segment?: "all" | "asi" | "website";
+  // Per the Admin API guide §3.2: comma-separated or repeated. Cannot be
+  // combined with storeIds. When set, channel-split fields (net_sales_asi
+  // etc.) come back null but COGS/ads/orders are populated.
+  companyIds?: number[];
 }) {
   return adminApiFetch(
     "/v1/reports/sales-summary/live",
@@ -38,6 +42,10 @@ export async function fetchSalesSummaryLive(args: {
       endDate: args.endDate,
       groupBy: args.groupBy ?? "month",
       segment: args.segment ?? "all",
+      companyIds:
+        args.companyIds && args.companyIds.length > 0
+          ? args.companyIds.join(",")
+          : undefined,
     },
     SalesSummaryReport,
   );

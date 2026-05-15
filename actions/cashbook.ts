@@ -13,6 +13,7 @@ import {
 import {
   PaymentMethodReport as PaymentMethodSchema,
   SalesSummaryReport as SalesSummarySchema,
+  SalesSummarySnapshot as SalesSummarySnapshotSchema,
 } from "@/lib/admin-api/schemas";
 import { getLatestSnapshots } from "@/lib/queries/cashbook";
 import { entityCodeToId } from "@/lib/queries/entities";
@@ -45,9 +46,9 @@ export async function refreshCashbookSnapshot(
   const parsed = RefreshSchema.parse(input);
 
   let paymentMethod;
-  let salesSummary;
+  let salesSummaryAggregate;
   try {
-    [paymentMethod, salesSummary] = await Promise.all([
+    [paymentMethod, salesSummaryAggregate] = await Promise.all([
       fetchPaymentMethodReport({
         startDate: parsed.startDate,
         endDate: parsed.endDate,
@@ -66,6 +67,40 @@ export async function refreshCashbookSnapshot(
     }
     throw e;
   }
+
+  // Per-entity sales summary: one extra call per company that showed up in
+  // the payment-method snapshot. Done in parallel after the aggregate so we
+  // know which company_ids to ask about. Note: when companyIds is set, the
+  // channel-split fields (net_sales_asi etc.) come back null — that's
+  // expected (see Admin API guide §3.5).
+  const companyIds = paymentMethod.totals.companies.map((c) => c.company_id);
+  let salesSummaryByCompany: Record<string, typeof salesSummaryAggregate> = {};
+  try {
+    const perCompany = await Promise.all(
+      companyIds.map((id) =>
+        fetchSalesSummaryLive({
+          startDate: parsed.startDate,
+          endDate: parsed.endDate,
+          groupBy: "month",
+          segment: "all",
+          companyIds: [id],
+        }).then((res) => [id, res] as const),
+      ),
+    );
+    salesSummaryByCompany = Object.fromEntries(
+      perCompany.map(([id, res]) => [String(id), res]),
+    );
+  } catch (e) {
+    if (e instanceof AdminApiError) {
+      throw new Error(`Per-entity sales-summary fetch failed: ${e.userMessage}`);
+    }
+    throw e;
+  }
+
+  const salesSummary = {
+    aggregate: salesSummaryAggregate,
+    byCompany: salesSummaryByCompany,
+  };
 
   const supabase = createDataClient();
   const fetchedAt = new Date().toISOString();
@@ -162,9 +197,22 @@ export async function generateCashbookJournals(
   let paymentMethod = snaps.paymentMethod
     ? PaymentMethodSchema.parse(snaps.paymentMethod.payload)
     : null;
-  let salesSummary = snaps.salesSummary
-    ? SalesSummarySchema.parse(snaps.salesSummary.payload)
-    : null;
+  // Sales summary snapshot may be either the new wrapper shape
+  // ({ aggregate, byCompany }) or a legacy raw SalesSummaryReport. Try the
+  // wrapper first; fall through to raw. Journal generation always uses the
+  // aggregate (consolidated) — it posts a single WB-entity JE.
+  let salesSummary: import("@/lib/admin-api/schemas").SalesSummaryReport | null =
+    null;
+  if (snaps.salesSummary) {
+    const wrapper = SalesSummarySnapshotSchema.safeParse(
+      snaps.salesSummary.payload,
+    );
+    if (wrapper.success) {
+      salesSummary = wrapper.data.aggregate;
+    } else {
+      salesSummary = SalesSummarySchema.parse(snaps.salesSummary.payload);
+    }
+  }
 
   // Use the period's last day as the accounting date.
   const accountingDate = parsed.endDate;

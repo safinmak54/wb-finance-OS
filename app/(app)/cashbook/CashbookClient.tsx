@@ -11,6 +11,7 @@ import type { CashbookSnapshotPair } from "@/lib/queries/cashbook";
 import type {
   PaymentMethodReport,
   SalesSummaryReport,
+  CompanyPaymentRow,
 } from "@/lib/admin-api/schemas";
 import { apiCompanyToEntityCode } from "@/lib/admin-api/entity-mapping";
 
@@ -84,7 +85,20 @@ export function CashbookClient({
   }
 
   const pm = snapshots.paymentMethod?.payload as PaymentMethodReport | null;
-  const ss = snapshots.salesSummary?.payload as SalesSummaryReport | null;
+  // sales-summary payload is either the new wrapper {aggregate, byCompany}
+  // or a legacy raw SalesSummaryReport. Normalize at read time.
+  const ssRaw = snapshots.salesSummary?.payload as
+    | { aggregate: SalesSummaryReport; byCompany: Record<string, SalesSummaryReport> }
+    | SalesSummaryReport
+    | null
+    | undefined;
+  const ss: SalesSummaryReport | null = ssRaw
+    ? "aggregate" in ssRaw
+      ? ssRaw.aggregate
+      : ssRaw
+    : null;
+  const ssByCompany: Record<string, SalesSummaryReport> =
+    ssRaw && "byCompany" in ssRaw ? ssRaw.byCompany : {};
 
   return (
     <div className="space-y-5">
@@ -168,12 +182,192 @@ export function CashbookClient({
           No snapshot for this range yet. Click <strong className="text-foreground">Refresh from Admin API</strong> to fetch.
         </Card>
       ) : (
-        <>
-          {pm && <PaymentMethodPanel report={pm} />}
-          {ss && <SalesSummaryPanel report={ss} />}
-        </>
+        <PaymentMethodTabs pm={pm} ss={ss} ssByCompany={ssByCompany} />
       )}
     </div>
+  );
+}
+
+function PaymentMethodTabs({
+  pm,
+  ss,
+  ssByCompany,
+}: {
+  pm: PaymentMethodReport | null;
+  ss: SalesSummaryReport | null;
+  ssByCompany: Record<string, SalesSummaryReport>;
+}) {
+  // ALL tab plus one tab per company that appears in this snapshot. The
+  // Admin API only returns ~5 companies (KP, LP, SWAG, BP, WBP), so tabs
+  // reflect what's actually in the data, not the full WB entity roster.
+  const companies = pm?.totals.companies ?? [];
+  const [selected, setSelected] = useState<number | "ALL">("ALL");
+
+  // If the active tab disappears after a refresh (entity dropped out of
+  // the range), fall back to ALL.
+  const activeCompany =
+    selected === "ALL" ? null : companies.find((c) => c.company_id === selected) ?? null;
+  const effective: number | "ALL" =
+    selected !== "ALL" && !activeCompany ? "ALL" : selected;
+
+  return (
+    <div className="space-y-5">
+      {pm && companies.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <EntityTabButton
+            label="ALL"
+            active={effective === "ALL"}
+            onClick={() => setSelected("ALL")}
+          />
+          {companies.map((c) => {
+            const code = apiCompanyToEntityCode(c.company_id);
+            return (
+              <EntityTabButton
+                key={c.company_id}
+                label={code ?? c.company_name}
+                active={effective === c.company_id}
+                onClick={() => setSelected(c.company_id)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {pm && effective === "ALL" && <PaymentMethodPanel report={pm} />}
+      {pm && effective !== "ALL" && activeCompany && (
+        <PaymentMethodEntityPanel report={pm} company={activeCompany} />
+      )}
+
+      {ss && effective === "ALL" && <SalesSummaryPanel report={ss} />}
+      {effective !== "ALL" && (() => {
+        const perEntity = ssByCompany[String(effective)];
+        if (perEntity) {
+          return <SalesSummaryPanel report={perEntity} entityScoped />;
+        }
+        // Snapshot was taken before per-entity sales-summary was wired up.
+        return (
+          <Card className="p-4 text-[11px] text-muted">
+            COGS &amp; ad-spend for this entity isn&apos;t in the current snapshot. Click{" "}
+            <strong className="text-foreground">Refresh from Admin API</strong> to fetch per-entity figures.
+          </Card>
+        );
+      })()}
+    </div>
+  );
+}
+
+function EntityTabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-7 rounded-md px-2.5 text-[11px] font-medium transition ${
+        active
+          ? "bg-primary text-primary-foreground"
+          : "border border-border bg-surface text-muted hover:text-foreground"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function PaymentMethodEntityPanel({
+  report,
+  company,
+}: {
+  report: PaymentMethodReport;
+  company: CompanyPaymentRow;
+}) {
+  const stripe = (company.cc ?? 0) + (company.gpay ?? 0) + (company.klarna ?? 0);
+  const stripeRefunds =
+    (company.refunds_cc ?? 0) +
+    (company.refunds_gpay ?? 0) +
+    (company.refunds_klarna ?? 0);
+
+  const entityCode = apiCompanyToEntityCode(company.company_id);
+
+  // Per-day view for this one company. report.rows is per-day; each row's
+  // `companies` may omit days with no activity, so we filter to this id.
+  type DayRow = { date: string; row: CompanyPaymentRow };
+  const days: DayRow[] = [];
+  for (const r of report.rows) {
+    const match = r.companies.find((c) => c.company_id === company.company_id);
+    if (match) days.push({ date: r.date, row: match });
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-sm font-semibold text-foreground">{company.company_name}</h2>
+        {entityCode && (
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-primary">
+            {entityCode}
+          </span>
+        )}
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted">
+        Payment-method totals · {report.start_date} → {report.end_date}
+      </p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiTile label="Stripe (CC + GPay + Klarna)" value={stripe} />
+        <KpiTile label="PayPal" value={company.paypal} />
+        <KpiTile label="Check / Wire" value={company.check_wire} />
+        <KpiTile label="Gross sales" value={company.gross_sales} highlight />
+        <KpiTile label="Stripe refunds" value={stripeRefunds} negative />
+        <KpiTile label="PayPal refunds" value={company.refunds_paypal} negative />
+        <KpiTile label="Total refunds" value={company.refunds} negative />
+        <KpiTile label="Net sales" value={company.net_sales} highlight />
+      </div>
+
+      {days.length > 0 && (
+        <div className="mt-5 overflow-x-auto">
+          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            Daily breakdown
+          </h3>
+          <table className="w-full text-xs">
+            <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+              <tr>
+                <th className="py-2 pr-3">Date</th>
+                <th className="py-2 pr-3 text-right">Stripe</th>
+                <th className="py-2 pr-3 text-right">PayPal</th>
+                <th className="py-2 pr-3 text-right">Check/Wire</th>
+                <th className="py-2 pr-3 text-right">Gross</th>
+                <th className="py-2 pr-3 text-right">Refunds</th>
+                <th className="py-2 pr-3 text-right">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map(({ date, row }) => {
+                const dStripe = (row.cc ?? 0) + (row.gpay ?? 0) + (row.klarna ?? 0);
+                return (
+                  <tr key={date} className="border-t border-border/60">
+                    <td className="py-2 pr-3 font-mono text-[11px]">{date}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmt(dStripe)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmt(row.paypal)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmt(row.check_wire)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmt(row.gross_sales)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-danger">
+                      {fmt(row.refunds)}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums">{fmt(row.net_sales)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -247,12 +441,22 @@ function PaymentMethodPanel({ report }: { report: PaymentMethodReport }) {
   );
 }
 
-function SalesSummaryPanel({ report }: { report: SalesSummaryReport }) {
+function SalesSummaryPanel({
+  report,
+  entityScoped,
+}: {
+  report: SalesSummaryReport;
+  entityScoped?: boolean;
+}) {
   const t = report.totals;
   return (
     <Card className="p-4">
       <h2 className="text-sm font-semibold text-foreground">COGS & ad spend</h2>
-      <p className="mt-0.5 text-[11px] text-muted">Source: sales-summary/live (segment=all)</p>
+      <p className="mt-0.5 text-[11px] text-muted">
+        {entityScoped
+          ? "Source: sales-summary/live (companyIds filter — channel split unavailable)"
+          : "Source: sales-summary/live (segment=all)"}
+      </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiTile label="COGS (WB + SP)" value={t.cogs} />
