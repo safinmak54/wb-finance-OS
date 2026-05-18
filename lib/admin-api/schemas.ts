@@ -95,3 +95,22 @@ export const SalesSummaryReport = z.object({
   totals: SalesSummaryRow,
 });
 export type SalesSummaryReport = z.infer<typeof SalesSummaryReport>;
+
+/**
+ * What we actually store in `cashbook_snapshots.payload` for
+ * `source = 'sales_summary'`. The aggregate is the no-filter call (all
+ * companies, all channels) — channel-split fields are populated. Each
+ * entry in `byCompany` is the same endpoint called with `companyIds=<id>`,
+ * which the API guide says will null-out the channel-split fields but
+ * keeps COGS / ads / orders per company.
+ *
+ * Backward compat: snapshots written before this shape change contain a
+ * raw `SalesSummaryReport`. Read paths fall back to that shape if
+ * `aggregate` is missing.
+ */
+export const SalesSummarySnapshot = z.object({
+  aggregate: SalesSummaryReport,
+  // key = company_id (stringified for JSON-object compatibility).
+  byCompany: z.record(z.string(), SalesSummaryReport),
+});
+export type SalesSummarySnapshot = z.infer<typeof SalesSummarySnapshot>;

@@ -1,0 +1,239 @@
+{
+  "_about": "Sample shapes of the two Admin API responses that get stored as cashbook_snapshots.payload. Schemas: lib/admin-api/schemas.ts. Numbers are illustrative.",
+
+  "payment_method": {
+    "_source": "Admin API: /payment-method-report?mode=company&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD",
+    "_storedAs": "cashbook_snapshots.payload where source='payment_method'",
+    "_consumedBy": "PaymentMethodPanel in app/(app)/cashbook/CashbookClient.tsx",
+    "example": {
+      "report_type": "payment-method-by-company",
+      "start_date": "2026-05-01",
+      "end_date": "2026-05-31",
+      "all_companies": [
+        { "id": 12, "company_name": "WB Brands" },
+        { "id": 18, "company_name": "WB Promo" },
+        { "id": 22, "company_name": "Lanyard Promo" },
+        { "id": 34, "company_name": "Band Promo" },
+        { "id": 51, "company_name": "SP1 Brands" },
+        { "id": 77, "company_name": "One Operations" }
+      ],
+      "rows": [
+        {
+          "date": "2026-05-01",
+          "companies": [
+            {
+              "company_id": 12,
+              "company_name": "WB Brands",
+              "cc": 1820.45,
+              "paypal": 320.00,
+              "gpay": 41.50,
+              "klarna": 0,
+              "check_wire": 0,
+              "gross_sales": 2181.95,
+              "refunds": -55.00,
+              "refunds_cc": -55.00,
+              "refunds_paypal": 0,
+              "refunds_gpay": 0,
+              "refunds_klarna": 0,
+              "refunds_check_wire": 0,
+              "asi_pending": 0,
+              "store_credits": 0,
+              "net_sales": 2126.95,
+              "website_po": null,
+              "website_pay_later": null,
+              "website_pending_total": null
+            }
+          ],
+          "total": {
+            "cc": 1820.45,
+            "paypal": 320.00,
+            "gpay": 41.50,
+            "klarna": 0,
+            "check_wire": 0,
+            "gross_sales": 2181.95,
+            "refunds": -55.00,
+            "refunds_cc": -55.00,
+            "refunds_paypal": 0,
+            "refunds_gpay": 0,
+            "refunds_klarna": 0,
+            "refunds_check_wire": 0,
+            "asi_pending": 0,
+            "store_credits": 0,
+            "net_sales": 2126.95,
+            "website_po": null,
+            "website_pay_later": null,
+            "website_pending_total": null
+          }
+        }
+      ],
+      "totals": {
+        "companies": [
+          {
+            "company_id": 12,
+            "company_name": "WB Brands",
+            "cc": 48230.10,
+            "paypal": 6420.00,
+            "gpay": 980.25,
+            "klarna": 1200.00,
+            "check_wire": 2500.00,
+            "gross_sales": 59330.35,
+            "refunds": -1840.00,
+            "refunds_cc": -1640.00,
+            "refunds_paypal": -200.00,
+            "refunds_gpay": 0,
+            "refunds_klarna": 0,
+            "refunds_check_wire": 0,
+            "asi_pending": 0,
+            "store_credits": -50.00,
+            "net_sales": 57440.35,
+            "website_po": null,
+            "website_pay_later": null,
+            "website_pending_total": null
+          },
+          {
+            "company_id": 18,
+            "company_name": "WB Promo",
+            "cc": 31280.00,
+            "paypal": 0,
+            "gpay": 0,
+            "klarna": 0,
+            "check_wire": 18500.00,
+            "gross_sales": 49780.00,
+            "refunds": -420.00,
+            "refunds_cc": -420.00,
+            "refunds_paypal": 0,
+            "refunds_gpay": 0,
+            "refunds_klarna": 0,
+            "refunds_check_wire": 0,
+            "asi_pending": 0,
+            "store_credits": 0,
+            "net_sales": 49360.00,
+            "website_po": null,
+            "website_pay_later": null,
+            "website_pending_total": null
+          }
+        ],
+        "total": {
+          "cc": 79510.10,
+          "paypal": 6420.00,
+          "gpay": 980.25,
+          "klarna": 1200.00,
+          "check_wire": 21000.00,
+          "gross_sales": 109110.35,
+          "refunds": -2260.00,
+          "refunds_cc": -2060.00,
+          "refunds_paypal": -200.00,
+          "refunds_gpay": 0,
+          "refunds_klarna": 0,
+          "refunds_check_wire": 0,
+          "asi_pending": 0,
+          "store_credits": -50.00,
+          "net_sales": 106800.35,
+          "website_po": null,
+          "website_pay_later": null,
+          "website_pending_total": null
+        }
+      }
+    },
+    "_fieldNotes": {
+      "cc | gpay | klarna": "Stripe-side rails — UI sums them as 'Stripe'.",
+      "refunds_*": "Always negative or zero.",
+      "asi_pending": "Held funds from ASI (industry pay portal) not yet released.",
+      "store_credits": "Issued in-period; reduces net_sales.",
+      "website_po | website_pay_later | website_pending_total": "Net-terms invoices — nullable; not part of cash receipts.",
+      "all_companies": "Roster of every company that could appear in rows — even if zero this period.",
+      "rows": "One entry per day in [start_date, end_date]. Each row.companies is filtered to companies with activity that day.",
+      "totals": "Period totals. UI's KPI tiles read totals.total; the per-entity table reads totals.companies."
+    }
+  },
+
+  "sales_summary": {
+    "_source": "Admin API: /sales-summary/live?segment=all&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&groupBy=month — called once with no companyIds (aggregate) plus once per company_id (per-entity).",
+    "_storedAs": "cashbook_snapshots.payload where source='sales_summary'. Wrapper shape: { aggregate, byCompany: { [companyId]: SalesSummaryReport } }. Legacy snapshots may still contain a raw SalesSummaryReport; read paths handle both.",
+    "_consumedBy": "SalesSummaryPanel in app/(app)/cashbook/CashbookClient.tsx (aggregate for ALL tab, byCompany[id] for entity tabs).",
+    "_note": "Schema is .passthrough(): any extra fields the API returns are preserved in the JSONB column even though the UI doesn't render them yet. Per-entity calls null-out channel-split fields (net_sales_asi, etc.) — this is expected per Admin API guide §3.5.",
+    "_storedExample": {
+      "aggregate": "{ ... SalesSummaryReport for all companies ... }",
+      "byCompany": {
+        "1": "{ ... SalesSummaryReport with companyIds=1 (channel-split nulled) ... }",
+        "5": "{ ... SalesSummaryReport with companyIds=5 ... }"
+      }
+    },
+    "example": {
+      "rows": [
+        {
+          "period": "2026-05",
+          "gross_sales": 109110.35,
+          "net_sales": 106800.35,
+          "orders_count": 1842,
+          "cogs": 41280.00,
+          "cogs_invoiced": 38420.00,
+          "cogs_estimated": 2860.00,
+          "cogs_pct": 38.65,
+          "ads_cost_total": 18420.55,
+          "ads_cost_google": 9820.10,
+          "ads_cost_bing": 1240.00,
+          "ads_cost_meta": 6210.45,
+          "ads_cost_asi": 1150.00,
+          "ads_pct": 17.25,
+          "roas": 5.79,
+          "avg_order_value": 57.97,
+          "total_refunds": -2260.00,
+          "cancellations": -310.00,
+          "orders_cancelled": 12,
+          "orders_refunded": 24,
+          "orders_returned": 3,
+          "gross_margin_pct": 61.35,
+          "target_net_sales": 110000.00
+        }
+      ],
+      "totals": {
+        "period": "2026-05",
+        "gross_sales": 109110.35,
+        "net_sales": 106800.35,
+        "orders_count": 1842,
+        "cogs": 41280.00,
+        "cogs_invoiced": 38420.00,
+        "cogs_estimated": 2860.00,
+        "cogs_pct": 38.65,
+        "ads_cost_total": 18420.55,
+        "ads_cost_google": 9820.10,
+        "ads_cost_bing": 1240.00,
+        "ads_cost_meta": 6210.45,
+        "ads_cost_asi": 1150.00,
+        "ads_pct": 17.25,
+        "roas": 5.79,
+        "avg_order_value": 57.97,
+        "total_refunds": -2260.00,
+        "cancellations": -310.00,
+        "orders_cancelled": 12,
+        "orders_refunded": 24,
+        "orders_returned": 3,
+        "gross_margin_pct": 61.35,
+        "target_net_sales": 110000.00
+      }
+    },
+    "_fieldNotes": {
+      "period": "Bucket label; format depends on group_by (YYYY-MM for month, YYYY-MM-DD for day, etc.).",
+      "cogs": "Invoiced + estimated. Estimated covers orders shipped but not yet billed by vendor.",
+      "ads_cost_total": "Sum of google + bing + meta + asi. Verify on import — channels can be added by the API.",
+      "roas": "ads / net_sales ratio. Nullable when ads_cost_total = 0.",
+      "avg_order_value": "Nullable when orders_count = 0.",
+      "target_net_sales": "Manually set target for the period (nullable)."
+    }
+  },
+
+  "_supabaseRow": {
+    "_table": "cashbook_snapshots",
+    "_oneRowPerPeriodAndSource": "(period_start, period_end, source) — re-fetch overwrites via insert + most-recent-wins read.",
+    "example": {
+      "id": "a1f3...uuid",
+      "period_start": "2026-05-01",
+      "period_end": "2026-05-31",
+      "source": "payment_method",
+      "payload": "{ ... PaymentMethodReport JSON above ... }",
+      "fetched_at": "2026-05-15T18:42:11.380Z",
+      "fetched_by": "user-uuid-of-coo-or-cpa-who-clicked-Refresh"
+    }
+  }
+}

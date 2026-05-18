@@ -8,11 +8,13 @@ import { AdminApiError } from "@/lib/admin-api/errors";
 import {
   buildPaymentMethodJournals,
   buildSalesSummaryJournal,
+  buildSalesSummaryJournalsByCompany,
   type JournalSpec,
 } from "@/lib/admin-api/journal-mapping";
 import {
   PaymentMethodReport as PaymentMethodSchema,
   SalesSummaryReport as SalesSummarySchema,
+  SalesSummarySnapshot as SalesSummarySnapshotSchema,
 } from "@/lib/admin-api/schemas";
 import { getLatestSnapshots } from "@/lib/queries/cashbook";
 import { entityCodeToId } from "@/lib/queries/entities";
@@ -45,9 +47,9 @@ export async function refreshCashbookSnapshot(
   const parsed = RefreshSchema.parse(input);
 
   let paymentMethod;
-  let salesSummary;
+  let salesSummaryAggregate;
   try {
-    [paymentMethod, salesSummary] = await Promise.all([
+    [paymentMethod, salesSummaryAggregate] = await Promise.all([
       fetchPaymentMethodReport({
         startDate: parsed.startDate,
         endDate: parsed.endDate,
@@ -66,6 +68,40 @@ export async function refreshCashbookSnapshot(
     }
     throw e;
   }
+
+  // Per-entity sales summary: one extra call per company that showed up in
+  // the payment-method snapshot. Done in parallel after the aggregate so we
+  // know which company_ids to ask about. Note: when companyIds is set, the
+  // channel-split fields (net_sales_asi etc.) come back null — that's
+  // expected (see Admin API guide §3.5).
+  const companyIds = paymentMethod.totals.companies.map((c) => c.company_id);
+  let salesSummaryByCompany: Record<string, typeof salesSummaryAggregate> = {};
+  try {
+    const perCompany = await Promise.all(
+      companyIds.map((id) =>
+        fetchSalesSummaryLive({
+          startDate: parsed.startDate,
+          endDate: parsed.endDate,
+          groupBy: "month",
+          segment: "all",
+          companyIds: [id],
+        }).then((res) => [id, res] as const),
+      ),
+    );
+    salesSummaryByCompany = Object.fromEntries(
+      perCompany.map(([id, res]) => [String(id), res]),
+    );
+  } catch (e) {
+    if (e instanceof AdminApiError) {
+      throw new Error(`Per-entity sales-summary fetch failed: ${e.userMessage}`);
+    }
+    throw e;
+  }
+
+  const salesSummary = {
+    aggregate: salesSummaryAggregate,
+    byCompany: salesSummaryByCompany,
+  };
 
   const supabase = createDataClient();
   const fetchedAt = new Date().toISOString();
@@ -162,9 +198,24 @@ export async function generateCashbookJournals(
   let paymentMethod = snaps.paymentMethod
     ? PaymentMethodSchema.parse(snaps.paymentMethod.payload)
     : null;
-  let salesSummary = snaps.salesSummary
-    ? SalesSummarySchema.parse(snaps.salesSummary.payload)
-    : null;
+  // Sales summary may be either the new wrapper shape ({aggregate, byCompany})
+  // or a legacy raw SalesSummaryReport. Prefer per-entity (byCompany) when
+  // available; fall back to a consolidated WB-only JE for legacy snapshots.
+  let salesSummary: import("@/lib/admin-api/schemas").SalesSummaryReport | null =
+    null;
+  let salesSummarySnapshot: import("@/lib/admin-api/schemas").SalesSummarySnapshot | null =
+    null;
+  if (snaps.salesSummary) {
+    const wrapper = SalesSummarySnapshotSchema.safeParse(
+      snaps.salesSummary.payload,
+    );
+    if (wrapper.success) {
+      salesSummarySnapshot = wrapper.data;
+      salesSummary = wrapper.data.aggregate;
+    } else {
+      salesSummary = SalesSummarySchema.parse(snaps.salesSummary.payload);
+    }
+  }
 
   // Use the period's last day as the accounting date.
   const accountingDate = parsed.endDate;
@@ -178,7 +229,18 @@ export async function generateCashbookJournals(
     specs.push(...built.journals);
     skippedCompanyIds = built.skippedCompanyIds;
   }
-  if (salesSummary) {
+  // Per-entity COGS+ads is the preferred path. Fall back to a consolidated
+  // WB JE only if the snapshot pre-dates the byCompany wrapper.
+  if (salesSummarySnapshot) {
+    const built = buildSalesSummaryJournalsByCompany(
+      salesSummarySnapshot,
+      accountingDate,
+    );
+    specs.push(...built.journals);
+    skippedCompanyIds = Array.from(
+      new Set([...skippedCompanyIds, ...built.skippedCompanyIds]),
+    );
+  } else if (salesSummary) {
     const ssj = buildSalesSummaryJournal(salesSummary, accountingDate, "WB");
     if (ssj) specs.push(ssj);
   }
