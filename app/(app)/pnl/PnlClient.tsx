@@ -47,7 +47,7 @@ export type PnlValueColumn = {
 };
 
 export type PnlDocument = {
-  view: "annual" | "monthly";
+  view: "annual" | "monthly" | "current-month";
   valueColumns: PnlValueColumn[];
   denomByCol: Record<string, number>;
   rows: PnlRow[];
@@ -78,11 +78,12 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
   }
 
   // Each value column expands into (amount, %) pair. % is narrow.
-  // Layout: A (group) | B (section) | C (account) | for each col: amount, %
+  // Single label column (Group/Section/Account share it via indentation) |
+  // for each value col: amount, %.
   const valueColTemplate = doc.valueColumns
     .map(() => "minmax(80px, 1fr) minmax(38px, 0.45fr)")
     .join(" ");
-  const gridCols = `minmax(140px, 1.2fr) minmax(130px, 1.1fr) minmax(170px, 1.8fr) ${valueColTemplate}`;
+  const gridCols = `minmax(220px, 1.6fr) ${valueColTemplate}`;
 
   function pct(value: number, denom: number): string {
     if (!denom || denom === 0) return "—";
@@ -146,8 +147,6 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
             className="grid items-end gap-x-1.5 border-b border-border bg-surface-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted"
             style={{ gridTemplateColumns: gridCols }}
           >
-            <div>Group</div>
-            <div>Section</div>
             <div>Account</div>
             {doc.valueColumns.map((c) => (
               <Fragment key={c.key}>
@@ -167,7 +166,7 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
               return (
                 <div
                   key={`g-${i}`}
-                  className="grid items-center gap-x-1.5 border-t border-border bg-surface-2 px-3 py-2 text-[12px] font-semibold uppercase tracking-wider"
+                  className="grid items-center gap-x-1.5 border-t border-border bg-surface-2 px-3 py-0.5 text-[12px] font-semibold uppercase tracking-wider"
                   style={{ gridTemplateColumns: gridCols }}
                 >
                   <div>{row.label}</div>
@@ -180,20 +179,19 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
               return (
                 <div
                   key={`s-${row.sectionId}`}
-                  className="grid items-center gap-x-1.5 border-t border-border px-3 py-1.5 text-xs font-medium hover:bg-surface-2"
+                  className="grid items-center gap-x-1.5 border-t border-border px-3 py-0.5 text-xs font-medium hover:bg-surface-2"
                   style={{ gridTemplateColumns: gridCols }}
                 >
-                  <div />
-                  <div>{row.label}</div>
                   <button
                     type="button"
                     onClick={() => toggle(row.sectionId)}
-                    className="flex items-center gap-1 text-left text-muted"
+                    className="flex items-center gap-1 pl-2 text-left"
+                    title={isCollapsed ? "Expand" : "Collapse"}
                   >
-                    <span>{isCollapsed ? "▶" : "▼"}</span>
-                    <span className="text-[10px] uppercase tracking-wider">
-                      {isCollapsed ? "Expand" : "Collapse"}
+                    <span className="text-[9px] text-muted">
+                      {isCollapsed ? "▶" : "▼"}
                     </span>
+                    <span>{row.label}</span>
                   </button>
                   {doc.valueColumns.map((c) => {
                     const v = row.total[c.key] ?? 0;
@@ -227,14 +225,12 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
               return (
                 <div
                   key={`a-${row.accountId}`}
-                  className="grid items-center gap-x-1.5 border-t border-border px-3 py-1 text-xs hover:bg-surface-2/40"
+                  className="grid items-center gap-x-1.5 border-t border-border px-3 py-0.5 text-xs hover:bg-surface-2/40"
                   style={{ gridTemplateColumns: gridCols }}
                 >
-                  <div />
-                  <div />
                   <div
                     className={cn(
-                      "text-muted",
+                      "pl-6 text-muted",
                       row.manualEditable && "italic",
                     )}
                     title={
@@ -292,15 +288,13 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
               <div
                 key={`c-${i}-${row.label}`}
                 className={cn(
-                  "grid items-center gap-x-1.5 border-t border-border px-3 py-2 text-xs font-semibold",
+                  "grid items-center gap-x-1.5 border-t border-border px-3 py-0.5 text-xs font-semibold",
                   row.emphasis === "primary" && "bg-surface-2",
                   row.emphasis === "highlight" && "bg-info-soft/30",
                 )}
                 style={{ gridTemplateColumns: gridCols }}
               >
                 <div className="uppercase tracking-wider">{row.label}</div>
-                <div />
-                <div />
                 {doc.valueColumns.map((c) => {
                   const v = row.values[c.key] ?? 0;
                   const denom = doc.denomByCol[c.key] ?? 0;
@@ -339,7 +333,7 @@ function ViewToggle({
   current,
   entityCol,
 }: {
-  current: "annual" | "monthly";
+  current: "annual" | "monthly" | "current-month";
   entityCol: string | null;
 }) {
   // Preserve entityCol when switching to monthly so re-toggling feels stable.
@@ -363,6 +357,17 @@ function ViewToggle({
         )}
       >
         Monthly
+      </Link>
+      <Link
+        href="?view=current-month"
+        className={cn(
+          "border-l border-border px-2 py-1",
+          current === "current-month"
+            ? "bg-info-soft text-info"
+            : "text-muted hover:bg-surface-2",
+        )}
+      >
+        Current Month
       </Link>
     </div>
   );

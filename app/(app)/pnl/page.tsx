@@ -10,6 +10,7 @@ import {
 } from "@/lib/queries/pnl-manual";
 import {
   periodFromSearchParams,
+  resolvePeriod,
   yearRange,
   monthlyBuckets,
 } from "@/lib/period";
@@ -89,7 +90,12 @@ export default async function PnlPage({
 }) {
   const sp = await searchParams;
   const period = periodFromSearchParams(sp);
-  const view = sp.view === "monthly" ? "monthly" : "annual";
+  const view: "annual" | "monthly" | "current-month" =
+    sp.view === "monthly"
+      ? "monthly"
+      : sp.view === "current-month"
+        ? "current-month"
+        : "annual";
 
   // Monthly view is scoped to one entity column at a time (picker in the UI).
   // Annual view shows all entity columns side by side.
@@ -101,11 +107,21 @@ export default async function PnlPage({
   // This page always pulls "all entities" data — we slice into entity-column
   // buckets in memory.
   const year = Number(period.from.slice(0, 4));
-  const range = view === "monthly" ? yearRange(year) : period;
+  const range =
+    view === "monthly"
+      ? yearRange(year)
+      : view === "current-month"
+        ? resolvePeriod({ key: "month" })
+        : period;
   const months = view === "monthly" ? monthlyBuckets(year) : [];
 
   const supabase = createDataClient();
-  const accounts = await listAccounts(supabase, { activeOnly: true });
+  // 4070 (Gross Revenue – RP) and 5005 (COGS – RP) are intentionally hidden
+  // from the P&L view per business decision.
+  const HIDDEN_ACCOUNT_CODES = new Set(["4070", "5005"]);
+  const accounts = (await listAccounts(supabase, { activeOnly: true })).filter(
+    (a) => !HIDDEN_ACCOUNT_CODES.has(a.account_code),
+  );
   // "For now" mode: P&L numbers come straight from cashbook_snapshots
   // (Admin API) via the same field-to-account mapping we use for journal
   // generation. Bypasses the transactions/journals roundtrip entirely.
@@ -213,6 +229,7 @@ export default async function PnlPage({
       range: { from: range.from, to: range.to },
     });
   } else {
+    // annual + current-month both lay out as one column per entity group.
     valueColumns = PNL_ENTITY_COLUMNS.map((c) => ({
       key: c.key,
       label: c.label,
@@ -453,7 +470,9 @@ export default async function PnlPage({
   const subtitleSuffix =
     view === "monthly"
       ? `FY ${year} · ${monthlyEntityCol.label}`
-      : `${period.label} · All entity columns`;
+      : view === "current-month"
+        ? `${range.label} · All entity columns`
+        : `${period.label} · All entity columns`;
 
   return (
     <PageShell page="pnl" title="Profit & Loss" subtitle={subtitleSuffix}>
