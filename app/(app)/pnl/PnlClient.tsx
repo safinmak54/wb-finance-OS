@@ -47,7 +47,7 @@ export type PnlValueColumn = {
 };
 
 export type PnlDocument = {
-  view: "annual" | "monthly";
+  view: "annual" | "monthly" | "current-month";
   valueColumns: PnlValueColumn[];
   denomByCol: Record<string, number>;
   rows: PnlRow[];
@@ -339,7 +339,7 @@ function ViewToggle({
   current,
   entityCol,
 }: {
-  current: "annual" | "monthly";
+  current: "annual" | "monthly" | "current-month";
   entityCol: string | null;
 }) {
   // Preserve entityCol when switching to monthly so re-toggling feels stable.
@@ -363,6 +363,17 @@ function ViewToggle({
         )}
       >
         Monthly
+      </Link>
+      <Link
+        href="?view=current-month"
+        className={cn(
+          "border-l border-border px-2 py-1",
+          current === "current-month"
+            ? "bg-info-soft text-info"
+            : "text-muted hover:bg-surface-2",
+        )}
+      >
+        Current Month
       </Link>
     </div>
   );
