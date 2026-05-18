@@ -208,6 +208,19 @@ export type CashbookSnapshot = {
   fetched_by: string | null;
 }
 
+/** Manual P&L overrides for accounts the Admin API doesn't source. */
+export type PnlManualEntry = {
+  id: string;
+  account_id: string;
+  entity_code: string;
+  month: string; // YYYY-MM
+  amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Append-only audit trail. Phase E. */
 export type AuditLogRow = {
   id: string;
@@ -250,6 +263,7 @@ export type Database = {
       bank_connections: TableShape<BankConnection>;
       audit_log: TableShape<AuditLogRow>;
       cashbook_snapshots: TableShape<CashbookSnapshot>;
+      pnl_manual_entries: TableShape<PnlManualEntry>;
     };
     Views: {
       cashbook_snapshots_latest: TableShape<CashbookSnapshot>;

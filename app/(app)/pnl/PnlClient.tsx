@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDate, toCsv } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
-import { drillDownAccount, drillDownAccountSet } from "@/actions/reports";
+import { useRouter } from "next/navigation";
+import { drillDownFromCashbook } from "@/actions/reports";
 import { editTransaction } from "@/actions/transactions";
+import { upsertPnlManualEntry, deletePnlManualEntry } from "@/actions/pnl-manual";
 import type { DrillDownTxn } from "@/lib/queries/transactions";
 
 export type PnlRow =
@@ -24,6 +26,8 @@ export type PnlRow =
       kind: "account";
       sectionId: string;
       accountId: string;
+      accountCode: string;
+      manualEditable: boolean;
       label: string;
       values: Record<string, number>;
     }
@@ -62,7 +66,10 @@ type DrillContext = {
   range: { from: string; to: string };
 };
 
+const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
+
 export function PnlClient({ doc }: { doc: PnlDocument }) {
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [drill, setDrill] = useState<DrillContext | null>(null);
 
@@ -225,24 +232,51 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
                 >
                   <div />
                   <div />
-                  <div className="text-muted">{row.label}</div>
+                  <div
+                    className={cn(
+                      "text-muted",
+                      row.manualEditable && "italic",
+                    )}
+                    title={
+                      row.manualEditable
+                        ? "Manual entry — click a monthly cell to edit"
+                        : "Sourced from Admin API"
+                    }
+                  >
+                    {row.label}
+                  </div>
                   {doc.valueColumns.map((c) => {
                     const v = row.values[c.key] ?? 0;
                     const denom = doc.denomByCol[c.key] ?? 0;
+                    const isMonthCol = MONTH_KEY_RE.test(c.key);
+                    const editable =
+                      row.manualEditable &&
+                      isMonthCol &&
+                      doc.entityCol !== null;
                     return (
                       <Fragment key={c.key}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "text-right font-mono hover:underline",
-                            v < 0 ? "text-danger" : "text-foreground",
-                            v === 0 && "text-muted/60",
-                          )}
-                          onClick={() => openAccountDrill(row, c)}
-                          disabled={v === 0}
-                        >
-                          {fmt(v)}
-                        </button>
+                        {editable ? (
+                          <EditableValueCell
+                            value={v}
+                            accountId={row.accountId}
+                            entityCode={doc.entityCol as string}
+                            month={c.key}
+                            onSaved={() => router.refresh()}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className={cn(
+                              "text-right font-mono hover:underline",
+                              v < 0 ? "text-danger" : "text-foreground",
+                              v === 0 && "text-muted/60",
+                            )}
+                            onClick={() => openAccountDrill(row, c)}
+                            disabled={v === 0}
+                          >
+                            {fmt(v)}
+                          </button>
+                        )}
                         <div className="text-right font-mono text-[10px] text-muted">
                           {pct(v, denom)}
                         </div>
@@ -393,28 +427,16 @@ function DrillModal({
     const snapshot = ctx;
     startTransition(async () => {
       try {
-        let r: DrillDownTxn[];
-        if (snapshot.singleAccountId) {
-          // Single account → use the entity-filter-value path. The column's
-          // entityCodes is always a single code (WB, WBP, …) or all 9 codes
-          // for ALL; passing "all" when length>1 is equivalent here because
-          // the page already pulls all entities.
-          const entityArg =
-            snapshot.entityCodes.length === 1 ? snapshot.entityCodes[0] : "all";
-          r = await drillDownAccount({
-            accountId: snapshot.singleAccountId,
-            from: snapshot.range.from,
-            to: snapshot.range.to,
-            entity: entityArg,
-          });
-        } else {
-          r = await drillDownAccountSet({
-            accountIds: snapshot.accountIds,
-            from: snapshot.range.from,
-            to: snapshot.range.to,
-            entityCodes: snapshot.entityCodes,
-          });
-        }
+        // P&L is now sourced from cashbook_snapshots; drill matches.
+        // Snapshot rows are read-only (synthetic ids prefixed `cb-`).
+        const r = await drillDownFromCashbook({
+          accountIds: snapshot.singleAccountId
+            ? [snapshot.singleAccountId]
+            : snapshot.accountIds,
+          from: snapshot.range.from,
+          to: snapshot.range.to,
+          entityCodes: snapshot.entityCodes,
+        });
         setRows(r);
       } catch (e) {
         setError((e as Error).message);
@@ -532,6 +554,8 @@ function DrillModal({
             </thead>
             <tbody>
               {rows.map((r) => {
+                // Cashbook-sourced rows are synthetic + read-only.
+                const isSynthetic = r.id.startsWith("cb-");
                 const edit = edits[r.id] ?? {};
                 const hasChanges =
                   edit.account_id !== undefined || edit.description !== undefined;
@@ -542,25 +566,42 @@ function DrillModal({
                     </td>
                     <td className="px-3 py-1">{r.entity}</td>
                     <td className="px-3 py-1">
-                      <input
-                        type="text"
-                        value={edit.description ?? r.description ?? ""}
-                        onChange={(e) => setEdit(r.id, { description: e.target.value })}
-                        className="w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
-                      />
+                      {isSynthetic ? (
+                        <span className="text-[11px] text-muted">
+                          {r.description ?? ""}
+                        </span>
+                      ) : (
+                        <input
+                          type="text"
+                          value={edit.description ?? r.description ?? ""}
+                          onChange={(e) =>
+                            setEdit(r.id, { description: e.target.value })
+                          }
+                          className="w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-1">
-                      <select
-                        value={edit.account_id ?? r.account_id ?? ""}
-                        onChange={(e) => setEdit(r.id, { account_id: e.target.value })}
-                        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
-                      >
-                        {doc.accounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.code} · {a.name}
-                          </option>
-                        ))}
-                      </select>
+                      {isSynthetic ? (
+                        <span className="text-[11px] text-muted">
+                          {doc.accounts.find((a) => a.id === r.account_id)?.code ??
+                            "—"}
+                        </span>
+                      ) : (
+                        <select
+                          value={edit.account_id ?? r.account_id ?? ""}
+                          onChange={(e) =>
+                            setEdit(r.id, { account_id: e.target.value })
+                          }
+                          className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
+                        >
+                          {doc.accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.code} · {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td
                       className={cn(
@@ -571,17 +612,25 @@ function DrillModal({
                       {fmt(Number(r.amount))}
                     </td>
                     <td className="px-3 py-1 text-right">
-                      <button
-                        type="button"
-                        disabled={!hasChanges || savingId === r.id}
-                        onClick={() => save(r.id)}
-                        className={cn(
-                          "text-[11px] font-medium",
-                          hasChanges ? "text-info hover:underline" : "text-muted/60",
-                        )}
-                      >
-                        {savingId === r.id ? "Saving…" : "Save"}
-                      </button>
+                      {isSynthetic ? (
+                        <span className="text-[10px] uppercase tracking-wider text-muted/60">
+                          API
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!hasChanges || savingId === r.id}
+                          onClick={() => save(r.id)}
+                          className={cn(
+                            "text-[11px] font-medium",
+                            hasChanges
+                              ? "text-info hover:underline"
+                              : "text-muted/60",
+                          )}
+                        >
+                          {savingId === r.id ? "Saving…" : "Save"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -591,5 +640,119 @@ function DrillModal({
         </div>
       ) : null}
     </Modal>
+  );
+}
+
+/**
+ * Inline-editable monthly cell for manual P&L accounts. Click → enter input
+ * mode → save persists via upsertPnlManualEntry. Save 0 (or blank) clears
+ * the override by calling deletePnlManualEntry instead.
+ */
+function EditableValueCell({
+  value,
+  accountId,
+  entityCode,
+  month,
+  onSaved,
+}: {
+  value: number;
+  accountId: string;
+  entityCode: string;
+  month: string;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  function startEdit() {
+    setDraft(value === 0 ? "" : String(Math.abs(value)));
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+    setDraft("");
+  }
+
+  async function save() {
+    const trimmed = draft.trim();
+    const amount = trimmed === "" ? 0 : Number(trimmed);
+    if (!Number.isFinite(amount)) {
+      toast.push("Enter a valid number", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (amount === 0) {
+        await deletePnlManualEntry({ accountId, entityCode, month });
+      } else {
+        await upsertPnlManualEntry({
+          accountId,
+          entityCode,
+          month,
+          amount,
+        });
+      }
+      setEditing(false);
+      onSaved();
+      toast.push("Saved", "success");
+    } catch (e) {
+      toast.push((e as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={startEdit}
+        className={cn(
+          "rounded text-right font-mono hover:bg-info-soft/40 hover:underline",
+          value < 0 ? "text-danger" : "text-foreground",
+          value === 0 && "text-muted/60",
+        )}
+        title="Click to edit (manual entry)"
+      >
+        {fmt(value)}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <input
+        type="number"
+        step="0.01"
+        value={draft}
+        autoFocus
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void save();
+          if (e.key === "Escape") cancel();
+        }}
+        className="w-20 rounded border border-border bg-surface px-1 py-0.5 text-right font-mono text-[11px]"
+      />
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className="text-[10px] font-semibold text-info hover:underline disabled:opacity-50"
+      >
+        {saving ? "…" : "✓"}
+      </button>
+      <button
+        type="button"
+        onClick={cancel}
+        disabled={saving}
+        className="text-[10px] text-muted hover:text-foreground"
+      >
+        ✕
+      </button>
+    </div>
   );
 }

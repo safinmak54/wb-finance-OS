@@ -1,11 +1,13 @@
 import { PageShell } from "@/components/shell/PageShell";
 import { createDataClient } from "@/lib/supabase/data";
-import {
-  fetchReportData,
-  groupByAccountAndEntity,
-  type AccountAggregate,
-} from "@/lib/queries/reports";
+import type { AccountAggregate } from "@/lib/queries/reports";
+import { buildPnlAggregatesFromCashbook } from "@/lib/queries/cashbook-pnl";
 import { listAccounts } from "@/lib/queries/accounts";
+import {
+  listPnlManualEntries,
+  mergeManualEntriesIntoAggregates,
+  API_SOURCED_ACCOUNT_CODES,
+} from "@/lib/queries/pnl-manual";
 import {
   periodFromSearchParams,
   yearRange,
@@ -103,16 +105,15 @@ export default async function PnlPage({
   const months = view === "monthly" ? monthlyBuckets(year) : [];
 
   const supabase = createDataClient();
-  const [data, accounts] = await Promise.all([
-    fetchReportData(supabase, {
-      entity: "all",
-      from: range.from,
-      to: range.to,
-    }),
-    listAccounts(supabase, { activeOnly: true }),
+  const accounts = await listAccounts(supabase, { activeOnly: true });
+  // "For now" mode: P&L numbers come straight from cashbook_snapshots
+  // (Admin API) via the same field-to-account mapping we use for journal
+  // generation. Bypasses the transactions/journals roundtrip entirely.
+  const [cb, manualEntries] = await Promise.all([
+    buildPnlAggregatesFromCashbook(supabase, { range, accounts }),
+    listPnlManualEntries(supabase, { from: range.from, to: range.to }),
   ]);
-
-  const aggregates = groupByAccountAndEntity(data.txns);
+  const aggregates = cb.aggregates;
 
   // Hardcoded account-code → P&L subtype mapping.
   const CODE_TO_SUBTYPE: Record<string, Subtype> = {};
@@ -151,6 +152,16 @@ export default async function PnlPage({
   ]) {
     CODE_TO_SUBTYPE[c] = "opex";
   }
+
+  // Fold manual entries into the same aggregate Map. Manual entries can
+  // only target non-API-sourced accounts (enforced server-side in the
+  // upsert action).
+  mergeManualEntriesIntoAggregates(
+    aggregates,
+    manualEntries,
+    accounts,
+    CODE_TO_SUBTYPE,
+  );
 
   const accountsBySubtype = new Map<Subtype, Account[]>();
   for (const a of accounts) {
@@ -247,7 +258,13 @@ export default async function PnlPage({
   const sectionTotals = new Map<string, Record<string, number>>();
   const sectionAccountRows = new Map<
     string,
-    Array<{ accountId: string; label: string; values: Record<string, number> }>
+    Array<{
+      accountId: string;
+      accountCode: string;
+      manualEditable: boolean;
+      label: string;
+      values: Record<string, number>;
+    }>
   >();
   const sectionAccountIds = new Map<string, string[]>();
 
@@ -256,6 +273,8 @@ export default async function PnlPage({
       const accountsForSection = accountsBySubtype.get(sec.subtype) ?? [];
       const rows = accountsForSection.map((a) => ({
         accountId: a.id,
+        accountCode: a.account_code,
+        manualEditable: !API_SOURCED_ACCOUNT_CODES.has(a.account_code),
         label: `${a.account_code} · ${a.account_name}`,
         values: valuesForAccount(a),
       }));
@@ -337,6 +356,8 @@ export default async function PnlPage({
           kind: "account",
           sectionId,
           accountId: r.accountId,
+          accountCode: r.accountCode,
+          manualEditable: r.manualEditable,
           label: r.label,
           values: r.values,
         });

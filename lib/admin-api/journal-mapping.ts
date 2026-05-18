@@ -1,5 +1,9 @@
 import "server-only";
-import type { PaymentMethodReport, SalesSummaryReport } from "./schemas";
+import type {
+  PaymentMethodReport,
+  SalesSummaryReport,
+  SalesSummarySnapshot,
+} from "./schemas";
 import { apiCompanyToEntityCode } from "./entity-mapping";
 
 export type JournalLineSpec = {
@@ -19,20 +23,33 @@ export type JournalSpec = {
   lines: JournalLineSpec[];
 };
 
+/**
+ * P&L-side account codes are pinned against the chart of accounts shown
+ * on the live Profit & Loss page. Balance-sheet codes (clearing / AR / AP)
+ * are placeholders pending verification against the BS chart — flagged in
+ * docs/cashbook-admin-api-payloads.json.
+ */
 const ACCT = {
+  // Balance-sheet — VERIFY THESE CODES EXIST IN YOUR CoA before posting.
   STRIPE_CLEARING: "1140",
   PAYPAL_CLEARING: "1150",
   AR: "1100",
   AP: "2010",
-  STRIPE_REVENUE: "4010",
-  PAYPAL_REVENUE: "4020",
-  WIRE_REVENUE: "4030",
-  RETURNS: "4900",
-  COGS: "5010",
-  GOOGLE_ADS: "6010",
-  META_ADS: "6020",
-  BING_ADS: "6040",
-  ASI_ADS: "6050",
+  // P&L revenue (Gross Revenue group)
+  STRIPE_REVENUE: "4040",
+  PAYPAL_REVENUE: "4050",
+  WIRE_REVENUE: "4060",
+  // P&L sales returns (per channel)
+  STRIPE_RETURN: "4045",
+  PAYPAL_RETURN: "4055",
+  DIRECT_RETURN: "4065",
+  // P&L COGS (WB + SP combined — SP cost component is bundled by the API)
+  COGS_WB_SP: "5000",
+  // P&L marketing
+  GOOGLE_ADS: "6000",
+  META_ADS: "6001",
+  BING_ADS: "6002",
+  ASI_ADS: "6003",
 } as const;
 
 /** Smallest cent rounding to dodge float drift. */
@@ -70,28 +87,38 @@ export function buildPaymentMethodJournals(
     const paypal = r(c.paypal ?? 0);
     const paypalRefunds = r(c.refunds_paypal ?? 0);
     const wire = r(c.check_wire ?? 0);
+    const wireRefunds = r(c.refunds_check_wire ?? 0);
+
+    // Not mapped (still need P&L target accounts):
+    //   c.store_credits    — contra-revenue? confirm with CPA
+    //   c.asi_pending      — A/R item, not P&L
+    //   c.refunds (rollup) — already captured per-channel above
 
     const lines: JournalLineSpec[] = [];
 
     if (stripe > 0) {
       lines.push({ account_code: ACCT.STRIPE_CLEARING, debit: stripe, credit: 0, memo: "Stripe gross — to clearing" });
-      lines.push({ account_code: ACCT.STRIPE_REVENUE, debit: 0, credit: stripe, memo: "Stripe revenue (CC + GPay + Klarna)" });
+      lines.push({ account_code: ACCT.STRIPE_REVENUE, debit: 0, credit: stripe, memo: "Stripe revenue (CC + GPay + Klarna) → 4040" });
     }
     if (paypal > 0) {
       lines.push({ account_code: ACCT.PAYPAL_CLEARING, debit: paypal, credit: 0, memo: "PayPal gross — to clearing" });
-      lines.push({ account_code: ACCT.PAYPAL_REVENUE, debit: 0, credit: paypal, memo: "PayPal revenue" });
+      lines.push({ account_code: ACCT.PAYPAL_REVENUE, debit: 0, credit: paypal, memo: "PayPal revenue → 4050" });
     }
     if (wire > 0) {
       lines.push({ account_code: ACCT.AR, debit: wire, credit: 0, memo: "Wire/Check — A/R" });
-      lines.push({ account_code: ACCT.WIRE_REVENUE, debit: 0, credit: wire, memo: "Wire/Check revenue" });
+      lines.push({ account_code: ACCT.WIRE_REVENUE, debit: 0, credit: wire, memo: "Direct revenue (check/wire) → 4060" });
     }
     if (stripeRefunds > 0) {
-      lines.push({ account_code: ACCT.RETURNS, debit: stripeRefunds, credit: 0, memo: "Stripe refunds (returns)" });
+      lines.push({ account_code: ACCT.STRIPE_RETURN, debit: stripeRefunds, credit: 0, memo: "Stripe refunds → 4045" });
       lines.push({ account_code: ACCT.STRIPE_CLEARING, debit: 0, credit: stripeRefunds, memo: "Stripe refunds — from clearing" });
     }
     if (paypalRefunds > 0) {
-      lines.push({ account_code: ACCT.RETURNS, debit: paypalRefunds, credit: 0, memo: "PayPal refunds (returns)" });
+      lines.push({ account_code: ACCT.PAYPAL_RETURN, debit: paypalRefunds, credit: 0, memo: "PayPal refunds → 4055" });
       lines.push({ account_code: ACCT.PAYPAL_CLEARING, debit: 0, credit: paypalRefunds, memo: "PayPal refunds — from clearing" });
+    }
+    if (wireRefunds > 0) {
+      lines.push({ account_code: ACCT.DIRECT_RETURN, debit: wireRefunds, credit: 0, memo: "Direct refunds → 4065" });
+      lines.push({ account_code: ACCT.AR, debit: 0, credit: wireRefunds, memo: "Wire/Check refunds — from A/R" });
     }
 
     if (lines.length === 0) continue;
@@ -142,11 +169,11 @@ export function buildSalesSummaryJournal(
   const asi = r(t.ads_cost_asi ?? 0);
 
   const expenses: JournalLineSpec[] = [];
-  if (cogs > 0) expenses.push({ account_code: ACCT.COGS, debit: cogs, credit: 0, memo: "COGS (WB + SP)" });
-  if (google > 0) expenses.push({ account_code: ACCT.GOOGLE_ADS, debit: google, credit: 0, memo: "Google Ads" });
-  if (meta > 0) expenses.push({ account_code: ACCT.META_ADS, debit: meta, credit: 0, memo: "Meta Ads" });
-  if (bing > 0) expenses.push({ account_code: ACCT.BING_ADS, debit: bing, credit: 0, memo: "Bing Ads" });
-  if (asi > 0) expenses.push({ account_code: ACCT.ASI_ADS, debit: asi, credit: 0, memo: "ASI Ads" });
+  if (cogs > 0) expenses.push({ account_code: ACCT.COGS_WB_SP, debit: cogs, credit: 0, memo: "COGS (WB + SP) → 5000" });
+  if (google > 0) expenses.push({ account_code: ACCT.GOOGLE_ADS, debit: google, credit: 0, memo: "Google Ads → 6000" });
+  if (meta > 0) expenses.push({ account_code: ACCT.META_ADS, debit: meta, credit: 0, memo: "Meta Ads → 6001" });
+  if (bing > 0) expenses.push({ account_code: ACCT.BING_ADS, debit: bing, credit: 0, memo: "Bing Ads → 6002" });
+  if (asi > 0) expenses.push({ account_code: ACCT.ASI_ADS, debit: asi, credit: 0, memo: "ASI Ads → 6003" });
 
   if (expenses.length === 0) return null;
 
@@ -165,4 +192,70 @@ export function buildSalesSummaryJournal(
     source: "ADMIN_API",
     lines,
   };
+}
+
+/**
+ * Per-entity COGS + ad spend JEs from the new snapshot wrapper.
+ * Uses the `byCompany` map (one /sales-summary/live call per company_id)
+ * to post each entity's COGS + ads against its own entity row, so the
+ * P&L per-entity column lights up correctly.
+ *
+ * Companies whose API id has no entity mapping are skipped — caller
+ * surfaces the count via skippedCompanyIds.
+ */
+export function buildSalesSummaryJournalsByCompany(
+  snapshot: SalesSummarySnapshot,
+  accountingDate: string,
+): { journals: JournalSpec[]; skippedCompanyIds: number[] } {
+  const period = accountingDate.slice(0, 7);
+  const journals: JournalSpec[] = [];
+  const skipped: number[] = [];
+
+  for (const [companyIdStr, report] of Object.entries(snapshot.byCompany)) {
+    const companyId = Number(companyIdStr);
+    const entity = apiCompanyToEntityCode(companyId);
+    const t = report.totals;
+
+    const cogs = r(t.cogs ?? 0);
+    const google = r(t.ads_cost_google ?? 0);
+    const meta = r(t.ads_cost_meta ?? 0);
+    const bing = r(t.ads_cost_bing ?? 0);
+    const asi = r(t.ads_cost_asi ?? 0);
+    const total = r(cogs + google + meta + bing + asi);
+
+    if (total === 0) continue;
+    if (!entity) {
+      skipped.push(companyId);
+      continue;
+    }
+
+    const expenses: JournalLineSpec[] = [];
+    if (cogs > 0)
+      expenses.push({ account_code: ACCT.COGS_WB_SP, debit: cogs, credit: 0, memo: "COGS (WB + SP) → 5000" });
+    if (google > 0)
+      expenses.push({ account_code: ACCT.GOOGLE_ADS, debit: google, credit: 0, memo: "Google Ads → 6000" });
+    if (meta > 0)
+      expenses.push({ account_code: ACCT.META_ADS, debit: meta, credit: 0, memo: "Meta Ads → 6001" });
+    if (bing > 0)
+      expenses.push({ account_code: ACCT.BING_ADS, debit: bing, credit: 0, memo: "Bing Ads → 6002" });
+    if (asi > 0)
+      expenses.push({ account_code: ACCT.ASI_ADS, debit: asi, credit: 0, memo: "ASI Ads → 6003" });
+
+    const lines: JournalLineSpec[] = [
+      ...expenses,
+      { account_code: ACCT.AP, debit: 0, credit: total, memo: "A/P offset (settled when invoices clear)" },
+    ];
+
+    journals.push({
+      entity,
+      accounting_date: accountingDate,
+      description: `COGS & ad spend — ${entity} — ${period}`,
+      entry_type: "accrual",
+      status: "draft",
+      source: "ADMIN_API",
+      lines,
+    });
+  }
+
+  return { journals, skippedCompanyIds: skipped };
 }

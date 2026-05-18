@@ -8,6 +8,7 @@ import { AdminApiError } from "@/lib/admin-api/errors";
 import {
   buildPaymentMethodJournals,
   buildSalesSummaryJournal,
+  buildSalesSummaryJournalsByCompany,
   type JournalSpec,
 } from "@/lib/admin-api/journal-mapping";
 import {
@@ -197,17 +198,19 @@ export async function generateCashbookJournals(
   let paymentMethod = snaps.paymentMethod
     ? PaymentMethodSchema.parse(snaps.paymentMethod.payload)
     : null;
-  // Sales summary snapshot may be either the new wrapper shape
-  // ({ aggregate, byCompany }) or a legacy raw SalesSummaryReport. Try the
-  // wrapper first; fall through to raw. Journal generation always uses the
-  // aggregate (consolidated) — it posts a single WB-entity JE.
+  // Sales summary may be either the new wrapper shape ({aggregate, byCompany})
+  // or a legacy raw SalesSummaryReport. Prefer per-entity (byCompany) when
+  // available; fall back to a consolidated WB-only JE for legacy snapshots.
   let salesSummary: import("@/lib/admin-api/schemas").SalesSummaryReport | null =
+    null;
+  let salesSummarySnapshot: import("@/lib/admin-api/schemas").SalesSummarySnapshot | null =
     null;
   if (snaps.salesSummary) {
     const wrapper = SalesSummarySnapshotSchema.safeParse(
       snaps.salesSummary.payload,
     );
     if (wrapper.success) {
+      salesSummarySnapshot = wrapper.data;
       salesSummary = wrapper.data.aggregate;
     } else {
       salesSummary = SalesSummarySchema.parse(snaps.salesSummary.payload);
@@ -226,7 +229,18 @@ export async function generateCashbookJournals(
     specs.push(...built.journals);
     skippedCompanyIds = built.skippedCompanyIds;
   }
-  if (salesSummary) {
+  // Per-entity COGS+ads is the preferred path. Fall back to a consolidated
+  // WB JE only if the snapshot pre-dates the byCompany wrapper.
+  if (salesSummarySnapshot) {
+    const built = buildSalesSummaryJournalsByCompany(
+      salesSummarySnapshot,
+      accountingDate,
+    );
+    specs.push(...built.journals);
+    skippedCompanyIds = Array.from(
+      new Set([...skippedCompanyIds, ...built.skippedCompanyIds]),
+    );
+  } else if (salesSummary) {
     const ssj = buildSalesSummaryJournal(salesSummary, accountingDate, "WB");
     if (ssj) specs.push(ssj);
   }
