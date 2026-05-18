@@ -116,7 +116,12 @@ export default async function PnlPage({
   const months = view === "monthly" ? monthlyBuckets(year) : [];
 
   const supabase = createDataClient();
-  const accounts = await listAccounts(supabase, { activeOnly: true });
+  // 4070 (Gross Revenue – RP) and 5005 (COGS – RP) are intentionally hidden
+  // from the P&L view per business decision.
+  const HIDDEN_ACCOUNT_CODES = new Set(["4070", "5005"]);
+  const accounts = (await listAccounts(supabase, { activeOnly: true })).filter(
+    (a) => !HIDDEN_ACCOUNT_CODES.has(a.account_code),
+  );
   // "For now" mode: P&L numbers come straight from cashbook_snapshots
   // (Admin API) via the same field-to-account mapping we use for journal
   // generation. Bypasses the transactions/journals roundtrip entirely.
