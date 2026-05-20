@@ -77,7 +77,7 @@ export function ApClient({ items, today }: Props) {
             (new Date(today).getTime() - new Date(due).getTime()) / 86400000,
           );
           const label =
-            days < 0
+            days <= 0
               ? "Current"
               : days <= 30
                 ? "1–30d"
@@ -87,7 +87,7 @@ export function ApClient({ items, today }: Props) {
                     ? "61–90d"
                     : "90+d";
           const tone =
-            days < 0
+            days <= 0
               ? "text-success"
               : days <= 60
                 ? "text-warning"

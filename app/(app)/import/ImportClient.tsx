@@ -11,6 +11,7 @@ import {
   commitImport,
   type ParsePreview,
 } from "@/actions/import";
+import type { BankConnection } from "@/lib/supabase/types";
 
 const FIELDS = [
   { key: "date", label: "Date", required: true },
@@ -30,12 +31,18 @@ type Mapping = {
   vendor: number;
 };
 
-export function ImportClient() {
+type Props = {
+  banks?: BankConnection[];
+  onComplete?: () => void;
+};
+
+export function ImportClient({ banks = [], onComplete }: Props = {}) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<"bank" | "credit_card">("bank");
   const [defaultEntity, setDefaultEntity] = useState("");
+  const [bankConnectionId, setBankConnectionId] = useState("");
   const [preview, setPreview] = useState<ParsePreview | null>(null);
   const [mapping, setMapping] = useState<Mapping>({
     date: -1,
@@ -91,6 +98,7 @@ export function ImportClient() {
       JSON.stringify({
         source,
         defaultEntity: defaultEntity || undefined,
+        bankConnectionId: bankConnectionId || undefined,
         mapping,
       }),
     );
@@ -101,7 +109,9 @@ export function ImportClient() {
         toast.push(`Imported ${r.inserted} · skipped ${r.skipped}`, "success");
         setFile(null);
         setPreview(null);
+        setBankConnectionId("");
         if (fileRef.current) fileRef.current.value = "";
+        onComplete?.();
       } catch (err) {
         setError((err as Error).message);
       }
@@ -113,13 +123,43 @@ export function ImportClient() {
       <Card>
         <CardHeader title="1. Upload a file" subtitle="CSV or XLSX" />
         <CardBody className="flex flex-col gap-3">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv,.xlsx,.xls,.txt"
-            onChange={onFileChange}
-            className="text-xs"
-          />
+          <label
+            htmlFor="import-file"
+            className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 px-4 py-6 text-center transition hover:border-primary hover:bg-primary/10"
+          >
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-primary"
+              aria-hidden
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <div className="text-sm font-semibold text-foreground">
+              {file ? file.name : "Click to choose a CSV or XLSX file"}
+            </div>
+            <div className="text-[11px] text-muted">
+              {file
+                ? "Click again to pick a different file"
+                : "Accepts .csv, .xlsx, .xls, .txt"}
+            </div>
+            <input
+              id="import-file"
+              ref={fileRef}
+              type="file"
+              accept=".csv,.xlsx,.xls,.txt"
+              onChange={onFileChange}
+              className="sr-only"
+            />
+          </label>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Source">
               <Select
@@ -144,6 +184,23 @@ export function ImportClient() {
               </Select>
             </Field>
           </div>
+          {banks.length > 0 ? (
+            <Field label="Bank account (optional)">
+              <Select
+                value={bankConnectionId}
+                onChange={(e) => setBankConnectionId(e.target.value)}
+              >
+                <option value="">— none —</option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.institution}
+                    {b.account_number ? ` · ${b.account_number}` : ""}
+                    {b.entity ? ` (${b.entity})` : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Button size="sm" onClick={previewFile} disabled={!file || pending}>
             Preview
           </Button>

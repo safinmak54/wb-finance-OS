@@ -72,6 +72,7 @@ export type RawTransaction = {
   id: string;
   entity_id: string | null;
   source: string;
+  bank_connection_id: string | null;
   external_id: string | null;
   transaction_date: string;
   accounting_date: string | null;
@@ -152,19 +153,27 @@ export type ReconciliationMatch = {
 
 export type ApItem = {
   id: string;
-  vendor_id: string | null;
-  invoice_id: string | null;
+  vendor: string | null;
+  entity: string | null;
+  invoice_date: string | null;
+  due_date: string;
+  amount: number;
+  paid: boolean;
+  dispute_note: string | null;
+}
+
+// View shape consumed by the AP page/table. `vendor_name` is the same
+// `vendor` text column — exposed under a stable name so the UI doesn't
+// need to know how vendor identity is stored.
+export type ApItemView = {
+  id: string;
   entity: string | null;
   due_date: string;
   amount: number;
-  status: string;
-  description: string | null;
-  created_at: string | null;
-}
-
-export type ApItemView = ApItem & {
-  vendor_name: string | null;
+  paid: boolean;
   invoice_date: string | null;
+  vendor_name: string | null;
+  dispute_note: string | null;
 };
 
 export type Profile = {
