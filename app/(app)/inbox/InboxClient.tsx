@@ -372,7 +372,6 @@ export function InboxClient({
               </th>
               <th className="px-3 py-2 text-left">Date</th>
               <th className="px-3 py-2 text-left">Description</th>
-              <th className="px-3 py-2 text-left">Vendor</th>
               <th className="px-3 py-2 text-right">Amount</th>
               <th className="px-3 py-2 text-left">Source</th>
               <th className="px-3 py-2 text-left">Entity</th>
@@ -383,7 +382,7 @@ export function InboxClient({
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-muted">
+                <td colSpan={8} className="px-3 py-8 text-center text-muted">
                   {rows.length === 0 ? "Inbox empty." : "No rows match the current filter."}
                 </td>
               </tr>
@@ -417,7 +416,6 @@ export function InboxClient({
                     <td className="px-3 py-1.5">
                       <div className="max-w-[300px] truncate">{r.description}</div>
                     </td>
-                    <td className="px-3 py-1.5 text-[11px] text-muted">{r.vendor}</td>
                     <td
                       className={cn(
                         "whitespace-nowrap px-3 py-1.5 text-right font-mono",

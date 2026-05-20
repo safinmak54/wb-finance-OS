@@ -32,10 +32,10 @@ function compilePattern(pattern: string): RegExp | null {
 }
 
 export function classifyOne(
-  txn: Pick<RawTransaction, "description" | "vendor">,
+  txn: Pick<RawTransaction, "description">,
   rules: readonly ClassificationRule[],
 ): Classification | null {
-  const haystack = [txn.description ?? "", txn.vendor ?? ""].join(" | ");
+  const haystack = txn.description ?? "";
   for (const rule of rules) {
     if (!rule.is_active) continue;
     const re = compilePattern(rule.pattern);
@@ -52,7 +52,7 @@ export function classifyOne(
 }
 
 export function classifyMany(
-  txns: readonly Pick<RawTransaction, "id" | "description" | "vendor">[],
+  txns: readonly Pick<RawTransaction, "id" | "description">[],
   rules: readonly ClassificationRule[],
 ): Map<string, Classification> {
   const out = new Map<string, Classification>();
@@ -84,14 +84,16 @@ const TRANSFER_PATTERNS = [
   /\bbetween accounts\b/i,
 ];
 
-/** Classify a transaction by kind for inbox grouping. Uses txn_type when
- *  set (already "transfer" from import), falls back to description regexes. */
+/** Classify a transaction by kind for inbox grouping. Uses description
+ *  regexes; ONEOPS is the conduit entity for internal transfers, so
+ *  anything posted to it counts as a transfer regardless of description. */
 export function detectTxnKind(
-  row: Pick<RawTransaction, "description" | "vendor" | "txn_type">,
+  row: Pick<RawTransaction, "description"> & {
+    entity_code?: string | null;
+  },
 ): TxnKind {
-  if (row.txn_type === "transfer") return "transfer";
-  if (row.txn_type === "cc_payment") return "cc_payment";
-  const haystack = [row.description ?? "", row.vendor ?? ""].join(" | ");
+  if (row.entity_code === "ONEOPS") return "transfer";
+  const haystack = row.description ?? "";
   for (const re of CC_PAYMENT_PATTERNS) {
     if (re.test(haystack)) return "cc_payment";
   }

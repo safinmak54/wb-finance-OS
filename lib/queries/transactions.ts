@@ -19,8 +19,11 @@ export type LedgerRow = Transaction & {
 const CC_SOURCES = "(credit_card,amex,capital_one)";
 const CAPONE_DESC_LIKE = "%CAPITAL ONE ONLINE%";
 
-/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources
- *  AND Capital One Online description matches (mirrors legacy renderInbox). */
+/** Bank-side inbox: unclassified bank statement rows. Admin-API rows
+ *  start as classified=false too, but the cashbook fetch action auto-
+ *  classifies them immediately afterwards, so anything still sitting
+ *  here is genuinely pending. Excludes CC sources AND Capital One
+ *  Online description matches (mirrors legacy renderInbox). */
 export async function listUnclassifiedBank(
   supabase: Sb,
   opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
@@ -70,7 +73,9 @@ export async function listUnclassifiedCC(
   return data ?? [];
 }
 
-/** Posted ledger view: classified transactions with their account joined. */
+/** Posted ledger view: classified transactions with their account joined.
+ *  Reads from `transactions_pnl` so Admin-API-sourced rows from prior
+ *  snapshot fetches don't double-show after a re-fetch. */
 export async function listLedgerView(
   supabase: Sb,
   opts: {
@@ -79,7 +84,7 @@ export async function listLedgerView(
   } = {},
 ): Promise<LedgerRow[]> {
   let q = supabase
-    .from("transactions")
+    .from("transactions_pnl")
     .select(
       "*, accounts(id, account_code, account_name, account_type)",
     )
@@ -142,7 +147,7 @@ export async function listTxnsForAccount(
   },
 ): Promise<DrillDownTxn[]> {
   let q = supabase
-    .from("transactions")
+    .from("transactions_pnl")
     .select(
       "id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id",
     )
@@ -173,7 +178,7 @@ export async function listTxnsForAccountSet(
 ): Promise<DrillDownTxn[]> {
   if (args.accountIds.length === 0) return [];
   let q = supabase
-    .from("transactions")
+    .from("transactions_pnl")
     .select(
       "id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id",
     )

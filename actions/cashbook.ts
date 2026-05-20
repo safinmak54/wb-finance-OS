@@ -16,6 +16,10 @@ import {
   SalesSummaryReport as SalesSummarySchema,
   SalesSummarySnapshot as SalesSummarySnapshotSchema,
 } from "@/lib/admin-api/schemas";
+import {
+  synthesizeTransactionRows,
+  SYNTHESIZED_ACCOUNT_CODES,
+} from "@/lib/admin-api/synthesize-transactions";
 import { getLatestSnapshots } from "@/lib/queries/cashbook";
 import { entityCodeToId } from "@/lib/queries/entities";
 import { requireRole } from "./_authz";
@@ -58,7 +62,7 @@ export async function refreshCashbookSnapshot(
       fetchSalesSummaryLive({
         startDate: parsed.startDate,
         endDate: parsed.endDate,
-        groupBy: "month",
+        groupBy: "day",
         segment: "all",
       }),
     ]);
@@ -82,7 +86,7 @@ export async function refreshCashbookSnapshot(
         fetchSalesSummaryLive({
           startDate: parsed.startDate,
           endDate: parsed.endDate,
-          groupBy: "month",
+          groupBy: "day",
           segment: "all",
           companyIds: [id],
         }).then((res) => [id, res] as const),
@@ -125,8 +129,101 @@ export async function refreshCashbookSnapshot(
     },
   ];
 
-  const { error } = await supabase.from("cashbook_snapshots").insert(rows);
+  const { data: inserted, error } = await supabase
+    .from("cashbook_snapshots")
+    .insert(rows)
+    .select("id, source, payload");
   if (error) throw new Error(error.message);
+
+  // Persist each API line as a `raw_transactions` row (classified=false)
+  // so it enters the inbox like any other import. Immediately afterwards
+  // we auto-classify each row to its known account code — the synthesizer
+  // mapping (Stripe → 4040, etc.) acts as the auto-rule, going through
+  // the standard classification path that creates the `transactions` row.
+  const [acctRes, entityIdsMap] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, account_code")
+      .in("account_code", SYNTHESIZED_ACCOUNT_CODES as string[]),
+    entityCodeToId(supabase),
+  ]);
+  if (acctRes.error) throw new Error(acctRes.error.message);
+  const codeToId = new Map<string, string>();
+  for (const a of acctRes.data ?? []) {
+    codeToId.set(
+      (a as { account_code: string }).account_code,
+      (a as { id: string }).id,
+    );
+  }
+
+  let txnInsertCount = 0;
+  for (const snap of inserted ?? []) {
+    const result = synthesizeTransactionRows(
+      {
+        id: (snap as { id: string }).id,
+        source: (snap as { source: "payment_method" | "sales_summary" }).source,
+        payload: (snap as { payload: unknown }).payload,
+      },
+      codeToId,
+      entityIdsMap,
+    );
+    if (result.rows.length === 0) continue;
+
+    const rawInserts = result.rows.map((r) => r.raw);
+    const { data: insertedRaw, error: rawErr } = await supabase
+      .from("raw_transactions")
+      .insert(rawInserts)
+      .select("id, accounting_date, transaction_date, description, direction, amount");
+    if (rawErr) throw new Error(rawErr.message);
+    if (!insertedRaw || insertedRaw.length !== result.rows.length) {
+      throw new Error(
+        `raw_transactions insert returned ${insertedRaw?.length ?? 0} rows, expected ${result.rows.length}`,
+      );
+    }
+
+    // Auto-classify by building `transactions` rows directly (one per raw)
+    // and flipping classified=true on the raw rows. This is the same shape
+    // `classifyTransaction` produces, batched.
+    const txnInserts = result.rows.map((synth, i) => {
+      const raw = insertedRaw[i] as {
+        id: string;
+        accounting_date: string | null;
+        transaction_date: string;
+        description: string | null;
+        direction: "DEBIT" | "CREDIT";
+        amount: number;
+      };
+      const signedAmount =
+        raw.direction === "DEBIT"
+          ? -Math.abs(Number(raw.amount))
+          : Math.abs(Number(raw.amount));
+      return {
+        raw_transaction_id: raw.id,
+        entity: synth.entityCode,
+        account_id: codeToId.get(synth.accountCode) ?? null,
+        amount: signedAmount,
+        txn_date: raw.transaction_date,
+        acc_date: raw.accounting_date ?? raw.transaction_date,
+        description: raw.description ?? "",
+        memo: "",
+      };
+    });
+    const { error: txnErr } = await supabase
+      .from("transactions")
+      .insert(txnInserts);
+    if (txnErr) throw new Error(txnErr.message);
+
+    const classifiedAt = new Date().toISOString();
+    const { error: flipErr } = await supabase
+      .from("raw_transactions")
+      .update({ classified: true, classified_at: classifiedAt })
+      .in(
+        "id",
+        insertedRaw.map((r) => (r as { id: string }).id),
+      );
+    if (flipErr) throw new Error(flipErr.message);
+    txnInsertCount += txnInserts.length;
+  }
 
   await writeAuditLog({
     actorUserId: me.userId,
@@ -137,10 +234,15 @@ export async function refreshCashbookSnapshot(
       period_end: parsed.endDate,
       sources: ["payment_method", "sales_summary"],
       fetched_at: fetchedAt,
+      transactions_inserted: txnInsertCount,
     },
   });
 
   revalidatePath("/cashbook");
+  revalidatePath("/pnl");
+  revalidatePath("/ledger");
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
 
   return {
     ok: true,
@@ -358,5 +460,60 @@ export async function generateCashbookJournals(
     createdCount: createdIds.length,
     createdIds,
     skippedCompanyIds,
+  };
+}
+
+export type DeleteAdminApiResult = {
+  ok: true;
+  transactionsDeleted: number;
+  rawTransactionsDeleted: number;
+};
+
+/**
+ * Delete every transaction sourced from the Admin API — both the
+ * `transactions` ledger rows (source like 'admin_api:%') and their
+ * paired `raw_transactions` rows (source = 'admin_api'). Snapshots in
+ * `cashbook_snapshots` are left untouched so the raw payloads remain
+ * available for re-synthesis via Refresh.
+ */
+export async function deleteAdminApiTransactions(): Promise<DeleteAdminApiResult> {
+  const me = await requireRole(REFRESH_ROLES);
+  const supabase = createDataClient();
+
+  // Delete ledger rows first; raw rows next. Order matters in case
+  // `transactions.raw_transaction_id` is constrained with a non-cascade FK.
+  const { count: txnCount, error: txnErr } = await supabase
+    .from("transactions")
+    .delete({ count: "exact" })
+    .like("source", "admin_api:%");
+  if (txnErr) throw new Error(txnErr.message);
+
+  const { count: rawCount, error: rawErr } = await supabase
+    .from("raw_transactions")
+    .delete({ count: "exact" })
+    .eq("source", "admin_api");
+  if (rawErr) throw new Error(rawErr.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "transactions",
+    op: "DELETE",
+    after: {
+      source: "ADMIN_API",
+      transactions_deleted: txnCount ?? 0,
+      raw_transactions_deleted: rawCount ?? 0,
+    },
+  });
+
+  revalidatePath("/cashbook");
+  revalidatePath("/pnl");
+  revalidatePath("/ledger");
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+
+  return {
+    ok: true,
+    transactionsDeleted: txnCount ?? 0,
+    rawTransactionsDeleted: rawCount ?? 0,
   };
 }

@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDate, toCsv } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
 import { useRouter } from "next/navigation";
-import { drillDownFromCashbook } from "@/actions/reports";
+import { drillDownAccount, drillDownAccountSet } from "@/actions/reports";
 import { editTransaction } from "@/actions/transactions";
 import { upsertPnlManualEntry, deletePnlManualEntry } from "@/actions/pnl-manual";
 import type { DrillDownTxn } from "@/lib/queries/transactions";
@@ -432,16 +432,24 @@ function DrillModal({
     const snapshot = ctx;
     startTransition(async () => {
       try {
-        // P&L is now sourced from cashbook_snapshots; drill matches.
-        // Snapshot rows are read-only (synthetic ids prefixed `cb-`).
-        const r = await drillDownFromCashbook({
-          accountIds: snapshot.singleAccountId
-            ? [snapshot.singleAccountId]
-            : snapshot.accountIds,
-          from: snapshot.range.from,
-          to: snapshot.range.to,
-          entityCodes: snapshot.entityCodes,
-        });
+        // Drill from `transactions_pnl` (latest snapshot only). Use the
+        // single-account path when possible; it has a slimmer query plan.
+        const r = snapshot.singleAccountId
+          ? await drillDownAccount({
+              accountId: snapshot.singleAccountId,
+              from: snapshot.range.from,
+              to: snapshot.range.to,
+              entity:
+                snapshot.entityCodes.length === 1
+                  ? snapshot.entityCodes[0]
+                  : undefined,
+            })
+          : await drillDownAccountSet({
+              accountIds: snapshot.accountIds,
+              from: snapshot.range.from,
+              to: snapshot.range.to,
+              entityCodes: snapshot.entityCodes,
+            });
         setRows(r);
       } catch (e) {
         setError((e as Error).message);
@@ -559,8 +567,6 @@ function DrillModal({
             </thead>
             <tbody>
               {rows.map((r) => {
-                // Cashbook-sourced rows are synthetic + read-only.
-                const isSynthetic = r.id.startsWith("cb-");
                 const edit = edits[r.id] ?? {};
                 const hasChanges =
                   edit.account_id !== undefined || edit.description !== undefined;
@@ -571,42 +577,29 @@ function DrillModal({
                     </td>
                     <td className="px-3 py-1">{r.entity}</td>
                     <td className="px-3 py-1">
-                      {isSynthetic ? (
-                        <span className="text-[11px] text-muted">
-                          {r.description ?? ""}
-                        </span>
-                      ) : (
-                        <input
-                          type="text"
-                          value={edit.description ?? r.description ?? ""}
-                          onChange={(e) =>
-                            setEdit(r.id, { description: e.target.value })
-                          }
-                          className="w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
-                        />
-                      )}
+                      <input
+                        type="text"
+                        value={edit.description ?? r.description ?? ""}
+                        onChange={(e) =>
+                          setEdit(r.id, { description: e.target.value })
+                        }
+                        className="w-full rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
+                      />
                     </td>
                     <td className="px-3 py-1">
-                      {isSynthetic ? (
-                        <span className="text-[11px] text-muted">
-                          {doc.accounts.find((a) => a.id === r.account_id)?.code ??
-                            "—"}
-                        </span>
-                      ) : (
-                        <select
-                          value={edit.account_id ?? r.account_id ?? ""}
-                          onChange={(e) =>
-                            setEdit(r.id, { account_id: e.target.value })
-                          }
-                          className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
-                        >
-                          {doc.accounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.code} · {a.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
+                      <select
+                        value={edit.account_id ?? r.account_id ?? ""}
+                        onChange={(e) =>
+                          setEdit(r.id, { account_id: e.target.value })
+                        }
+                        className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[11px]"
+                      >
+                        {doc.accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} · {a.name}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td
                       className={cn(
@@ -617,25 +610,19 @@ function DrillModal({
                       {fmt(Number(r.amount))}
                     </td>
                     <td className="px-3 py-1 text-right">
-                      {isSynthetic ? (
-                        <span className="text-[10px] uppercase tracking-wider text-muted/60">
-                          API
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={!hasChanges || savingId === r.id}
-                          onClick={() => save(r.id)}
-                          className={cn(
-                            "text-[11px] font-medium",
-                            hasChanges
-                              ? "text-info hover:underline"
-                              : "text-muted/60",
-                          )}
-                        >
-                          {savingId === r.id ? "Saving…" : "Save"}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        disabled={!hasChanges || savingId === r.id}
+                        onClick={() => save(r.id)}
+                        className={cn(
+                          "text-[11px] font-medium",
+                          hasChanges
+                            ? "text-info hover:underline"
+                            : "text-muted/60",
+                        )}
+                      >
+                        {savingId === r.id ? "Saving…" : "Save"}
+                      </button>
                     </td>
                   </tr>
                 );

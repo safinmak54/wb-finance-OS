@@ -40,11 +40,14 @@ export default async function InboxPage({
     if (hit.accountId) autoTags[id] = { accountId: hit.accountId };
   }
 
-  const enrichedRows = rows.map((r) => ({
-    ...r,
-    entity_code: r.entity_id ? idToCode[r.entity_id] ?? null : null,
-    kind: detectTxnKind(r),
-  }));
+  const enrichedRows = rows.map((r) => {
+    const entity_code = r.entity_id ? idToCode[r.entity_id] ?? null : null;
+    return {
+      ...r,
+      entity_code,
+      kind: detectTxnKind({ ...r, entity_code }),
+    };
+  });
 
   const sources = Array.from(new Set(rows.map((r) => r.source))).sort();
 

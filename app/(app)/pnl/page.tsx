@@ -1,7 +1,10 @@
 import { PageShell } from "@/components/shell/PageShell";
 import { createDataClient } from "@/lib/supabase/data";
-import type { AccountAggregate } from "@/lib/queries/reports";
-import { buildPnlAggregatesFromCashbook } from "@/lib/queries/cashbook-pnl";
+import {
+  fetchPnlReportData,
+  groupByAccountAndEntity,
+  type AccountAggregate,
+} from "@/lib/queries/reports";
 import { listAccounts } from "@/lib/queries/accounts";
 import {
   listPnlManualEntries,
@@ -122,14 +125,19 @@ export default async function PnlPage({
   const accounts = (await listAccounts(supabase, { activeOnly: true })).filter(
     (a) => !HIDDEN_ACCOUNT_CODES.has(a.account_code),
   );
-  // "For now" mode: P&L numbers come straight from cashbook_snapshots
-  // (Admin API) via the same field-to-account mapping we use for journal
-  // generation. Bypasses the transactions/journals roundtrip entirely.
-  const [cb, manualEntries] = await Promise.all([
-    buildPnlAggregatesFromCashbook(supabase, { range, accounts }),
+  // P&L reads from `transactions_pnl` — a view over `transactions` that
+  // dedupes Admin-API rows down to the latest snapshot per (period,
+  // source). All P&L numbers come from rows persisted in `transactions`
+  // (no separate API-direct fetch path).
+  const [report, manualEntries] = await Promise.all([
+    fetchPnlReportData(supabase, {
+      entity: "all",
+      from: range.from,
+      to: range.to,
+    }),
     listPnlManualEntries(supabase, { from: range.from, to: range.to }),
   ]);
-  const aggregates = cb.aggregates;
+  const aggregates = groupByAccountAndEntity(report.txns);
 
   // Hardcoded account-code → P&L subtype mapping.
   const CODE_TO_SUBTYPE: Record<string, Subtype> = {};

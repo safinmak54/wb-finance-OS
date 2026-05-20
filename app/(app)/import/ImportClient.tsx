@@ -85,7 +85,14 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
   }
 
   function commit() {
-    if (!file || !preview) return;
+    if (!file) {
+      setError("Choose a file first");
+      return;
+    }
+    if (!preview) {
+      setError("Click Preview before importing");
+      return;
+    }
     const hasAmount = mapping.amount >= 0 || (mapping.debit >= 0 || mapping.credit >= 0);
     if (mapping.date < 0 || mapping.description < 0 || !hasAmount) {
       setError("Map Date, Description, and either Amount OR Debit+Credit");
@@ -106,6 +113,12 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
     startTransition(async () => {
       try {
         const r = await commitImport(fd);
+        if (r.inserted === 0 && r.skipped > 0) {
+          setError(
+            `All ${r.skipped} rows were skipped — most likely the Date or Amount column couldn't be parsed. Double-check the column mapping.`,
+          );
+          return;
+        }
         toast.push(`Imported ${r.inserted} · skipped ${r.skipped}`, "success");
         setFile(null);
         setPreview(null);
@@ -262,7 +275,11 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
               </table>
             </div>
 
-            {error ? <div className="text-[11px] text-danger">{error}</div> : null}
+            {error ? (
+              <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
+                {error}
+              </div>
+            ) : null}
 
             <div className="flex justify-end">
               <Button onClick={commit} disabled={pending}>
