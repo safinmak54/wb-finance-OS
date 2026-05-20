@@ -122,6 +122,13 @@ export function normalizeDate(input: string | null | undefined): string {
   if (!s) return "";
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
 
+  // YYYYMMDD compact (e.g. "20251231" from BAI-style bank exports)
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    return `${y}-${m}-${d}`;
+  }
+
   // m/d/yyyy or m-d-yyyy
   const slash = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
   if (slash) {

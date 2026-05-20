@@ -78,15 +78,11 @@ export async function commitImport(
     entity_id: string | null;
     source: string;
     bank_connection_id: string | null;
-    external_id: string | null;
     transaction_date: string;
     accounting_date: string;
     amount: number;
     direction: "DEBIT" | "CREDIT";
     description: string | null;
-    vendor: string | null;
-    txn_type: string | null;
-    category: string | null;
     status: string;
     classified: boolean;
   }> = [];
@@ -149,19 +145,19 @@ export async function commitImport(
       null;
     const entity_id = entityCode ? codeToId[entityCode] ?? null : null;
 
+    const descWithVendor = vendor && !desc.includes(vendor)
+      ? `${desc} · ${vendor}`.trim()
+      : desc;
+
     inserts.push({
       entity_id,
       source: meta.source,
       bank_connection_id: meta.bankConnectionId ?? null,
-      external_id: null,
       transaction_date: date,
       accounting_date: date,
       amount,
       direction,
-      description: desc || null,
-      vendor: vendor || null,
-      txn_type: meta.source === "credit_card" ? "expense" : null,
-      category: null,
+      description: descWithVendor || null,
       status: "review",
       classified: false,
     });

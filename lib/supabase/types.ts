@@ -73,15 +73,13 @@ export type RawTransaction = {
   entity_id: string | null;
   source: string;
   bank_connection_id: string | null;
-  external_id: string | null;
+  bank_account: string | null;
+  account_number: string | null;
   transaction_date: string;
   accounting_date: string | null;
   amount: number;
   direction: Direction;
   description: string | null;
-  vendor: string | null;
-  txn_type: string | null;
-  category: string | null;
   status: string | null;
   classified: boolean;
   classified_at: string | null;
@@ -98,6 +96,8 @@ export type Transaction = {
   acc_date: string;
   description: string | null;
   memo: string | null;
+  cashbook_snapshot_id: string | null;
+  source: string | null;
 }
 
 export type JournalEntry = {
@@ -276,6 +276,7 @@ export type Database = {
     };
     Views: {
       cashbook_snapshots_latest: TableShape<CashbookSnapshot>;
+      transactions_pnl: TableShape<Transaction>;
     };
     Functions: { [_ in never]: never };
     Enums: { [_ in never]: never };

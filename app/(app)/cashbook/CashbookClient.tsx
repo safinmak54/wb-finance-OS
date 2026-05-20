@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Toast";
 import { fmt } from "@/lib/format";
-import { refreshCashbookSnapshot, generateCashbookJournals } from "@/actions/cashbook";
+import {
+  refreshCashbookSnapshot,
+  generateCashbookJournals,
+  deleteAdminApiTransactions,
+} from "@/actions/cashbook";
 import type { CashbookSnapshotPair } from "@/lib/queries/cashbook";
 import type {
   PaymentMethodReport,
@@ -34,6 +38,7 @@ export function CashbookClient({
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
   const [isGenerating, startGenerating] = useTransition();
+  const [isDeleting, startDeleting] = useTransition();
   const [tabMode, setTabMode] = useState<"month" | "range">(mode);
   const [period, setPeriod] = useState(monthLabel || currentMonth());
   const [from, setFrom] = useState(startDate);
@@ -56,6 +61,29 @@ export function CashbookClient({
       } catch (e) {
         toast.push(
           (e as Error).message || "Failed to sync from Admin API",
+          "error",
+        );
+      }
+    });
+  }
+
+  function deleteAdminApi() {
+    const ok = window.confirm(
+      "Delete ALL Admin API transactions (transactions + raw_transactions)?\n\n" +
+        "Snapshots in cashbook_snapshots are kept — you can re-fetch later.",
+    );
+    if (!ok) return;
+    startDeleting(async () => {
+      try {
+        const r = await deleteAdminApiTransactions();
+        toast.push(
+          `Deleted ${r.transactionsDeleted} ledger row${r.transactionsDeleted === 1 ? "" : "s"} and ${r.rawTransactionsDeleted} raw row${r.rawTransactionsDeleted === 1 ? "" : "s"}.`,
+          "success",
+        );
+        router.refresh();
+      } catch (e) {
+        toast.push(
+          (e as Error).message || "Failed to delete Admin API transactions",
           "error",
         );
       }
@@ -168,10 +196,18 @@ export function CashbookClient({
             <Button
               variant="outline"
               onClick={generateJournals}
-              disabled={isPending || isGenerating || (!pm && !ss)}
+              disabled={isPending || isGenerating || isDeleting || (!pm && !ss)}
               title={!pm && !ss ? "Refresh first" : "Create draft journal entries from this snapshot"}
             >
               {isGenerating ? "Generating…" : "Generate draft journals"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={deleteAdminApi}
+              disabled={isPending || isGenerating || isDeleting}
+              title="Delete all Admin API transactions and raw rows"
+            >
+              {isDeleting ? "Deleting…" : "Delete Admin API txns"}
             </Button>
           </div>
         </div>

@@ -14,7 +14,9 @@ export type PnlManualEntry = {
   updated_at: string;
 };
 
-/** Account codes the Admin API populates. These are read-only on the P&L. */
+/** Account codes the Admin API populates. These are read-only on the
+ *  P&L — values come from `transactions` rows synthesized at cashbook
+ *  snapshot time, not from manual entry. */
 export const API_SOURCED_ACCOUNT_CODES: ReadonlySet<string> = new Set([
   "4040",
   "4050",

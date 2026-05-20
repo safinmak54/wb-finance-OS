@@ -154,20 +154,15 @@ export async function splitTransaction(input: z.input<typeof SplitSchema>) {
     throw new Error("Split totals must equal the original amount");
   }
 
-  const inserts = parsed.splits.map((s, i) => ({
+  const inserts = parsed.splits.map((s) => ({
     entity_id: parent.entity_id,
     source: parent.source,
-    external_id: parent.external_id
-      ? `${parent.external_id}-${i + 1}`
-      : null,
+    bank_connection_id: parent.bank_connection_id,
     transaction_date: parent.transaction_date,
     accounting_date: s.accounting_date,
     amount: s.amount,
     direction: parent.direction,
     description: parent.description,
-    vendor: parent.vendor,
-    txn_type: parent.txn_type,
-    category: parent.category,
     status: parent.status,
     classified: false,
   }));
@@ -215,7 +210,6 @@ export async function markAsInternalTransfer(
       classified: true,
       classified_at: new Date().toISOString(),
       status: "confirmed",
-      txn_type: "transfer",
     })
     .in("id", parsed.ids);
   if (error) throw new Error(error.message);
@@ -246,7 +240,6 @@ export async function markAsCcPayment(
       classified: true,
       classified_at: new Date().toISOString(),
       status: "confirmed",
-      txn_type: "cc_payment",
     })
     .in("id", parsed.ids);
   if (error) throw new Error(error.message);

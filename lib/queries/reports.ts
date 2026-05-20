@@ -111,6 +111,55 @@ export async function fetchReportData(
 }
 
 /**
+ * P&L variant: reads from `transactions_pnl`, a view over `transactions`
+ * that dedupes Admin-API-sourced rows down to the latest snapshot per
+ * (period, source) so re-fetches don't double-count. Non-API rows pass
+ * through unchanged. There is no separate API-direct fetch path — all
+ * P&L numbers come from rows already persisted in `transactions`.
+ */
+export async function fetchPnlReportData(
+  supabase: Sb,
+  args: { entity: EntityFilterValue; from: string; to: string },
+): Promise<ReportData> {
+  let txnQ = supabase
+    .from("transactions_pnl")
+    .select(
+      "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
+    )
+    .gte("acc_date", args.from)
+    .lte("acc_date", args.to);
+
+  if (args.entity && args.entity !== "all") {
+    txnQ = applyEntityCodeFilter(txnQ, "entity", args.entity);
+  }
+
+  let jeQ = supabase
+    .from("journal_entries")
+    .select(
+      "id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))",
+    )
+    .gte("period", args.from.slice(0, 7))
+    .lte("period", args.to.slice(0, 7));
+
+  if (args.entity && args.entity !== "all") {
+    jeQ = applyEntityCodeFilter(jeQ, "entity", args.entity);
+  }
+
+  const [txnRes, jeRes] = await Promise.all([
+    txnQ.returns<ReportTxn[]>(),
+    jeQ.returns<ReportJournal[]>(),
+  ]);
+  if (txnRes.error) throw txnRes.error;
+
+  return {
+    txns: txnRes.data ?? [],
+    journals: jeRes.error ? [] : (jeRes.data ?? []),
+    range: { from: args.from, to: args.to },
+    entity: args.entity,
+  };
+}
+
+/**
  * Mirrors `app.fetchBalanceSheetData()` from legacy/app.js (~line 1360).
  * No date filter — balance sheet uses cumulative balances across all
  * history.
