@@ -3,7 +3,7 @@ import { Stat } from "@/components/ui/Card";
 import { createDataClient } from "@/lib/supabase/data";
 import { listOpenApItems } from "@/lib/queries/ap";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
-import { fmt } from "@/lib/format";
+import { fmt, today as todayUtc } from "@/lib/format";
 import { ApClient } from "./ApClient";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +19,9 @@ export default async function ApPage({
   const supabase = createDataClient();
   const items = await listOpenApItems(supabase, { entity });
 
-  const today = new Date().toISOString().slice(0, 10);
-  const inSevenDays = new Date(Date.now() + 7 * 24 * 3600 * 1000)
+  const today = todayUtc();
+  // 7-day window: today + next 6 days (7 days total, inclusive of today).
+  const weekEnd = new Date(Date.now() + 6 * 24 * 3600 * 1000)
     .toISOString()
     .slice(0, 10);
 
@@ -28,26 +29,27 @@ export default async function ApPage({
   const overdue = items.filter((i) => i.due_date < today);
   const overdueTotal = overdue.reduce((s, i) => s + Number(i.amount), 0);
   const dueThisWeek = items.filter(
-    (i) => i.due_date >= today && i.due_date <= inSevenDays,
+    (i) => i.due_date >= today && i.due_date <= weekEnd,
   );
   const dueThisWeekTotal = dueThisWeek.reduce(
     (s, i) => s + Number(i.amount),
     0,
   );
 
-  // Average days outstanding (days since invoice_date, fallback to today)
+  // Average days outstanding — only over items with a known invoice_date.
+  const dated = items.filter((i) => i.invoice_date);
   const avgDays =
-    items.length === 0
+    dated.length === 0
       ? 0
       : Math.round(
-          items.reduce((s, i) => {
-            const ref = i.invoice_date ?? today;
+          dated.reduce((s, i) => {
             return (
               s +
-              (new Date(today).getTime() - new Date(ref).getTime()) /
+              (new Date(today).getTime() -
+                new Date(i.invoice_date as string).getTime()) /
                 (24 * 3600 * 1000)
             );
-          }, 0) / items.length,
+          }, 0) / dated.length,
         );
 
   // Aging buckets — mirrors legacy/app.js agingBucket() logic
@@ -100,11 +102,12 @@ export default async function ApPage({
   );
 }
 
-function aggingBucketKey(dueDate: string, today: string): string {
+function agingBucketKey(dueDate: string, today: string): string {
   const days = Math.floor(
     (new Date(today).getTime() - new Date(dueDate).getTime()) / 86400000,
   );
-  if (days < 0) return "current";
+  // days <= 0 means due today or in the future → not overdue.
+  if (days <= 0) return "current";
   if (days <= 30) return "low";
   if (days <= 60) return "medium";
   if (days <= 90) return "high";
@@ -124,7 +127,7 @@ function aggregateBuckets(
   ];
   const map = new Map(defs.map((d) => [d.key, { ...d, count: 0, total: 0 }]));
   for (const it of items) {
-    const k = aggingBucketKey(it.due_date, today);
+    const k = agingBucketKey(it.due_date, today);
     const b = map.get(k);
     if (!b) continue;
     b.count += 1;

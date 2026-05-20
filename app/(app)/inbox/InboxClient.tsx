@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -17,7 +17,12 @@ import {
   markAsCcPayment,
 } from "@/actions/transactions";
 import { bulkAutoTag } from "@/actions/classify";
-import type { Account, RawTransaction } from "@/lib/supabase/types";
+import { ImportClient } from "@/app/(app)/import/ImportClient";
+import type {
+  Account,
+  BankConnection,
+  RawTransaction,
+} from "@/lib/supabase/types";
 import type { TxnKind } from "@/lib/classify-rules";
 
 type Row = RawTransaction & { entity_code: string | null; kind: TxnKind };
@@ -28,6 +33,7 @@ type Props = {
   entities: Array<{ id: string; code: string }>;
   autoTags?: Record<string, { accountId: string }>;
   sources: string[];
+  banks: BankConnection[];
   entityFilter?: string;
 };
 
@@ -39,10 +45,13 @@ export function InboxClient({
   entities,
   autoTags,
   sources,
+  banks,
   entityFilter,
 }: Props) {
   const toast = useToast();
+  const router = useRouter();
   const [, startTransition] = useTransition();
+  const [showUpload, setShowUpload] = useState(false);
   const [picks, setPicks] = useState<Record<string, { acct?: string; entity?: string }>>(
     () => {
       const initial: Record<string, { acct?: string; entity?: string }> = {};
@@ -58,6 +67,7 @@ export function InboxClient({
   const [splitting, setSplitting] = useState<Row | null>(null);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [bankFilter, setBankFilter] = useState<string>("all");
 
   const autoTagCount = autoTags ? Object.keys(autoTags).length : 0;
 
@@ -71,9 +81,14 @@ export function InboxClient({
     return rows.filter((r) => {
       if (kindFilter !== "all" && r.kind !== kindFilter) return false;
       if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
+      if (bankFilter !== "all") {
+        if (bankFilter === "none") {
+          if (r.bank_connection_id) return false;
+        } else if (r.bank_connection_id !== bankFilter) return false;
+      }
       return true;
     });
-  }, [rows, kindFilter, sourceFilter]);
+  }, [rows, kindFilter, sourceFilter, bankFilter]);
 
   function update(id: string, patch: { acct?: string; entity?: string }) {
     setPicks((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -232,11 +247,28 @@ export function InboxClient({
     <>
       {/* Top action bar — upload + bulk auto-tag */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Link href="/import">
-          <Button size="sm" variant="primary">
-            Upload CSV/XLSX
-          </Button>
-        </Link>
+        <button
+          type="button"
+          onClick={() => setShowUpload(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm ring-1 ring-primary/30 transition hover:bg-primary-hover hover:shadow focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+          Upload CSV/XLSX
+        </button>
         <Button size="sm" variant="outline" onClick={autoTagAll}>
           Auto-tag matching rows
         </Button>
@@ -279,6 +311,26 @@ export function InboxClient({
             </option>
           ))}
         </select>
+        {banks.length > 0 ? (
+          <>
+            <span className="ml-3 text-muted">Bank account:</span>
+            <select
+              value={bankFilter}
+              onChange={(e) => setBankFilter(e.target.value)}
+              className="h-7 rounded-md border border-border bg-surface px-1.5 text-[11px]"
+            >
+              <option value="all">All accounts</option>
+              <option value="none">— untagged —</option>
+              {banks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.institution}
+                  {b.account_number ? ` · ${b.account_number}` : ""}
+                  {b.entity ? ` (${b.entity})` : ""}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
       </div>
 
       {/* Selection action bar */}
@@ -444,6 +496,21 @@ export function InboxClient({
           toast.push("Split", "success");
         }}
       />
+
+      <Modal
+        open={showUpload}
+        onClose={() => setShowUpload(false)}
+        title="Upload statement"
+        size="lg"
+      >
+        <ImportClient
+          banks={banks}
+          onComplete={() => {
+            setShowUpload(false);
+            router.refresh();
+          }}
+        />
+      </Modal>
     </>
   );
 }

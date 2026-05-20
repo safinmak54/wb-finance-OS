@@ -43,6 +43,7 @@ export async function previewImport(
 const SubmitSchema = z.object({
   source: z.enum(["bank", "credit_card"]),
   defaultEntity: z.string().trim().min(1).max(40).optional(),
+  bankConnectionId: z.string().uuid().optional(),
   mapping: z.object({
     date: z.number().int().nonnegative(),
     description: z.number().int().nonnegative(),
@@ -76,6 +77,7 @@ export async function commitImport(
   const inserts: Array<{
     entity_id: string | null;
     source: string;
+    bank_connection_id: string | null;
     external_id: string | null;
     transaction_date: string;
     accounting_date: string;
@@ -150,6 +152,7 @@ export async function commitImport(
     inserts.push({
       entity_id,
       source: meta.source,
+      bank_connection_id: meta.bankConnectionId ?? null,
       external_id: null,
       transaction_date: date,
       accounting_date: date,

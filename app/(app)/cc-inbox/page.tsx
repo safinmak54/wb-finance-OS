@@ -2,6 +2,7 @@ import { PageShell } from "@/components/shell/PageShell";
 import { createDataClient } from "@/lib/supabase/data";
 import { listUnclassifiedCC } from "@/lib/queries/transactions";
 import { listAccounts } from "@/lib/queries/accounts";
+import { listBankConnections } from "@/lib/queries/cash";
 import { entityCodeToId, listEntities } from "@/lib/queries/entities";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { listClassificationRules } from "@/lib/queries/classify";
@@ -23,11 +24,12 @@ export default async function CcInboxPage({
   const idToCode: Record<string, string> = {};
   for (const [code, id] of Object.entries(codeToId)) idToCode[id] = code;
 
-  const [rows, accounts, entities, rules] = await Promise.all([
+  const [rows, accounts, entities, rules, banks] = await Promise.all([
     listUnclassifiedCC(supabase, { entity, codeToId }),
     listAccounts(supabase, { activeOnly: true }),
     listEntities(supabase),
     listClassificationRules(supabase),
+    listBankConnections(supabase),
   ]);
 
   const classified = classifyMany(rows, rules);
@@ -56,6 +58,7 @@ export default async function CcInboxPage({
         entities={entities.map((e) => ({ id: e.id, code: e.code }))}
         autoTags={autoTags}
         sources={sources}
+        banks={banks}
         entityFilter={typeof sp.entity === "string" ? sp.entity : undefined}
       />
     </PageShell>
