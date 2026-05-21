@@ -5,7 +5,7 @@ import type { EntityCode } from "@/lib/entities";
  *
  * The five LLCs returned by /v1/reports/payment-method correspond
  * one-to-one with five of the WB Brands entities. Other entities
- * (WB Brands LLC parent, RUSH, ONEOPS, SP1) do not appear in the API.
+ * (WB Brands LLC parent, RUSH, ONEOPS) do not appear in the API.
  *
  * If the API ever introduces a new company we have no mapping for,
  * `apiCompanyToEntityCode` returns null — callers should fall back
@@ -15,7 +15,7 @@ import type { EntityCode } from "@/lib/entities";
 const COMPANY_ID_TO_ENTITY: Readonly<Record<number, EntityCode>> = {
   1: "KP",   // Koolers Promo LLC
   2: "LP",   // Lanyard Promo LLC
-  3: "SWAG", // Swagprint LLC
+  3: "SP",   // SP Brands LLC (Swagprint)
   4: "BP",   // Band Promo LLC
   5: "WBP",  // WB Promo LLC
 };

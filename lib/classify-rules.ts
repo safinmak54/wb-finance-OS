@@ -77,22 +77,17 @@ const CC_PAYMENT_PATTERNS = [
 ];
 
 const TRANSFER_PATTERNS = [
-  /\binternal transfer\b/i,
-  /\bonline transfer\b/i,
-  /\bzelle (?:transfer|payment) (?:to|from) own\b/i,
-  /\bbook transfer\b/i,
-  /\bbetween accounts\b/i,
+  /\bbus onl tfr\b/i,
+  /DBT=D\//i,
 ];
 
-/** Classify a transaction by kind for inbox grouping. Uses description
- *  regexes; ONEOPS is the conduit entity for internal transfers, so
- *  anything posted to it counts as a transfer regardless of description. */
+/** Classify a transaction by kind for inbox grouping based purely on
+ *  description patterns. */
 export function detectTxnKind(
   row: Pick<RawTransaction, "description"> & {
     entity_code?: string | null;
   },
 ): TxnKind {
-  if (row.entity_code === "ONEOPS") return "transfer";
   const haystack = row.description ?? "";
   for (const re of CC_PAYMENT_PATTERNS) {
     if (re.test(haystack)) return "cc_payment";
