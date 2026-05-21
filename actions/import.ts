@@ -11,6 +11,7 @@ import {
   detectEntityFromBankAccount,
   type EntityCode,
 } from "@/lib/entities";
+import { detectDirectionFromDescription } from "@/lib/import/direction";
 
 const IMPORT_ROLES = ["bookkeeper", "admin"] as const;
 
@@ -47,9 +48,8 @@ const SubmitSchema = z.object({
   mapping: z.object({
     date: z.number().int().nonnegative(),
     description: z.number().int().nonnegative(),
-    amount: z.number().int(),
-    debit: z.number().int(),
-    credit: z.number().int(),
+    amount: z.number().int().nonnegative(),
+    type: z.number().int(),
     vendor: z.number().int(),
   }),
 });
@@ -98,44 +98,27 @@ export async function commitImport(
 
     const desc = (row[meta.mapping.description] ?? "").trim();
     const vendor = meta.mapping.vendor >= 0 ? row[meta.mapping.vendor] ?? "" : "";
+    const typeCell =
+      meta.mapping.type >= 0 ? (row[meta.mapping.type] ?? "").trim() : "";
 
-    let amount: number;
-    let direction: "DEBIT" | "CREDIT";
-
-    if (meta.mapping.amount >= 0) {
-      const raw = Number(
-        String(row[meta.mapping.amount] ?? "")
-          .replace(/[$,()]/g, "")
-          .trim() || "0",
-      );
-      amount = Math.abs(raw);
-      direction = raw < 0 ? "DEBIT" : "CREDIT";
-    } else {
-      const debit = Number(
-        String(row[meta.mapping.debit] ?? "")
-          .replace(/[$,()]/g, "")
-          .trim() || "0",
-      );
-      const credit = Number(
-        String(row[meta.mapping.credit] ?? "")
-          .replace(/[$,()]/g, "")
-          .trim() || "0",
-      );
-      if (debit > 0) {
-        amount = debit;
-        direction = "DEBIT";
-      } else if (credit > 0) {
-        amount = credit;
-        direction = "CREDIT";
-      } else {
-        skipped += 1;
-        continue;
-      }
-    }
+    const rawSigned = Number(
+      String(row[meta.mapping.amount] ?? "")
+        .replace(/[$,()]/g, "")
+        .trim() || "0",
+    );
+    const amount = Math.abs(rawSigned);
     if (amount === 0) {
       skipped += 1;
       continue;
     }
+
+    // Direction comes from the Type column first (e.g. "ACH DEBIT",
+    // "WIRE TRANSFER CREDIT"), then from the description as a fallback,
+    // and finally from the amount sign if no pattern matched.
+    const direction: "DEBIT" | "CREDIT" =
+      detectDirectionFromDescription(typeCell) ??
+      detectDirectionFromDescription(`${desc} ${vendor}`) ??
+      (rawSigned < 0 ? "DEBIT" : "CREDIT");
 
     // Per-row entity detection from description, fallback to default
     const detected = detectEntityFromBankAccount(`${desc} ${vendor}`);
@@ -183,4 +166,48 @@ export async function commitImport(
   revalidatePath("/cc-inbox");
 
   return { inserted, skipped };
+}
+
+/**
+ * Wipe every row from `transactions` and `raw_transactions`. Admin only;
+ * irreversible. Returns the row counts that were deleted.
+ */
+export async function deleteAllTransactions(): Promise<{
+  transactions: number;
+  rawTransactions: number;
+}> {
+  const me = await requireRole(["admin"]);
+  const supabase = createDataClient();
+
+  const { count: txCount, error: txErr } = await supabase
+    .from("transactions")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (txErr) throw new Error(txErr.message);
+
+  const { count: rawCount, error: rawErr } = await supabase
+    .from("raw_transactions")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (rawErr) throw new Error(rawErr.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    op: "DELETE",
+    after: {
+      bulk_wipe: true,
+      transactions: txCount ?? 0,
+      raw_transactions: rawCount ?? 0,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+  revalidatePath("/import");
+
+  return {
+    transactions: txCount ?? 0,
+    rawTransactions: rawCount ?? 0,
+  };
 }

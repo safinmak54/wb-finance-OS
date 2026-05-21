@@ -3,12 +3,13 @@
 import { useRef, useState, useTransition } from "react";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Field, Select } from "@/components/ui/Field";
+import { Field, Select, TextInput } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
 import { ALL_ENTITY_CODES } from "@/lib/entities";
 import {
   previewImport,
   commitImport,
+  deleteAllTransactions,
   type ParsePreview,
 } from "@/actions/import";
 import type { BankConnection } from "@/lib/supabase/types";
@@ -16,9 +17,8 @@ import type { BankConnection } from "@/lib/supabase/types";
 const FIELDS = [
   { key: "date", label: "Date", required: true },
   { key: "description", label: "Description", required: true },
-  { key: "amount", label: "Amount (signed)", required: false },
-  { key: "debit", label: "Debit column", required: false },
-  { key: "credit", label: "Credit column", required: false },
+  { key: "amount", label: "Amount", required: true },
+  { key: "type", label: "Type (Debit/Credit)", required: false },
   { key: "vendor", label: "Vendor / payee", required: false },
 ] as const;
 
@@ -26,17 +26,17 @@ type Mapping = {
   date: number;
   description: number;
   amount: number;
-  debit: number;
-  credit: number;
+  type: number;
   vendor: number;
 };
 
 type Props = {
   banks?: BankConnection[];
   onComplete?: () => void;
+  isAdmin?: boolean;
 };
 
-export function ImportClient({ banks = [], onComplete }: Props = {}) {
+export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props = {}) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -48,12 +48,33 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
     date: -1,
     description: -1,
     amount: -1,
-    debit: -1,
-    credit: -1,
+    type: -1,
     vendor: -1,
   });
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [wipeConfirm, setWipeConfirm] = useState("");
+  const [wiping, startWipeTransition] = useTransition();
+
+  function wipeAll() {
+    if (wipeConfirm.trim().toUpperCase() !== "DELETE") {
+      setError("Type DELETE to confirm the wipe");
+      return;
+    }
+    setError(null);
+    startWipeTransition(async () => {
+      try {
+        const r = await deleteAllTransactions();
+        toast.push(
+          `Deleted ${r.transactions} transactions and ${r.rawTransactions} raw rows`,
+          "success",
+        );
+        setWipeConfirm("");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
+  }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
@@ -74,8 +95,7 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
           date: p.detected.date,
           description: p.detected.description,
           amount: p.detected.amount,
-          debit: p.detected.debit,
-          credit: p.detected.credit,
+          type: p.detected.type,
           vendor: p.detected.vendor,
         });
       } catch (err) {
@@ -93,9 +113,8 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
       setError("Click Preview before importing");
       return;
     }
-    const hasAmount = mapping.amount >= 0 || (mapping.debit >= 0 || mapping.credit >= 0);
-    if (mapping.date < 0 || mapping.description < 0 || !hasAmount) {
-      setError("Map Date, Description, and either Amount OR Debit+Credit");
+    if (mapping.date < 0 || mapping.description < 0 || mapping.amount < 0) {
+      setError("Map Date, Description, and Amount");
       return;
     }
     const fd = new FormData();
@@ -284,6 +303,41 @@ export function ImportClient({ banks = [], onComplete }: Props = {}) {
             <div className="flex justify-end">
               <Button onClick={commit} disabled={pending}>
                 Import
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {isAdmin ? (
+        <Card>
+          <CardHeader
+            title="Danger zone"
+            subtitle="Irreversibly delete every transaction and raw row"
+          />
+          <CardBody className="flex flex-col gap-3">
+            <p className="text-sm text-muted">
+              Wipes <strong>all rows</strong> from <code>transactions</code> and{" "}
+              <code>raw_transactions</code>. This cannot be undone. Type{" "}
+              <code>DELETE</code> below to enable the button.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Field label="Type DELETE to confirm" className="flex-1">
+                <TextInput
+                  value={wipeConfirm}
+                  onChange={(e) => setWipeConfirm(e.target.value)}
+                  placeholder="DELETE"
+                  disabled={wiping}
+                />
+              </Field>
+              <Button
+                variant="danger"
+                onClick={wipeAll}
+                disabled={
+                  wiping || wipeConfirm.trim().toUpperCase() !== "DELETE"
+                }
+              >
+                {wiping ? "Deleting…" : "Delete all transactions"}
               </Button>
             </div>
           </CardBody>

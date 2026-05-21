@@ -234,7 +234,7 @@ function PaymentMethodTabs({
   ssByCompany: Record<string, SalesSummaryReport>;
 }) {
   // ALL tab plus one tab per company that appears in this snapshot. The
-  // Admin API only returns ~5 companies (KP, LP, SWAG, BP, WBP), so tabs
+  // Admin API only returns ~5 companies (KP, LP, SP, BP, WBP), so tabs
   // reflect what's actually in the data, not the full WB entity roster.
   const companies = pm?.totals.companies ?? [];
   const [selected, setSelected] = useState<number | "ALL">("ALL");

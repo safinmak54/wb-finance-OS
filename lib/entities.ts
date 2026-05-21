@@ -12,10 +12,9 @@ export const ALL_ENTITY_CODES = [
   "LP",
   "KP",
   "BP",
-  "SWAG",
+  "SP",
   "RUSH",
   "ONEOPS",
-  "SP1",
 ] as const;
 export type EntityCode = (typeof ALL_ENTITY_CODES)[number];
 
@@ -26,14 +25,13 @@ export const ENTITY_GROUPS = {
     "LP",
     "KP",
     "BP",
-    "SWAG",
+    "SP",
     "RUSH",
     "ONEOPS",
-    "SP1",
   ],
-  wb_full: ["WBP", "LP", "KP", "BP", "SWAG", "RUSH"],
+  wb_full: ["WBP", "LP", "KP", "BP", "RUSH"],
   one_ops: ["ONEOPS"],
-  sp_brands: ["SP1"],
+  sp_brands: ["SP"],
 } as const satisfies Record<string, readonly EntityCode[]>;
 
 export type EntityGroupKey = keyof typeof ENTITY_GROUPS;
@@ -46,10 +44,9 @@ export const ENTITY_LABELS: Record<EntityCode, string> = {
   LP: "Lanyard Promo",
   KP: "Koolers Promo",
   BP: "Band Promo",
-  SWAG: "SWAG",
-  RUSH: "RUSH",
+  SP: "SP Brands",
+  RUSH: "Rushmore Ventures",
   ONEOPS: "One Operations",
-  SP1: "SP1",
 };
 
 export const PNL_ENTITY_COLUMNS: ReadonlyArray<{
@@ -62,7 +59,7 @@ export const PNL_ENTITY_COLUMNS: ReadonlyArray<{
   { key: "WBP", label: "WBP", entityCodes: ["WBP"] },
   { key: "LP", label: "LP", entityCodes: ["LP"] },
   { key: "BP", label: "BP", entityCodes: ["BP"] },
-  { key: "SP", label: "SP", entityCodes: ["SP1"] },
+  { key: "SP", label: "SP", entityCodes: ["SP"] },
   { key: "ONEOPS", label: "One Ops", entityCodes: ["ONEOPS"] },
 ];
 
@@ -79,24 +76,25 @@ export const ENTITY_FILTER_OPTIONS: Array<{
 ];
 
 /**
- * Bank-account-name → entity code matcher. Mirrors
- * `BANK_ACCOUNT_ENTITY_MAP` + `detectEntityFromBankAccount` from
- * legacy/app.js (~lines 65–86). Used by the CSV/XLSX import flow to
- * suggest an entity per row.
+ * Bank-statement description → entity code matcher. Used by the CSV/XLSX
+ * import flow to assign an entity per row from the bank statement
+ * description column.
+ *
+ * Order matters: more specific patterns must come before more generic
+ * ones (e.g. "wb promo" before "wb brands", "sp brands" before " sp ").
  */
 const BANK_ACCOUNT_ENTITY_MAP: Array<{
   keywords: readonly string[];
   code: EntityCode;
 }> = [
-  { keywords: ["lanyard", "lp "], code: "LP" },
-  { keywords: ["kooler"], code: "KP" },
+  { keywords: ["rushmore", "rush"], code: "RUSH" },
   { keywords: ["band promo"], code: "BP" },
-  { keywords: ["wb promo", "wbp", "1918"], code: "WBP" },
-  { keywords: ["wb brands", "2645"], code: "WB" },
-  { keywords: ["rush"], code: "RUSH" },
-  { keywords: ["swag"], code: "SWAG" },
-  { keywords: ["sp brand", " sp "], code: "SP1" },
-  { keywords: ["one op", "oneop", "one operations"], code: "ONEOPS" },
+  { keywords: ["koolers", "kooler", "coolers"], code: "KP" },
+  { keywords: ["lanyard"], code: "LP" },
+  { keywords: ["wb promo", "wbp"], code: "WBP" },
+  { keywords: ["one operations", "one op", "oneop"], code: "ONEOPS" },
+  { keywords: ["sp brands", "swagprint", "swag", " sp "], code: "SP" },
+  { keywords: ["wb brands"], code: "WB" },
 ];
 
 export function detectEntityFromBankAccount(
