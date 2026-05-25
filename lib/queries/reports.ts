@@ -50,6 +50,7 @@ export type ReportData = {
  *  views simply trust that intercompany account balances net out. */
 export type BalanceSheetTxn = {
   amount: number;
+  acc_date: string | null;
   account_id: string | null;
   accounts: Pick<
     Account,
@@ -171,7 +172,7 @@ export async function fetchBalanceSheetData(
   let q = supabase
     .from("transactions")
     .select(
-      "amount, account_id, accounts(id, account_code, account_name, account_type, account_subtype)",
+      "amount, acc_date, account_id, accounts(id, account_code, account_name, account_type, account_subtype)",
     );
 
   if (args.entity && args.entity !== "all") {
@@ -240,6 +241,42 @@ export function groupByAccountAndEntity(
         agg.byEntityMonth.set(t.entity, entMap);
       }
       entMap.set(monthKey, (entMap.get(monthKey) ?? 0) + amt);
+    }
+  }
+  return out;
+}
+
+/**
+ * Compute cumulative month-end balances per account across the given months.
+ * Each entry's `byMonth[monthKey]` is the running total of txn amounts with
+ * `acc_date <= last day of month`. Months are YYYY-MM keys.
+ */
+export type BalanceMonthlyAggregate = {
+  account: BalanceSheetTxn["accounts"];
+  byMonth: Map<string, number>;
+};
+
+export function monthlyBalanceSnapshots(
+  txns: readonly BalanceSheetTxn[],
+  months: ReadonlyArray<{ key: string; to: string }>,
+): Map<string, BalanceMonthlyAggregate> {
+  const out = new Map<string, BalanceMonthlyAggregate>();
+  // Pre-sort month boundaries ascending by `to` for efficient bucketing.
+  const ordered = [...months].sort((a, b) => (a.to < b.to ? -1 : 1));
+  for (const t of txns) {
+    if (!t.accounts || !t.account_id) continue;
+    const amt = Number(t.amount ?? 0);
+    const d = t.acc_date ?? "";
+    let agg = out.get(t.account_id);
+    if (!agg) {
+      agg = { account: t.accounts, byMonth: new Map() };
+      out.set(t.account_id, agg);
+    }
+    // Add this txn to every month bucket whose end date is >= the txn date.
+    for (const m of ordered) {
+      if (!d || d <= m.to) {
+        agg.byMonth.set(m.key, (agg.byMonth.get(m.key) ?? 0) + amt);
+      }
     }
   }
   return out;
