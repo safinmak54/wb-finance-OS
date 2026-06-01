@@ -158,10 +158,12 @@ export async function refreshCashbookSnapshot(
 
   let txnInsertCount = 0;
   for (const snap of inserted ?? []) {
+    const snapId = (snap as { id: string }).id;
+    const snapSource = (snap as { source: "payment_method" | "sales_summary" }).source;
     const result = synthesizeTransactionRows(
       {
-        id: (snap as { id: string }).id,
-        source: (snap as { source: "payment_method" | "sales_summary" }).source,
+        id: snapId,
+        source: snapSource,
         payload: (snap as { payload: unknown }).payload,
       },
       codeToId,
@@ -183,7 +185,10 @@ export async function refreshCashbookSnapshot(
 
     // Auto-classify by building `transactions` rows directly (one per raw)
     // and flipping classified=true on the raw rows. This is the same shape
-    // `classifyTransaction` produces, batched.
+    // `classifyTransaction` produces, batched. cashbook_snapshot_id + source
+    // are required so transactions_pnl can dedupe re-fetches to the latest
+    // snapshot per (period_start, period_end, source).
+    const txnSource = `admin_api:${snapSource}`;
     const txnInserts = result.rows.map((synth, i) => {
       const raw = insertedRaw[i] as {
         id: string;
@@ -206,6 +211,8 @@ export async function refreshCashbookSnapshot(
         acc_date: raw.accounting_date ?? raw.transaction_date,
         description: raw.description ?? "",
         memo: "",
+        cashbook_snapshot_id: snapId,
+        source: txnSource,
       };
     });
     const { error: txnErr } = await supabase
@@ -482,11 +489,34 @@ export async function deleteAdminApiTransactions(): Promise<DeleteAdminApiResult
 
   // Delete ledger rows first; raw rows next. Order matters in case
   // `transactions.raw_transaction_id` is constrained with a non-cascade FK.
-  const { count: txnCount, error: txnErr } = await supabase
-    .from("transactions")
-    .delete({ count: "exact" })
-    .like("source", "admin_api:%");
-  if (txnErr) throw new Error(txnErr.message);
+  // Pre-fix rows had transactions.source NULL, so we sweep via the
+  // raw_transaction_id link (the only reliable marker) and also include
+  // newer rows tagged with source='admin_api:%' that lost their raw link.
+  const { data: rawIdsRows, error: rawIdsErr } = await supabase
+    .from("raw_transactions")
+    .select("id")
+    .eq("source", "admin_api");
+  if (rawIdsErr) throw new Error(rawIdsErr.message);
+  const rawIds = (rawIdsRows ?? []).map((r) => (r as { id: string }).id);
+
+  let txnCount = 0;
+  if (rawIds.length > 0) {
+    const { count, error } = await supabase
+      .from("transactions")
+      .delete({ count: "exact" })
+      .in("raw_transaction_id", rawIds);
+    if (error) throw new Error(error.message);
+    txnCount += count ?? 0;
+  }
+  // Catch any stragglers tagged by source but missing a raw link.
+  {
+    const { count, error } = await supabase
+      .from("transactions")
+      .delete({ count: "exact" })
+      .like("source", "admin_api:%");
+    if (error) throw new Error(error.message);
+    txnCount += count ?? 0;
+  }
 
   const { count: rawCount, error: rawErr } = await supabase
     .from("raw_transactions")

@@ -30,10 +30,12 @@ export async function upsertClassificationRule(
   const parsed = UpsertSchema.parse(input);
   const supabase = createDataClient();
 
+  // NOTE: the live `classification_rules` table has no `vendor_id` column,
+  // so it is intentionally omitted from the write payload. Sending it makes
+  // PostgREST reject the insert/update with PGRST204.
   const payload = {
     pattern: parsed.pattern,
     account_id: parsed.account_id,
-    vendor_id: parsed.vendor_id ?? null,
     is_active: parsed.is_active,
   };
 
