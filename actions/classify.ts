@@ -33,7 +33,12 @@ export async function upsertClassificationRule(
   // NOTE: the live `classification_rules` table has no `vendor_id` column,
   // so it is intentionally omitted from the write payload. Sending it makes
   // PostgREST reject the insert/update with PGRST204.
+  //
+  // `name` is a NOT NULL column on the live table (the legacy app populated
+  // it). The new UI only collects a pattern, so we mirror the pattern into
+  // `name`; otherwise the insert fails the not-null constraint.
   const payload = {
+    name: parsed.pattern,
     pattern: parsed.pattern,
     account_id: parsed.account_id,
     is_active: parsed.is_active,

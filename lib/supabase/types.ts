@@ -122,6 +122,8 @@ export type LedgerEntry = {
 
 export type ClassificationRule = {
   id: string;
+  // `name` is a NOT NULL column on the live table; we mirror `pattern` into it.
+  name: string;
   pattern: string;
   account_id: string | null;
   vendor_id: string | null;
