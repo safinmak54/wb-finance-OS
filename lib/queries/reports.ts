@@ -1,7 +1,36 @@
+import type { PostgrestError } from "@supabase/supabase-js";
 import type { Sb } from "./_client";
 import type { Account } from "@/lib/supabase/types";
 import { applyEntityCodeFilter } from "@/lib/entity-filter";
 import type { EntityFilterValue } from "@/lib/entities";
+
+/**
+ * PostgREST caps every response at 1000 rows. Report queries span a full
+ * year and routinely exceed that (FY data is ~11k transaction rows), so a
+ * single query silently returns an arbitrary 1000-row slice — which made the
+ * P&L compute totals from a fraction of the period (random-looking numbers,
+ * mostly-$0 months). Page through with `.range()` until a short page signals
+ * the end. `makeQuery` must apply `.range(from, to)` and return the builder.
+ */
+const PAGE_SIZE = 1000;
+async function fetchAllRows<T>(
+  makeQuery: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
+): Promise<{ data: T[]; error: PostgrestError | null }> {
+  const out: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await makeQuery(offset, offset + PAGE_SIZE - 1);
+    if (error) return { data: out, error };
+    const batch = data ?? [];
+    out.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return { data: out, error: null };
+}
 
 export type ReportTxn = {
   amount: number;
@@ -73,33 +102,33 @@ export async function fetchReportData(
   supabase: Sb,
   args: { entity: EntityFilterValue; from: string; to: string },
 ): Promise<ReportData> {
-  let txnQ = supabase
-    .from("transactions")
-    .select(
-      "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
-    )
-    .gte("acc_date", args.from)
-    .lte("acc_date", args.to);
-
-  if (args.entity && args.entity !== "all") {
-    txnQ = applyEntityCodeFilter(txnQ, "entity", args.entity);
-  }
-
-  let jeQ = supabase
-    .from("journal_entries")
-    .select(
-      "id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))",
-    )
-    .gte("period", args.from.slice(0, 7))
-    .lte("period", args.to.slice(0, 7));
-
-  if (args.entity && args.entity !== "all") {
-    jeQ = applyEntityCodeFilter(jeQ, "entity", args.entity);
-  }
-
   const [txnRes, jeRes] = await Promise.all([
-    txnQ.returns<ReportTxn[]>(),
-    jeQ.returns<ReportJournal[]>(),
+    fetchAllRows<ReportTxn>((from, to) => {
+      let q = supabase
+        .from("transactions")
+        .select(
+          "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
+        )
+        .gte("acc_date", args.from)
+        .lte("acc_date", args.to);
+      if (args.entity && args.entity !== "all") {
+        q = applyEntityCodeFilter(q, "entity", args.entity);
+      }
+      return q.range(from, to).returns<ReportTxn[]>();
+    }),
+    fetchAllRows<ReportJournal>((from, to) => {
+      let q = supabase
+        .from("journal_entries")
+        .select(
+          "id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))",
+        )
+        .gte("period", args.from.slice(0, 7))
+        .lte("period", args.to.slice(0, 7));
+      if (args.entity && args.entity !== "all") {
+        q = applyEntityCodeFilter(q, "entity", args.entity);
+      }
+      return q.range(from, to).returns<ReportJournal[]>();
+    }),
   ]);
   if (txnRes.error) throw txnRes.error;
 
@@ -122,33 +151,33 @@ export async function fetchPnlReportData(
   supabase: Sb,
   args: { entity: EntityFilterValue; from: string; to: string },
 ): Promise<ReportData> {
-  let txnQ = supabase
-    .from("transactions_pnl")
-    .select(
-      "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
-    )
-    .gte("acc_date", args.from)
-    .lte("acc_date", args.to);
-
-  if (args.entity && args.entity !== "all") {
-    txnQ = applyEntityCodeFilter(txnQ, "entity", args.entity);
-  }
-
-  let jeQ = supabase
-    .from("journal_entries")
-    .select(
-      "id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))",
-    )
-    .gte("period", args.from.slice(0, 7))
-    .lte("period", args.to.slice(0, 7));
-
-  if (args.entity && args.entity !== "all") {
-    jeQ = applyEntityCodeFilter(jeQ, "entity", args.entity);
-  }
-
   const [txnRes, jeRes] = await Promise.all([
-    txnQ.returns<ReportTxn[]>(),
-    jeQ.returns<ReportJournal[]>(),
+    fetchAllRows<ReportTxn>((from, to) => {
+      let q = supabase
+        .from("transactions_pnl")
+        .select(
+          "amount, entity, acc_date, account_id, memo, accounts(id, account_code, account_name, account_type, account_subtype)",
+        )
+        .gte("acc_date", args.from)
+        .lte("acc_date", args.to);
+      if (args.entity && args.entity !== "all") {
+        q = applyEntityCodeFilter(q, "entity", args.entity);
+      }
+      return q.range(from, to).returns<ReportTxn[]>();
+    }),
+    fetchAllRows<ReportJournal>((from, to) => {
+      let q = supabase
+        .from("journal_entries")
+        .select(
+          "id, accounting_date, description, entry_type, period, entity_id, ledger_entries(debit_amount, credit_amount, memo, account_id, accounts(account_code, account_name, account_type, account_subtype))",
+        )
+        .gte("period", args.from.slice(0, 7))
+        .lte("period", args.to.slice(0, 7));
+      if (args.entity && args.entity !== "all") {
+        q = applyEntityCodeFilter(q, "entity", args.entity);
+      }
+      return q.range(from, to).returns<ReportJournal[]>();
+    }),
   ]);
   if (txnRes.error) throw txnRes.error;
 

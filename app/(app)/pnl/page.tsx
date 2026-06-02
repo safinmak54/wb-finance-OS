@@ -139,12 +139,18 @@ export default async function PnlPage({
   ]);
   const aggregates = groupByAccountAndEntity(report.txns);
 
-  // Hardcoded account-code → P&L subtype mapping.
+  // Account-code → P&L subtype mapping. This is intentionally a hardcoded
+  // list rather than derived from `accounts.account_subtype`: that column is
+  // inconsistent (mixes generic types like "expense"/"revenue"/"current"
+  // with P&L subtypes, uses "payroll" for labour, splits ads across
+  // "marketing"/"advertising", and even tags the asset 5020 Shipping-Clearing
+  // as "cogs"). Deriving from it dropped whole sections (Labour, Sales Tax,
+  // Sales Return) and polluted COGS with an asset, producing wrong totals.
   const CODE_TO_SUBTYPE: Record<string, Subtype> = {};
   for (const c of ["4040", "4050", "4060", "4070", "4080"]) {
     CODE_TO_SUBTYPE[c] = "gross_revenue";
   }
-  for (const c of ["4045", "4055", "4065"]) {
+  for (const c of ["4045", "4055", "4065", "4900"]) {
     CODE_TO_SUBTYPE[c] = "sales_return";
   }
   for (const c of ["4075", "4076"]) {
@@ -175,6 +181,9 @@ export default async function PnlPage({
     "6648",
   ]) {
     CODE_TO_SUBTYPE[c] = "opex";
+  }
+  for (const c of ["3100"]) {
+    CODE_TO_SUBTYPE[c] = "distribution";
   }
 
   // Fold manual entries into the same aggregate Map. Manual entries can
