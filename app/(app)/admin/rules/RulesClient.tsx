@@ -9,9 +9,20 @@ import {
   upsertClassificationRule,
   deleteClassificationRule,
 } from "@/actions/classify";
-import type { ClassificationRule } from "@/lib/supabase/types";
+import type { Account, ClassificationRule } from "@/lib/supabase/types";
+import {
+  RULE_CATEGORIES,
+  RULE_CATEGORY_LABEL,
+  categoryForAccountType,
+  type RuleCategory,
+} from "@/lib/rule-category";
 
-type AccountOpt = { id: string; code: string; name: string };
+type AccountOpt = {
+  id: string;
+  code: string;
+  name: string;
+  type: Account["account_type"];
+};
 
 type Props = {
   rules: ClassificationRule[];
@@ -25,23 +36,41 @@ export function RulesClient({ rules, accounts }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pattern, setPattern] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [category, setCategory] = useState<RuleCategory | "">("");
   const [search, setSearch] = useState("");
 
   function reset() {
     setEditingId(null);
     setPattern("");
     setAccountId("");
+    setCategory("");
   }
 
   function startEdit(r: ClassificationRule) {
     setEditingId(r.id);
     setPattern(r.pattern);
     setAccountId(r.account_id ?? "");
+    setCategory(r.category ?? "");
+  }
+
+  function onAccountChange(id: string) {
+    setAccountId(id);
+    // Prefill the category from the account type when not yet chosen, but
+    // leave it editable.
+    if (!category) {
+      const acc = accounts.find((a) => a.id === id);
+      const suggested = acc ? categoryForAccountType(acc.type) : null;
+      if (suggested) setCategory(suggested);
+    }
   }
 
   function save() {
     if (!pattern.trim() || !accountId) {
       toast.push("Enter a pattern and pick an account", "error");
+      return;
+    }
+    if (!category) {
+      toast.push("Pick a category", "error");
       return;
     }
     startTransition(async () => {
@@ -50,6 +79,7 @@ export function RulesClient({ rules, accounts }: Props) {
           id: editingId ?? undefined,
           pattern: pattern.trim(),
           account_id: accountId,
+          category,
           is_active: true,
         });
         toast.push(editingId ? "Rule updated" : "Rule added", "success");
@@ -72,13 +102,26 @@ export function RulesClient({ rules, accounts }: Props) {
   }
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
-  const filtered = search.trim()
-    ? rules.filter((r) =>
-        `${r.pattern} ${accountById.get(r.account_id ?? "")?.name ?? ""}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
-      )
-    : rules;
+  const codeFor = (r: ClassificationRule) =>
+    accountById.get(r.account_id ?? "")?.code ?? "";
+  const filtered = (
+    search.trim()
+      ? rules.filter((r) =>
+          `${r.pattern} ${accountById.get(r.account_id ?? "")?.name ?? ""}`
+            .toLowerCase()
+            .includes(search.toLowerCase()),
+        )
+      : rules
+  )
+    .slice()
+    .sort((a, b) => {
+      // Sort by account number ascending; rules without an account sort last.
+      const ca = codeFor(a);
+      const cb = codeFor(b);
+      if (!ca) return cb ? 1 : 0;
+      if (!cb) return -1;
+      return ca.localeCompare(cb, undefined, { numeric: true });
+    });
 
   return (
     <div className="flex flex-col gap-4">
@@ -88,7 +131,7 @@ export function RulesClient({ rules, accounts }: Props) {
           subtitle="Rules auto-tag a transaction when its description (or vendor) contains the pattern. First match wins."
         />
         <CardBody className="flex flex-col gap-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto]">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
             <Field label="Pattern (case-insensitive)">
               <TextInput
                 value={pattern}
@@ -99,12 +142,27 @@ export function RulesClient({ rules, accounts }: Props) {
             <Field label="Account">
               <Select
                 value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
+                onChange={(e) => onAccountChange(e.target.value)}
               >
                 <option value="">—</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.code} · {a.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Category">
+              <Select
+                value={category}
+                onChange={(e) =>
+                  setCategory(e.target.value as RuleCategory | "")
+                }
+              >
+                <option value="">—</option>
+                {RULE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
                   </option>
                 ))}
               </Select>
@@ -139,8 +197,10 @@ export function RulesClient({ rules, accounts }: Props) {
             <table className="w-full text-xs">
               <thead className="bg-surface-2 text-[11px] uppercase tracking-wider text-muted">
                 <tr>
+                  <th className="px-3 py-2 text-left">Number</th>
                   <th className="px-3 py-2 text-left">Pattern</th>
                   <th className="px-3 py-2 text-left">Account</th>
+                  <th className="px-3 py-2 text-left">Category</th>
                   <th className="px-3 py-2 text-left">Active</th>
                   <th className="px-3 py-2"></th>
                 </tr>
@@ -149,7 +209,7 @@ export function RulesClient({ rules, accounts }: Props) {
                 {filtered.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={6}
                       className="px-3 py-8 text-center text-muted"
                     >
                       {rules.length === 0
@@ -163,10 +223,16 @@ export function RulesClient({ rules, accounts }: Props) {
                     return (
                       <tr key={r.id} className="border-t border-border">
                         <td className="px-3 py-1.5 font-mono text-[11px]">
+                          {a?.code ?? "—"}
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-[11px]">
                           {r.pattern}
                         </td>
                         <td className="px-3 py-1.5">
                           {a ? `${a.code} · ${a.name}` : "—"}
+                        </td>
+                        <td className="px-3 py-1.5 text-[11px]">
+                          {r.category ? RULE_CATEGORY_LABEL[r.category] : "—"}
                         </td>
                         <td className="px-3 py-1.5 text-[11px] text-muted">
                           {r.is_active ? "Yes" : "No"}

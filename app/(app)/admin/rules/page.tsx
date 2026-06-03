@@ -25,6 +25,7 @@ export default async function AdminRulesPage() {
           id: a.id,
           code: a.account_code,
           name: a.account_name,
+          type: a.account_type,
         }))}
       />
     </PageShell>
