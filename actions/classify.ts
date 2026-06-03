@@ -20,6 +20,7 @@ const UpsertSchema = z.object({
   pattern: z.string().trim().min(1).max(200),
   account_id: z.string().uuid(),
   vendor_id: z.string().uuid().nullable().optional(),
+  category: z.enum(["bs_asset", "bs_liability", "pnl_revenue", "pnl_expense"]),
   is_active: z.boolean().default(true),
 });
 
@@ -41,6 +42,7 @@ export async function upsertClassificationRule(
     name: parsed.pattern,
     pattern: parsed.pattern,
     account_id: parsed.account_id,
+    category: parsed.category,
     is_active: parsed.is_active,
   };
 
