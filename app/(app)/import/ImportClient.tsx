@@ -10,6 +10,7 @@ import {
   previewImport,
   commitImport,
   deleteAllTransactions,
+  deleteAllFinancialData,
   type ParsePreview,
 } from "@/actions/import";
 import type { BankConnection } from "@/lib/supabase/types";
@@ -55,6 +56,8 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
   const [pending, startTransition] = useTransition();
   const [wipeConfirm, setWipeConfirm] = useState("");
   const [wiping, startWipeTransition] = useTransition();
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetting, startResetTransition] = useTransition();
 
   function wipeAll() {
     if (wipeConfirm.trim().toUpperCase() !== "DELETE") {
@@ -70,6 +73,26 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
           "success",
         );
         setWipeConfirm("");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
+  }
+
+  function resetAll() {
+    if (resetConfirm.trim().toUpperCase() !== "RESET") {
+      setError("Type RESET to confirm the full reset");
+      return;
+    }
+    setError(null);
+    startResetTransition(async () => {
+      try {
+        const r = await deleteAllFinancialData();
+        toast.push(
+          `Deleted ${r.transactions} transactions, ${r.rawTransactions} raw rows, and ${r.cashbookSnapshots} cashbook snapshots`,
+          "success",
+        );
+        setResetConfirm("");
       } catch (err) {
         setError((err as Error).message);
       }
@@ -338,6 +361,44 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
                 }
               >
                 {wiping ? "Deleting…" : "Delete all transactions"}
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {isAdmin ? (
+        <Card>
+          <CardHeader
+            title="Full reset"
+            subtitle="Delete transactions, raw rows, and cashbook snapshots"
+          />
+          <CardBody className="flex flex-col gap-3">
+            <p className="text-sm text-muted">
+              Wipes <strong>all rows</strong> from <code>transactions</code>,{" "}
+              <code>raw_transactions</code>, and <code>cashbook_snapshots</code>.
+              The <code>transactions_pnl</code> and{" "}
+              <code>cashbook_snapshots_latest</code> views are derived from those
+              tables and will clear automatically. This cannot be undone. Type{" "}
+              <code>RESET</code> below to enable the button.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Field label="Type RESET to confirm" className="flex-1">
+                <TextInput
+                  value={resetConfirm}
+                  onChange={(e) => setResetConfirm(e.target.value)}
+                  placeholder="RESET"
+                  disabled={resetting}
+                />
+              </Field>
+              <Button
+                variant="danger"
+                onClick={resetAll}
+                disabled={
+                  resetting || resetConfirm.trim().toUpperCase() !== "RESET"
+                }
+              >
+                {resetting ? "Resetting…" : "Delete everything"}
               </Button>
             </div>
           </CardBody>

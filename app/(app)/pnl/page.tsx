@@ -461,8 +461,15 @@ export default async function PnlPage({
     }
   }
 
+  // Year-to-date range for the "Sync YTD from Admin API" button: Jan 1 of
+  // the current calendar year through today. This drives the same Admin API
+  // refresh the Cashbook page uses, scoped to YTD.
+  const today = new Date().toISOString().slice(0, 10);
+  const ytd = { from: `${today.slice(0, 4)}-01-01`, to: today };
+
   const document: PnlDocument = {
     view,
+    ytd,
     valueColumns: valueColumns.map((c) => ({
       key: c.key,
       label: c.label,

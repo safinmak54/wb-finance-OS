@@ -215,6 +215,8 @@ export type CashbookSnapshot = {
   period_end: string;
   source: "payment_method" | "sales_summary";
   payload: Json;
+  /** SHA-256 of the canonicalized payload; null for pre-0011 rows. */
+  payload_checksum: string | null;
   fetched_at: string;
   fetched_by: string | null;
 }

@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { drillDownAccount, drillDownAccountSet } from "@/actions/reports";
 import { editTransaction } from "@/actions/transactions";
 import { upsertPnlManualEntry, deletePnlManualEntry } from "@/actions/pnl-manual";
+import { refreshCashbookSnapshot } from "@/actions/cashbook";
 import type { DrillDownTxn } from "@/lib/queries/transactions";
 
 export type PnlRow =
@@ -48,6 +49,7 @@ export type PnlValueColumn = {
 
 export type PnlDocument = {
   view: "annual" | "monthly" | "current-month";
+  ytd: { from: string; to: string };
   valueColumns: PnlValueColumn[];
   denomByCol: Record<string, number>;
   rows: PnlRow[];
@@ -70,11 +72,44 @@ const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
 
 export function PnlClient({ doc }: { doc: PnlDocument }) {
   const router = useRouter();
+  const toast = useToast();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [drill, setDrill] = useState<DrillContext | null>(null);
+  const [syncing, startSync] = useTransition();
 
   function toggle(id: string) {
     setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  }
+
+  // Same Admin API refresh the Cashbook page runs, but scoped to year-to-date
+  // (Jan 1 → today). Synthesizes transactions for the whole year so the P&L
+  // reflects live Admin API figures without leaving this page.
+  function syncYtd() {
+    startSync(async () => {
+      try {
+        const r = await refreshCashbookSnapshot({
+          startDate: doc.ytd.from,
+          endDate: doc.ytd.to,
+        });
+        if (r.changedSources.length === 0) {
+          toast.push(
+            `YTD already up to date — no changes since last sync (${doc.ytd.from} → ${doc.ytd.to})`,
+            "info",
+          );
+        } else {
+          toast.push(
+            `P&L synced from Admin API · YTD (${doc.ytd.from} → ${doc.ytd.to}) · ${r.changedSources.join(", ")} updated`,
+            "success",
+          );
+        }
+        router.refresh();
+      } catch (e) {
+        toast.push(
+          (e as Error).message || "Failed to sync YTD from Admin API",
+          "error",
+        );
+      }
+    });
   }
 
   // Each value column expands into (amount, %) pair. % is narrow.
@@ -138,6 +173,16 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
         <span className="text-muted">
           {doc.range.from} → {doc.range.to}
         </span>
+        <div className="ml-auto">
+          <Button
+            size="sm"
+            onClick={syncYtd}
+            disabled={syncing}
+            title={`Refresh Admin API data for year-to-date (${doc.ytd.from} → ${doc.ytd.to})`}
+          >
+            {syncing ? "Syncing…" : "Sync YTD from Admin API"}
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">

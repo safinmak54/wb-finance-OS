@@ -211,3 +211,64 @@ export async function deleteAllTransactions(): Promise<{
     rawTransactions: rawCount ?? 0,
   };
 }
+
+/**
+ * Full reset: wipe every row from `transactions`, `raw_transactions`, and
+ * `cashbook_snapshots`. The `transactions_pnl` and `cashbook_snapshots_latest`
+ * views are derived from those base tables, so they clear automatically —
+ * there's nothing to delete from a view directly. Admin only; irreversible.
+ */
+export async function deleteAllFinancialData(): Promise<{
+  transactions: number;
+  rawTransactions: number;
+  cashbookSnapshots: number;
+}> {
+  const me = await requireRole(["admin"]);
+  const supabase = createDataClient();
+
+  // Order matters: clear `transactions` (which references raw rows via
+  // raw_transaction_id) before `raw_transactions`, in case the FK is
+  // non-cascading. Snapshots are independent.
+  const { count: txCount, error: txErr } = await supabase
+    .from("transactions")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (txErr) throw new Error(txErr.message);
+
+  const { count: rawCount, error: rawErr } = await supabase
+    .from("raw_transactions")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (rawErr) throw new Error(rawErr.message);
+
+  const { count: snapCount, error: snapErr } = await supabase
+    .from("cashbook_snapshots")
+    .delete({ count: "exact" })
+    .not("id", "is", null);
+  if (snapErr) throw new Error(snapErr.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    op: "DELETE",
+    after: {
+      full_reset: true,
+      transactions: txCount ?? 0,
+      raw_transactions: rawCount ?? 0,
+      cashbook_snapshots: snapCount ?? 0,
+    },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+  revalidatePath("/import");
+  revalidatePath("/cashbook");
+  revalidatePath("/pnl");
+  revalidatePath("/ledger");
+
+  return {
+    transactions: txCount ?? 0,
+    rawTransactions: rawCount ?? 0,
+    cashbookSnapshots: snapCount ?? 0,
+  };
+}
