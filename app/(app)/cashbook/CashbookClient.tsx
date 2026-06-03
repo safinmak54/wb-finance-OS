@@ -55,8 +55,15 @@ export function CashbookClient({
   function refresh() {
     startTransition(async () => {
       try {
-        await refreshCashbookSnapshot({ startDate, endDate });
-        toast.push("Cashbook synced from Admin API", "success");
+        const r = await refreshCashbookSnapshot({ startDate, endDate });
+        if (r.changedSources.length === 0) {
+          toast.push("Already up to date — no changes since last sync", "info");
+        } else {
+          toast.push(
+            `Cashbook synced · ${r.changedSources.join(", ")} updated${r.skippedSources.length ? ` · ${r.skippedSources.join(", ")} unchanged` : ""}`,
+            "success",
+          );
+        }
         router.refresh();
       } catch (e) {
         toast.push(

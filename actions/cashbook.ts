@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createDataClient } from "@/lib/supabase/data";
@@ -28,6 +29,28 @@ import { writeAuditLog } from "./_audit";
 const REFRESH_ROLES = ["coo", "cpa", "admin"] as const;
 const GENERATE_ROLES = ["coo", "cpa", "admin"] as const;
 
+/**
+ * Recursively sort object keys so two payloads with the same content but
+ * different key ordering hash identically. Used for the snapshot checksum.
+ */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(obj).sort()) out[k] = canonicalize(obj[k]);
+    return out;
+  }
+  return value;
+}
+
+/** SHA-256 of the canonicalized payload — stable across re-fetches. */
+function payloadChecksum(payload: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalize(payload)))
+    .digest("hex");
+}
+
 const RefreshSchema = z
   .object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -42,6 +65,11 @@ export type RefreshCashbookResult = {
   startDate: string;
   endDate: string;
   fetchedAt: string;
+  /** Sources whose payload changed and were re-synthesized. */
+  changedSources: string[];
+  /** Sources whose checksum matched the last sync and were skipped. */
+  skippedSources: string[];
+  transactionsInserted: number;
 };
 
 export async function refreshCashbookSnapshot(
@@ -110,36 +138,7 @@ export async function refreshCashbookSnapshot(
   const supabase = createDataClient();
   const fetchedAt = new Date().toISOString();
 
-  const rows = [
-    {
-      period_start: parsed.startDate,
-      period_end: parsed.endDate,
-      source: "payment_method" as const,
-      payload: paymentMethod,
-      fetched_at: fetchedAt,
-      fetched_by: me.userId,
-    },
-    {
-      period_start: parsed.startDate,
-      period_end: parsed.endDate,
-      source: "sales_summary" as const,
-      payload: salesSummary,
-      fetched_at: fetchedAt,
-      fetched_by: me.userId,
-    },
-  ];
-
-  const { data: inserted, error } = await supabase
-    .from("cashbook_snapshots")
-    .insert(rows)
-    .select("id, source, payload");
-  if (error) throw new Error(error.message);
-
-  // Persist each API line as a `raw_transactions` row (classified=false)
-  // so it enters the inbox like any other import. Immediately afterwards
-  // we auto-classify each row to its known account code — the synthesizer
-  // mapping (Stripe → 4040, etc.) acts as the auto-rule, going through
-  // the standard classification path that creates the `transactions` row.
+  // Resolve account + entity maps once; both sources synthesize through them.
   const [acctRes, entityIdsMap] = await Promise.all([
     supabase
       .from("accounts")
@@ -156,15 +155,102 @@ export async function refreshCashbookSnapshot(
     );
   }
 
+  const sources: Array<{
+    source: "payment_method" | "sales_summary";
+    payload: unknown;
+  }> = [
+    { source: "payment_method", payload: paymentMethod },
+    { source: "sales_summary", payload: salesSummary },
+  ];
+
   let txnInsertCount = 0;
-  for (const snap of inserted ?? []) {
-    const snapId = (snap as { id: string }).id;
-    const snapSource = (snap as { source: "payment_method" | "sales_summary" }).source;
+  const changedSources: string[] = [];
+  const skippedSources: string[] = [];
+
+  for (const { source, payload } of sources) {
+    const checksum = payloadChecksum(payload);
+
+    // Existing snapshots for this exact (period, source), newest first.
+    const { data: existing, error: existErr } = await supabase
+      .from("cashbook_snapshots")
+      .select("id, payload_checksum")
+      .eq("period_start", parsed.startDate)
+      .eq("period_end", parsed.endDate)
+      .eq("source", source)
+      .order("fetched_at", { ascending: false });
+    if (existErr) throw new Error(existErr.message);
+
+    const latest = existing?.[0] as
+      | { id: string; payload_checksum: string | null }
+      | undefined;
+    if (latest && latest.payload_checksum === checksum) {
+      // Payload is byte-for-byte what we already have — nothing to do.
+      skippedSources.push(source);
+      continue;
+    }
+
+    // Changed (or first sync, or pre-checksum row): drop every prior
+    // snapshot for this (period, source) and the rows they produced, then
+    // insert fresh. Deleting a snapshot cascades to its `transactions`;
+    // the paired `raw_transactions` carry no snapshot FK, so collect their
+    // ids first and delete them explicitly to avoid orphans.
+    const oldIds = (existing ?? []).map((e) => (e as { id: string }).id);
+    if (oldIds.length > 0) {
+      const { data: oldTxns, error: oldTxnErr } = await supabase
+        .from("transactions")
+        .select("raw_transaction_id")
+        .in("cashbook_snapshot_id", oldIds);
+      if (oldTxnErr) throw new Error(oldTxnErr.message);
+      const rawIds = (oldTxns ?? [])
+        .map(
+          (t) => (t as { raw_transaction_id: string | null }).raw_transaction_id,
+        )
+        .filter((id): id is string => !!id);
+
+      const { error: delSnapErr } = await supabase
+        .from("cashbook_snapshots")
+        .delete()
+        .in("id", oldIds);
+      if (delSnapErr) throw new Error(delSnapErr.message);
+
+      if (rawIds.length > 0) {
+        const { error: delRawErr } = await supabase
+          .from("raw_transactions")
+          .delete()
+          .in("id", rawIds);
+        if (delRawErr) throw new Error(delRawErr.message);
+      }
+    }
+
+    const { data: insertedSnap, error: insErr } = await supabase
+      .from("cashbook_snapshots")
+      .insert({
+        period_start: parsed.startDate,
+        period_end: parsed.endDate,
+        source,
+        payload: payload as never,
+        payload_checksum: checksum,
+        fetched_at: fetchedAt,
+        fetched_by: me.userId,
+      })
+      .select("id, source, payload")
+      .single();
+    if (insErr || !insertedSnap) {
+      throw new Error(insErr?.message ?? "snapshot insert failed");
+    }
+    changedSources.push(source);
+
+    // Persist each API line as a `raw_transactions` row (classified=false)
+    // so it enters the inbox like any other import. Immediately afterwards
+    // we auto-classify each row to its known account code — the synthesizer
+    // mapping (Stripe → 4040, etc.) acts as the auto-rule, going through
+    // the standard classification path that creates the `transactions` row.
+    const snapId = (insertedSnap as { id: string }).id;
     const result = synthesizeTransactionRows(
       {
         id: snapId,
-        source: snapSource,
-        payload: (snap as { payload: unknown }).payload,
+        source,
+        payload: (insertedSnap as { payload: unknown }).payload,
       },
       codeToId,
       entityIdsMap,
@@ -188,7 +274,7 @@ export async function refreshCashbookSnapshot(
     // `classifyTransaction` produces, batched. cashbook_snapshot_id + source
     // are required so transactions_pnl can dedupe re-fetches to the latest
     // snapshot per (period_start, period_end, source).
-    const txnSource = `admin_api:${snapSource}`;
+    const txnSource = `admin_api:${source}`;
     const txnInserts = result.rows.map((synth, i) => {
       const raw = insertedRaw[i] as {
         id: string;
@@ -239,7 +325,8 @@ export async function refreshCashbookSnapshot(
     after: {
       period_start: parsed.startDate,
       period_end: parsed.endDate,
-      sources: ["payment_method", "sales_summary"],
+      changed_sources: changedSources,
+      skipped_sources: skippedSources,
       fetched_at: fetchedAt,
       transactions_inserted: txnInsertCount,
     },
@@ -256,6 +343,9 @@ export async function refreshCashbookSnapshot(
     startDate: parsed.startDate,
     endDate: parsed.endDate,
     fetchedAt,
+    changedSources,
+    skippedSources,
+    transactionsInserted: txnInsertCount,
   };
 }
 
