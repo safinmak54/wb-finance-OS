@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Field, TextInput } from "@/components/ui/Field";
 import { useToast } from "@/components/ui/Toast";
-import { fmt, fmtDateShort } from "@/lib/format";
+import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
 import {
   classifyTransaction,
@@ -15,8 +15,10 @@ import {
   deleteRawTransaction,
   markAsInternalTransfer,
   markAsCcPayment,
+  editRawTransactionDate,
 } from "@/actions/transactions";
 import { bulkAutoTag } from "@/actions/classify";
+import { EditableDateCell } from "@/components/transactions/EditableDateCell";
 import { ImportClient } from "@/app/(app)/import/ImportClient";
 import type {
   Account,
@@ -25,7 +27,12 @@ import type {
 } from "@/lib/supabase/types";
 import type { TxnKind } from "@/lib/classify-rules";
 
-type Row = RawTransaction & { entity_code: string | null; kind: TxnKind };
+type Row = RawTransaction & {
+  entity_code: string | null;
+  kind: TxnKind;
+  /** Optional payment-method/type bucket (Cashbook inbox only). */
+  category?: string;
+};
 
 type Props = {
   rows: Row[];
@@ -35,6 +42,11 @@ type Props = {
   sources: string[];
   banks: BankConnection[];
   entityFilter?: string;
+  /** When provided, renders a payment-method filter (Cashbook inbox). */
+  categories?: string[];
+  /** Hide the kind/source/bank filter bar (irrelevant for the Cashbook
+   *  inbox, where every row shares one source). Defaults to shown. */
+  showSourceFilters?: boolean;
 };
 
 type KindFilter = "all" | TxnKind;
@@ -47,6 +59,8 @@ export function InboxClient({
   sources,
   banks,
   entityFilter,
+  categories,
+  showSourceFilters = true,
 }: Props) {
   const toast = useToast();
   const router = useRouter();
@@ -68,6 +82,7 @@ export function InboxClient({
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [bankFilter, setBankFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const autoTagCount = autoTags ? Object.keys(autoTags).length : 0;
 
@@ -77,10 +92,21 @@ export function InboxClient({
     return counts;
   }, [rows]);
 
+  const categoryCounts = useMemo(() => {
+    if (!categories) return {} as Record<string, number>;
+    const counts: Record<string, number> = {};
+    for (const c of categories) counts[c] = 0;
+    for (const r of rows) {
+      if (r.category && r.category in counts) counts[r.category] += 1;
+    }
+    return counts;
+  }, [rows, categories]);
+
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       if (kindFilter !== "all" && r.kind !== kindFilter) return false;
       if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
+      if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
       if (bankFilter !== "all") {
         if (bankFilter === "none") {
           if (r.bank_connection_id) return false;
@@ -88,7 +114,7 @@ export function InboxClient({
       }
       return true;
     });
-  }, [rows, kindFilter, sourceFilter, bankFilter]);
+  }, [rows, kindFilter, sourceFilter, bankFilter, categoryFilter]);
 
   function update(id: string, patch: { acct?: string; entity?: string }) {
     setPicks((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -243,6 +269,16 @@ export function InboxClient({
     }
   }
 
+  async function saveDate(id: string, accountingDate: string) {
+    try {
+      await editRawTransactionDate({ id, accountingDate });
+      toast.push("Date updated", "success");
+    } catch (err) {
+      toast.push((err as Error).message, "error");
+      throw err; // keep the inline editor open so the user can retry
+    }
+  }
+
   return (
     <>
       {/* Top action bar — upload + bulk auto-tag */}
@@ -279,7 +315,28 @@ export function InboxClient({
         ) : null}
       </div>
 
+      {/* Payment-method filter (Cashbook inbox only) */}
+      {categories && categories.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs">
+          <span className="text-muted">Payment method:</span>
+          <KindChip
+            label={`All (${rows.length})`}
+            active={categoryFilter === "all"}
+            onClick={() => setCategoryFilter("all")}
+          />
+          {categories.map((c) => (
+            <KindChip
+              key={c}
+              label={`${c} (${categoryCounts[c] ?? 0})`}
+              active={categoryFilter === c}
+              onClick={() => setCategoryFilter(c)}
+            />
+          ))}
+        </div>
+      ) : null}
+
       {/* Kind + source filters */}
+      {showSourceFilters ? (
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs">
         <span className="text-muted">Filter:</span>
         <KindChip label={`All (${rows.length})`} active={kindFilter === "all"} onClick={() => setKindFilter("all")} />
@@ -332,6 +389,7 @@ export function InboxClient({
           </>
         ) : null}
       </div>
+      ) : null}
 
       {/* Selection action bar */}
       <div className="mb-3 flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2">
@@ -410,8 +468,12 @@ export function InboxClient({
                         onChange={() => toggle(r.id)}
                       />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]">
-                      {fmtDateShort(String(r.accounting_date ?? r.transaction_date))}
+                    <td className="whitespace-nowrap px-3 py-1.5">
+                      <EditableDateCell
+                        date={String(r.accounting_date ?? r.transaction_date)}
+                        originalDate={String(r.transaction_date)}
+                        onSave={(d) => saveDate(r.id, d)}
+                      />
                     </td>
                     <td className="px-3 py-1.5">
                       <div className="max-w-[300px] truncate">{r.description}</div>

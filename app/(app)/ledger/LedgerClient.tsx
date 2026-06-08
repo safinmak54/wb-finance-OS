@@ -1,24 +1,50 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/DataTable";
-import { fmt, fmtDateShort } from "@/lib/format";
+import { useToast } from "@/components/ui/Toast";
+import { EditableDateCell } from "@/components/transactions/EditableDateCell";
+import { editTransaction } from "@/actions/transactions";
+import { fmt } from "@/lib/format";
 import type { LedgerRow } from "@/lib/queries/transactions";
 
 type Props = { rows: LedgerRow[] };
 
 export function LedgerClient({ rows }: Props) {
+  const router = useRouter();
+  const toast = useToast();
+
+  const saveDate = useCallback(
+    async (id: string, acc_date: string) => {
+      try {
+        await editTransaction({ id, acc_date });
+        toast.push("Date updated", "success");
+        router.refresh();
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+        throw err; // keep the inline editor open so the user can retry
+      }
+    },
+    [router, toast],
+  );
+
   const columns = useMemo<ColumnDef<LedgerRow>[]>(
     () => [
       {
         accessorKey: "acc_date",
         header: "Date",
-        cell: (c) => (
-          <span className="font-mono text-[11px]">
-            {fmtDateShort(c.getValue<string>())}
-          </span>
-        ),
+        cell: (c) => {
+          const row = c.row.original;
+          return (
+            <EditableDateCell
+              date={row.acc_date}
+              originalDate={row.txn_date}
+              onSave={(d) => saveDate(row.id, d)}
+            />
+          );
+        },
       },
       {
         accessorKey: "entity",
@@ -63,7 +89,7 @@ export function LedgerClient({ rows }: Props) {
         },
       },
     ],
-    [],
+    [saveDate],
   );
 
   return (

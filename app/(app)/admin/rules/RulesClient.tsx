@@ -9,9 +9,14 @@ import {
   upsertClassificationRule,
   deleteClassificationRule,
 } from "@/actions/classify";
-import type { ClassificationRule } from "@/lib/supabase/types";
+import type { Account, ClassificationRule } from "@/lib/supabase/types";
 
-type AccountOpt = { id: string; code: string; name: string };
+type AccountOpt = {
+  id: string;
+  code: string;
+  name: string;
+  type: Account["account_type"];
+};
 
 type Props = {
   rules: ClassificationRule[];
@@ -72,13 +77,26 @@ export function RulesClient({ rules, accounts }: Props) {
   }
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
-  const filtered = search.trim()
-    ? rules.filter((r) =>
-        `${r.pattern} ${accountById.get(r.account_id ?? "")?.name ?? ""}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
-      )
-    : rules;
+  const codeFor = (r: ClassificationRule) =>
+    accountById.get(r.account_id ?? "")?.code ?? "";
+  const filtered = (
+    search.trim()
+      ? rules.filter((r) =>
+          `${r.pattern} ${accountById.get(r.account_id ?? "")?.name ?? ""}`
+            .toLowerCase()
+            .includes(search.toLowerCase()),
+        )
+      : rules
+  )
+    .slice()
+    .sort((a, b) => {
+      // Sort by account number ascending; rules without an account sort last.
+      const ca = codeFor(a);
+      const cb = codeFor(b);
+      if (!ca) return cb ? 1 : 0;
+      if (!cb) return -1;
+      return ca.localeCompare(cb, undefined, { numeric: true });
+    });
 
   return (
     <div className="flex flex-col gap-4">
@@ -139,6 +157,7 @@ export function RulesClient({ rules, accounts }: Props) {
             <table className="w-full text-xs">
               <thead className="bg-surface-2 text-[11px] uppercase tracking-wider text-muted">
                 <tr>
+                  <th className="px-3 py-2 text-left">Number</th>
                   <th className="px-3 py-2 text-left">Pattern</th>
                   <th className="px-3 py-2 text-left">Account</th>
                   <th className="px-3 py-2 text-left">Active</th>
@@ -149,7 +168,7 @@ export function RulesClient({ rules, accounts }: Props) {
                 {filtered.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={5}
                       className="px-3 py-8 text-center text-muted"
                     >
                       {rules.length === 0
@@ -162,6 +181,9 @@ export function RulesClient({ rules, accounts }: Props) {
                     const a = accountById.get(r.account_id ?? "");
                     return (
                       <tr key={r.id} className="border-t border-border">
+                        <td className="px-3 py-1.5 font-mono text-[11px]">
+                          {a?.code ?? "—"}
+                        </td>
                         <td className="px-3 py-1.5 font-mono text-[11px]">
                           {r.pattern}
                         </td>

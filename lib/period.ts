@@ -159,6 +159,32 @@ export function monthlyBuckets(year: number): PeriodRange[] {
   return buckets;
 }
 
+/**
+ * The most recent `count` months including the current one, in reverse
+ * chronological order (current month first). Used to populate month pickers.
+ */
+export function recentMonths(count: number): Array<{ key: string; label: string }> {
+  const today = todayUtc();
+  const out: Array<{ key: string; label: string }> = [];
+  let y = today.year;
+  let m = today.month;
+  for (let i = 0; i < count; i += 1) {
+    out.push({ key: `${y}-${pad(m)}`, label: `${MONTH_NAMES[m - 1]} ${y}` });
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+  }
+  return out;
+}
+
+/** The current month as a YYYY-MM string. */
+export function currentMonthKey(): string {
+  const today = todayUtc();
+  return `${today.year}-${pad(today.month)}`;
+}
+
 export function yearRange(year: number): PeriodRange {
   return {
     key: String(year),

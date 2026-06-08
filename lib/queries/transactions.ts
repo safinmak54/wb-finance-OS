@@ -6,6 +6,7 @@ import type {
 } from "@/lib/supabase/types";
 import { applyEntityIdFilter, applyEntityCodeFilter } from "@/lib/entity-filter";
 import type { EntityFilterValue } from "@/lib/entities";
+import { ADMIN_API_RAW_SOURCE } from "@/lib/admin-api/synthesize-transactions";
 
 export type RawTxnRow = RawTransaction;
 
@@ -19,11 +20,10 @@ export type LedgerRow = Transaction & {
 const CC_SOURCES = "(credit_card,amex,capital_one)";
 const CAPONE_DESC_LIKE = "%CAPITAL ONE ONLINE%";
 
-/** Bank-side inbox: unclassified bank statement rows. Admin-API rows
- *  start as classified=false too, but the cashbook fetch action auto-
- *  classifies them immediately afterwards, so anything still sitting
- *  here is genuinely pending. Excludes CC sources AND Capital One
- *  Online description matches (mirrors legacy renderInbox). */
+/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources
+ *  AND Capital One Online description matches (mirrors legacy renderInbox),
+ *  and Admin-API-sourced rows, which have their own dedicated inbox
+ *  (see {@link listUnclassifiedAdminApi}). */
 export async function listUnclassifiedBank(
   supabase: Sb,
   opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
@@ -40,7 +40,33 @@ export async function listUnclassifiedBank(
 
   q = q
     .not("source", "in", CC_SOURCES)
-    .not("description", "ilike", CAPONE_DESC_LIKE);
+    .not("description", "ilike", CAPONE_DESC_LIKE)
+    .neq("source", ADMIN_API_RAW_SOURCE);
+
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Admin-API inbox: unclassified rows synthesized from the Admin API
+ *  cashbook sync (source = "admin_api"). These are kept out of the bank
+ *  inbox so the two streams classify independently. Normally the cashbook
+ *  fetch action auto-classifies these immediately, so anything still
+ *  sitting here is genuinely pending. */
+export async function listUnclassifiedAdminApi(
+  supabase: Sb,
+  opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
+): Promise<RawTxnRow[]> {
+  let q = supabase
+    .from("raw_transactions")
+    .select("*")
+    .eq("classified", false)
+    .eq("source", ADMIN_API_RAW_SOURCE)
+    .order("accounting_date", { ascending: false });
+
+  if (opts.entity && opts.codeToId) {
+    q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
+  }
 
   const { data, error } = await q;
   if (error) throw error;
@@ -105,23 +131,31 @@ export async function listLedgerView(
 export async function inboxCounts(supabase: Sb): Promise<{
   bank: number;
   cc: number;
+  adminApi: number;
 }> {
-  const [bank, cc] = await Promise.all([
+  const [bank, cc, adminApi] = await Promise.all([
     supabase
       .from("raw_transactions")
       .select("id", { count: "exact", head: true })
       .eq("classified", false)
       .not("source", "in", CC_SOURCES)
-      .not("description", "ilike", CAPONE_DESC_LIKE),
+      .not("description", "ilike", CAPONE_DESC_LIKE)
+      .neq("source", ADMIN_API_RAW_SOURCE),
     supabase
       .from("raw_transactions")
       .select("id", { count: "exact", head: true })
       .eq("classified", false)
       .or(`source.in.${CC_SOURCES},description.ilike.${CAPONE_DESC_LIKE}`),
+    supabase
+      .from("raw_transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("classified", false)
+      .eq("source", ADMIN_API_RAW_SOURCE),
   ]);
   return {
     bank: bank.count ?? 0,
     cc: cc.count ?? 0,
+    adminApi: adminApi.count ?? 0,
   };
 }
 

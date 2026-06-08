@@ -48,7 +48,7 @@ export type PnlValueColumn = {
 };
 
 export type PnlDocument = {
-  view: "annual" | "monthly" | "current-month";
+  view: "annual" | "monthly" | "month";
   ytd: { from: string; to: string };
   valueColumns: PnlValueColumn[];
   denomByCol: Record<string, number>;
@@ -56,6 +56,8 @@ export type PnlDocument = {
   range: { from: string; to: string };
   entityCol: string | null;
   entityColOptions: Array<{ key: string; label: string }>;
+  selectedMonth: string | null;
+  monthOptions: Array<{ key: string; label: string }>;
   accounts: Array<{ id: string; code: string; name: string }>;
 };
 
@@ -166,7 +168,17 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
-        <ViewToggle current={doc.view} entityCol={doc.entityCol} />
+        <ViewToggle
+          current={doc.view}
+          entityCol={doc.entityCol}
+          selectedMonth={doc.selectedMonth}
+        />
+        {doc.view === "month" && (
+          <MonthPicker
+            selected={doc.selectedMonth ?? doc.monthOptions[0]?.key ?? ""}
+            options={doc.monthOptions}
+          />
+        )}
         {doc.view === "monthly" && (
           <EntityTabs current={doc.entityCol ?? "ALL"} options={doc.entityColOptions} />
         )}
@@ -377,12 +389,16 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
 function ViewToggle({
   current,
   entityCol,
+  selectedMonth,
 }: {
-  current: "annual" | "monthly" | "current-month";
+  current: "annual" | "monthly" | "month";
   entityCol: string | null;
+  selectedMonth: string | null;
 }) {
   // Preserve entityCol when switching to monthly so re-toggling feels stable.
   const monthlyHref = `?view=monthly${entityCol ? `&entityCol=${entityCol}` : ""}`;
+  // Preserve the selected month when switching to per-month.
+  const monthHref = `?view=month${selectedMonth ? `&month=${selectedMonth}` : ""}`;
   return (
     <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
       <Link
@@ -404,17 +420,41 @@ function ViewToggle({
         Monthly
       </Link>
       <Link
-        href="?view=current-month"
+        href={monthHref}
         className={cn(
           "border-l border-border px-2 py-1",
-          current === "current-month"
+          current === "month"
             ? "bg-info-soft text-info"
             : "text-muted hover:bg-surface-2",
         )}
       >
-        Current Month
+        Per Month
       </Link>
     </div>
+  );
+}
+
+function MonthPicker({
+  selected,
+  options,
+}: {
+  selected: string;
+  options: Array<{ key: string; label: string }>;
+}) {
+  const router = useRouter();
+  return (
+    <select
+      value={selected}
+      onChange={(e) => router.push(`?view=month&month=${e.target.value}`)}
+      className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
+      aria-label="Select month"
+    >
+      {options.map((o) => (
+        <option key={o.key} value={o.key}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
