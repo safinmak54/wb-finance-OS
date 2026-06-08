@@ -53,6 +53,34 @@ export const SYNTHESIZED_ACCOUNT_CODES: readonly string[] = [
 
 export const ADMIN_API_RAW_SOURCE = "admin_api";
 
+/** Payment-method / type buckets for admin-API rows, derived from the
+ *  synthesized description above. Used by the Cashbook Transactions inbox
+ *  filter. Order here is the order the filter chips render in. */
+export const CASHBOOK_CATEGORIES = [
+  "Stripe",
+  "PayPal",
+  "Direct",
+  "COGS",
+  "Ads",
+  "Other",
+] as const;
+export type CashbookCategory = (typeof CASHBOOK_CATEGORIES)[number];
+
+/** Bucket an admin-API row into a payment-method / type category from its
+ *  synthesized description. Kept in sync with the `description` strings
+ *  emitted in {@link synthesizeTransactionRows}. */
+export function cashbookCategory(
+  description: string | null | undefined,
+): CashbookCategory {
+  const d = description ?? "";
+  if (d.startsWith("Stripe")) return "Stripe";
+  if (d.startsWith("PayPal")) return "PayPal";
+  if (d.startsWith("Direct")) return "Direct";
+  if (d.startsWith("COGS")) return "COGS";
+  if (d.endsWith("Ads")) return "Ads";
+  return "Other";
+}
+
 export type SnapshotInput = {
   id: string;
   source: "payment_method" | "sales_summary";

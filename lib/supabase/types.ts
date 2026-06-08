@@ -127,7 +127,6 @@ export type ClassificationRule = {
   pattern: string;
   account_id: string | null;
   vendor_id: string | null;
-  category: import("@/lib/rule-category").RuleCategory | null;
   is_active: boolean;
   created_at: string;
 }

@@ -85,7 +85,16 @@ export async function adminApiFetch<T>(
     });
   }
 
-  const parsed = schema.safeParse(json);
+  // The Admin API wraps successful report payloads in a `{ "data": ... }`
+  // envelope. None of our report schemas have a top-level `data` field, so
+  // unwrap it before validating. Responses without the envelope pass through
+  // unchanged.
+  const body =
+    json && typeof json === "object" && !Array.isArray(json) && "data" in json
+      ? (json as { data: unknown }).data
+      : json;
+
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
     throw new AdminApiError({
       kind: "shape",

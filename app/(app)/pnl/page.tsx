@@ -16,26 +16,23 @@ import {
   resolvePeriod,
   yearRange,
   monthlyBuckets,
+  recentMonths,
+  currentMonthKey,
 } from "@/lib/period";
 import {
   PNL_ENTITY_COLUMNS,
   type EntityCode,
 } from "@/lib/entities";
 import type { Account } from "@/lib/supabase/types";
+import {
+  type Subtype,
+  CODE_TO_SUBTYPE,
+  HIDDEN_ACCOUNT_CODES,
+  signFor,
+} from "@/lib/pnl/structure";
 import { PnlClient, type PnlDocument, type PnlRow } from "./PnlClient";
 
 export const dynamic = "force-dynamic";
-
-type Subtype =
-  | "gross_revenue"
-  | "sales_return"
-  | "platform_fee"
-  | "cogs"
-  | "sales_tax"
-  | "marketing"
-  | "labour"
-  | "opex"
-  | "distribution";
 
 // P&L structure. Outer entries are "groups" (Column A label). Inner
 // entries are "sections" (Column B label, collapsible). Rendering
@@ -93,12 +90,20 @@ export default async function PnlPage({
 }) {
   const sp = await searchParams;
   const period = periodFromSearchParams(sp);
-  const view: "annual" | "monthly" | "current-month" =
+  const view: "annual" | "monthly" | "month" =
     sp.view === "monthly"
       ? "monthly"
-      : sp.view === "current-month"
-        ? "current-month"
+      : sp.view === "month"
+        ? "month"
         : "annual";
+
+  // "Per Month" view: a single user-selected month (defaults to the current
+  // month). Options going back two years are offered in the picker.
+  const monthOptions = recentMonths(24);
+  const selectedMonth =
+    typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
+      ? sp.month
+      : currentMonthKey();
 
   // Monthly view is scoped to one entity column at a time (picker in the UI).
   // Annual view shows all entity columns side by side.
@@ -113,15 +118,12 @@ export default async function PnlPage({
   const range =
     view === "monthly"
       ? yearRange(year)
-      : view === "current-month"
-        ? resolvePeriod({ key: "month" })
+      : view === "month"
+        ? resolvePeriod({ key: selectedMonth })
         : period;
   const months = view === "monthly" ? monthlyBuckets(year) : [];
 
   const supabase = createDataClient();
-  // 4070 (Gross Revenue – RP) and 5005 (COGS – RP) are intentionally hidden
-  // from the P&L view per business decision.
-  const HIDDEN_ACCOUNT_CODES = new Set(["4070", "5005"]);
   const accounts = (await listAccounts(supabase, { activeOnly: true })).filter(
     (a) => !HIDDEN_ACCOUNT_CODES.has(a.account_code),
   );
@@ -138,53 +140,6 @@ export default async function PnlPage({
     listPnlManualEntries(supabase, { from: range.from, to: range.to }),
   ]);
   const aggregates = groupByAccountAndEntity(report.txns);
-
-  // Account-code → P&L subtype mapping. This is intentionally a hardcoded
-  // list rather than derived from `accounts.account_subtype`: that column is
-  // inconsistent (mixes generic types like "expense"/"revenue"/"current"
-  // with P&L subtypes, uses "payroll" for labour, splits ads across
-  // "marketing"/"advertising", and even tags the asset 5020 Shipping-Clearing
-  // as "cogs"). Deriving from it dropped whole sections (Labour, Sales Tax,
-  // Sales Return) and polluted COGS with an asset, producing wrong totals.
-  const CODE_TO_SUBTYPE: Record<string, Subtype> = {};
-  for (const c of ["4040", "4050", "4060", "4070", "4080"]) {
-    CODE_TO_SUBTYPE[c] = "gross_revenue";
-  }
-  for (const c of ["4045", "4055", "4065", "4900"]) {
-    CODE_TO_SUBTYPE[c] = "sales_return";
-  }
-  for (const c of ["4075", "4076"]) {
-    CODE_TO_SUBTYPE[c] = "platform_fee";
-  }
-  for (const c of ["5000", "5005"]) {
-    CODE_TO_SUBTYPE[c] = "cogs";
-  }
-  for (const c of ["5040"]) {
-    CODE_TO_SUBTYPE[c] = "sales_tax";
-  }
-  for (const c of ["6000", "6001", "6002", "6003", "6004", "6030"]) {
-    CODE_TO_SUBTYPE[c] = "marketing";
-  }
-  for (const c of ["6100", "6110", "6112", "6120", "6121"]) {
-    CODE_TO_SUBTYPE[c] = "labour";
-  }
-  for (const c of [
-    "6200",
-    "6300",
-    "6400",
-    "6450",
-    "6600",
-    "6615",
-    "6620",
-    "6640",
-    "6646",
-    "6648",
-  ]) {
-    CODE_TO_SUBTYPE[c] = "opex";
-  }
-  for (const c of ["3100"]) {
-    CODE_TO_SUBTYPE[c] = "distribution";
-  }
 
   // Fold manual entries into the same aggregate Map. Manual entries can
   // only target non-API-sourced accounts (enforced server-side in the
@@ -205,18 +160,6 @@ export default async function PnlPage({
   }
   for (const arr of accountsBySubtype.values()) {
     arr.sort((a, b) => a.account_code.localeCompare(b.account_code));
-  }
-
-  function signFor(a: Account): 1 | -1 {
-    // Sales Return accounts are revenue-type but debit-normal — stored
-    // amounts are negative. Flip so the section shows a positive figure,
-    // letting `totalRevenue = revenue − salesReturn − platformFee` work.
-    const subtype = CODE_TO_SUBTYPE[a.account_code];
-    if (subtype === "sales_return") return -1;
-    if (a.account_type === "revenue") return 1;
-    if (a.account_type === "expense") return -1;
-    if (a.account_type === "equity") return -1;
-    return 1;
   }
 
   // ---- Value columns -----------------------------------------------------
@@ -246,7 +189,7 @@ export default async function PnlPage({
       range: { from: range.from, to: range.to },
     });
   } else {
-    // annual + current-month both lay out as one column per entity group.
+    // annual + per-month both lay out as one column per entity group.
     valueColumns = PNL_ENTITY_COLUMNS.map((c) => ({
       key: c.key,
       label: c.label,
@@ -484,6 +427,8 @@ export default async function PnlPage({
       key: c.key,
       label: c.label,
     })),
+    selectedMonth: view === "month" ? selectedMonth : null,
+    monthOptions,
     accounts: accounts.map((a) => ({
       id: a.id,
       code: a.account_code,
@@ -494,7 +439,7 @@ export default async function PnlPage({
   const subtitleSuffix =
     view === "monthly"
       ? `FY ${year} · ${monthlyEntityCol.label}`
-      : view === "current-month"
+      : view === "month"
         ? `${range.label} · All entity columns`
         : `${period.label} · All entity columns`;
 

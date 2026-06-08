@@ -288,6 +288,55 @@ export async function deleteRawTransaction(id: string) {
   revalidatePath("/cc-inbox");
 }
 
+const EditRawDateSchema = z.object({
+  id: z.string().uuid(),
+  accountingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+/**
+ * Change the *accounting* date of a raw (pre-classification) bank row
+ * without touching the immutable bank `transaction_date`. Used to accrue
+ * a transaction into a different period than it cleared the bank — e.g.
+ * wages that cleared in March but belong to February.
+ *
+ * Reversible by design: pass `accountingDate` equal to the row's
+ * `transaction_date` to clear the override. The UI flags any row where
+ * `accounting_date !== transaction_date` so the change stays visible.
+ */
+export async function editRawTransactionDate(
+  input: z.input<typeof EditRawDateSchema>,
+) {
+  const me = await requireRole(TXN_ROLES);
+  const parsed = EditRawDateSchema.parse(input);
+
+  const supabase = createDataClient();
+  const { data: raw, error: loadErr } = await supabase
+    .from("raw_transactions")
+    .select("transaction_date, accounting_date")
+    .eq("id", parsed.id)
+    .single();
+  if (loadErr || !raw) throw new Error("Transaction not found");
+
+  const { error } = await supabase
+    .from("raw_transactions")
+    .update({ accounting_date: parsed.accountingDate })
+    .eq("id", parsed.id);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    rowId: parsed.id,
+    op: "UPDATE",
+    before: { accounting_date: raw.accounting_date },
+    after: { accounting_date: parsed.accountingDate },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+  revalidatePath("/cashbook-inbox");
+}
+
 const EditTxnSchema = z.object({
   id: z.string().uuid(),
   amount: z.number().optional(),
