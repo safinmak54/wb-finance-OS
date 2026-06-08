@@ -1,14 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { BarChart } from "@/components/charts/BarChart";
 import { fmt, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
 import type { MonthlyPnlMetrics } from "@/lib/pnl/structure";
 
-export type MonthlySummaryView = "monthly" | "ytd" | "current-month";
+export type MonthlySummaryView =
+  | "year"
+  | "q1"
+  | "q2"
+  | "q3"
+  | "q4"
+  | "month";
 
 type MonthRow = {
   key: string;
@@ -19,6 +25,8 @@ type MonthRow = {
 type Props = {
   view: MonthlySummaryView;
   months: MonthRow[];
+  selectedMonth: string;
+  monthOptions: Array<{ key: string; label: string }>;
 };
 
 type MetricKey = keyof MonthlyPnlMetrics;
@@ -31,7 +39,12 @@ const COLUMNS: Array<{ key: MetricKey; label: string; color: string }> = [
   { key: "netIncome", label: "Net Income", color: "#059669" },
 ];
 
-export function MonthlySummary({ view, months }: Props) {
+export function MonthlySummary({
+  view,
+  months,
+  selectedMonth,
+  monthOptions,
+}: Props) {
   const totals: MonthlyPnlMetrics = {
     grossRevenue: 0,
     cogs: 0,
@@ -52,7 +65,13 @@ export function MonthlySummary({ view, months }: Props) {
       <CardHeader
         title="Monthly summary"
         subtitle="Gross Revenue · COGS · Ad Spends · Admin Exp · Net Income — % of gross revenue"
-        actions={<ViewToggle current={view} />}
+        actions={
+          <ViewToggle
+            current={view}
+            selectedMonth={selectedMonth}
+            monthOptions={monthOptions}
+          />
+        }
       />
       <CardBody className="flex flex-col gap-5">
         {!hasData ? (
@@ -169,39 +188,76 @@ function MetricCell({
 }
 
 const VIEW_OPTIONS: Array<{ value: MonthlySummaryView; label: string }> = [
-  { value: "ytd", label: "YTD" },
-  { value: "monthly", label: "Monthly" },
-  { value: "current-month", label: "Current Month" },
+  { value: "year", label: "Full Year" },
+  { value: "q1", label: "Q1" },
+  { value: "q2", label: "Q2" },
+  { value: "q3", label: "Q3" },
+  { value: "q4", label: "Q4" },
+  { value: "month", label: "Month" },
 ];
 
-function ViewToggle({ current }: { current: MonthlySummaryView }) {
+function ViewToggle({
+  current,
+  selectedMonth,
+  monthOptions,
+}: {
+  current: MonthlySummaryView;
+  selectedMonth: string;
+  monthOptions: Array<{ key: string; label: string }>;
+}) {
+  const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
 
   function hrefFor(value: MonthlySummaryView): string {
     const sp = new URLSearchParams(params.toString());
     sp.set("view", value);
+    // Carry the selected month so toggling into "Month" lands somewhere sane.
+    if (value === "month" && !sp.get("month")) sp.set("month", selectedMonth);
     const qs = sp.toString();
     return qs ? `${pathname}?${qs}` : pathname;
   }
 
+  function onMonthChange(month: string) {
+    const sp = new URLSearchParams(params.toString());
+    sp.set("view", "month");
+    sp.set("month", month);
+    router.push(`${pathname}?${sp.toString()}`);
+  }
+
   return (
-    <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
-      {VIEW_OPTIONS.map((o, i) => (
-        <Link
-          key={o.value}
-          href={hrefFor(o.value)}
-          className={cn(
-            "px-2 py-1",
-            i > 0 && "border-l border-border",
-            current === o.value
-              ? "bg-info-soft text-info"
-              : "text-muted hover:bg-surface-2",
-          )}
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
+        {VIEW_OPTIONS.map((o, i) => (
+          <Link
+            key={o.value}
+            href={hrefFor(o.value)}
+            className={cn(
+              "px-2 py-1",
+              i > 0 && "border-l border-border",
+              current === o.value
+                ? "bg-info-soft text-info"
+                : "text-muted hover:bg-surface-2",
+            )}
+          >
+            {o.label}
+          </Link>
+        ))}
+      </div>
+      {current === "month" && (
+        <select
+          value={selectedMonth}
+          onChange={(e) => onMonthChange(e.target.value)}
+          className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
+          aria-label="Select month"
         >
-          {o.label}
-        </Link>
-      ))}
+          {monthOptions.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }

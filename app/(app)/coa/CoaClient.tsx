@@ -13,6 +13,7 @@ import {
   createAccount,
   updateAccount,
   deactivateAccount,
+  deleteAccount,
 } from "@/actions/accounts";
 import type { AccountWithBalance } from "@/lib/queries/accounts";
 
@@ -29,7 +30,22 @@ const TYPE_BADGE: Record<string, string> = {
 export function CoaClient({ accounts }: Props) {
   const toast = useToast();
   const [editing, setEditing] = useState<AccountWithBalance | null>(null);
+  const [deleting, setDeleting] = useState<AccountWithBalance | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [deletePending, startDelete] = useTransition();
+
+  function confirmDelete() {
+    if (!deleting) return;
+    startDelete(async () => {
+      try {
+        await deleteAccount(deleting.id);
+        toast.push("Account deleted", "success");
+        setDeleting(null);
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
+  }
 
   const columns = useMemo<ColumnDef<AccountWithBalance>[]>(
     () => [
@@ -79,13 +95,22 @@ export function CoaClient({ accounts }: Props) {
         id: "actions",
         header: "",
         cell: (c) => (
-          <button
-            type="button"
-            className="text-[11px] font-medium text-info hover:underline"
-            onClick={() => setEditing(c.row.original)}
-          >
-            Edit
-          </button>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              className="text-[11px] font-medium text-info hover:underline"
+              onClick={() => setEditing(c.row.original)}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              className="text-[11px] font-medium text-danger hover:underline"
+              onClick={() => setDeleting(c.row.original)}
+            >
+              Delete
+            </button>
+          </div>
         ),
       },
     ],
@@ -127,6 +152,42 @@ export function CoaClient({ accounts }: Props) {
         mode="edit"
         initial={editing}
       />
+
+      <Modal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete account"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-[13px] text-muted">
+            Permanently delete{" "}
+            <span className="font-medium text-foreground">
+              {deleting?.account_code} — {deleting?.account_name}
+            </span>
+            ? This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleting(null)}
+              disabled={deletePending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirmDelete}
+              className="bg-danger text-white hover:bg-danger"
+              disabled={deletePending}
+            >
+              {deletePending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
@@ -193,6 +254,23 @@ function AccountFormModal({
     }
   }
 
+  async function onDelete() {
+    if (!initial) return;
+    if (
+      !confirm(
+        `Permanently delete ${initial.account_code} — ${initial.account_name}? This cannot be undone.`,
+      )
+    )
+      return;
+    try {
+      await deleteAccount(initial.id);
+      onSubmitted();
+      toast.push("Account deleted", "success");
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <Modal
       open={open}
@@ -252,16 +330,28 @@ function AccountFormModal({
 
         <div className="mt-2 flex items-center justify-between gap-2">
           {mode === "edit" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onDeactivate}
-              className="text-danger"
-              disabled={pending}
-            >
-              Deactivate
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onDeactivate}
+                className="text-warning"
+                disabled={pending}
+              >
+                Deactivate
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onDelete}
+                className="text-danger"
+                disabled={pending}
+              >
+                Delete
+              </Button>
+            </div>
           ) : (
             <div />
           )}

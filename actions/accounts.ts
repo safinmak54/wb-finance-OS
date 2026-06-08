@@ -107,6 +107,22 @@ export async function deactivateAccount(id: string) {
     actorUserId: me.userId,
     table: "accounts",
     rowId: id,
+    op: "UPDATE",
+  });
+
+  revalidatePath("/coa");
+}
+
+export async function deleteAccount(id: string) {
+  const me = await requireRole(ACCOUNT_ROLES);
+  const supabase = createDataClient();
+  const { error } = await supabase.from("accounts").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "accounts",
+    rowId: id,
     op: "DELETE",
   });
 

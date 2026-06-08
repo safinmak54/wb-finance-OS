@@ -51,6 +51,20 @@ function payloadChecksum(payload: unknown): string {
     .digest("hex");
 }
 
+/** Split an array into fixed-size chunks (last chunk may be smaller). */
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// `raw_transactions` and `transactions` both carry a per-row AFTER trigger
+// (audit_capture, migration 0004). Every row in a bulk insert/update/delete
+// fires it once, so a YTD sync's thousands of rows must be split across many
+// small statements — a single statement over the whole set overruns the DB
+// request timeout. This bounds the rows touched per statement.
+const DB_BATCH_SIZE = 500;
+
 const RefreshSchema = z
   .object({
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -198,28 +212,41 @@ export async function refreshCashbookSnapshot(
     if (oldIds.length > 0) {
       const { data: oldTxns, error: oldTxnErr } = await supabase
         .from("transactions")
-        .select("raw_transaction_id")
+        .select("id, raw_transaction_id")
         .in("cashbook_snapshot_id", oldIds);
       if (oldTxnErr) throw new Error(oldTxnErr.message);
+      const oldTxnIds = (oldTxns ?? []).map((t) => (t as { id: string }).id);
       const rawIds = (oldTxns ?? [])
         .map(
           (t) => (t as { raw_transaction_id: string | null }).raw_transaction_id,
         )
         .filter((id): id is string => !!id);
 
+      // Delete `transactions` then `raw_transactions` explicitly in chunks,
+      // then the snapshot rows. We do NOT lean on the snapshot-delete cascade
+      // here: that would remove every linked `transactions` row in one
+      // trigger-heavy statement. Order respects the FKs (transactions →
+      // raw_transactions → cashbook_snapshots).
+      for (const ids of chunk(oldTxnIds, DB_BATCH_SIZE)) {
+        const { error } = await supabase
+          .from("transactions")
+          .delete()
+          .in("id", ids);
+        if (error) throw new Error(error.message);
+      }
+      for (const ids of chunk(rawIds, DB_BATCH_SIZE)) {
+        const { error } = await supabase
+          .from("raw_transactions")
+          .delete()
+          .in("id", ids);
+        if (error) throw new Error(error.message);
+      }
+
       const { error: delSnapErr } = await supabase
         .from("cashbook_snapshots")
         .delete()
         .in("id", oldIds);
       if (delSnapErr) throw new Error(delSnapErr.message);
-
-      if (rawIds.length > 0) {
-        const { error: delRawErr } = await supabase
-          .from("raw_transactions")
-          .delete()
-          .in("id", rawIds);
-        if (delRawErr) throw new Error(delRawErr.message);
-      }
     }
 
     const { data: insertedSnap, error: insErr } = await supabase
@@ -257,65 +284,77 @@ export async function refreshCashbookSnapshot(
     );
     if (result.rows.length === 0) continue;
 
-    const rawInserts = result.rows.map((r) => r.raw);
-    const { data: insertedRaw, error: rawErr } = await supabase
-      .from("raw_transactions")
-      .insert(rawInserts)
-      .select("id, accounting_date, transaction_date, description, direction, amount");
-    if (rawErr) throw new Error(rawErr.message);
-    if (!insertedRaw || insertedRaw.length !== result.rows.length) {
-      throw new Error(
-        `raw_transactions insert returned ${insertedRaw?.length ?? 0} rows, expected ${result.rows.length}`,
-      );
-    }
-
     // Auto-classify by building `transactions` rows directly (one per raw)
     // and flipping classified=true on the raw rows. This is the same shape
     // `classifyTransaction` produces, batched. cashbook_snapshot_id + source
     // are required so transactions_pnl can dedupe re-fetches to the latest
     // snapshot per (period_start, period_end, source).
+    //
+    // Process in bounded chunks: `raw_transactions` and `transactions` both
+    // carry a per-row AFTER trigger (audit_capture, migration 0004), so each
+    // bulk statement fires the trigger once per row. A YTD sync synthesizes
+    // thousands of rows; a single `UPDATE ... WHERE id IN (<thousands>)`
+    // fires thousands of triggers in one statement and overruns the DB
+    // request timeout. Chunking keeps every statement small and fast.
     const txnSource = `admin_api:${source}`;
-    const txnInserts = result.rows.map((synth, i) => {
-      const raw = insertedRaw[i] as {
-        id: string;
-        accounting_date: string | null;
-        transaction_date: string;
-        description: string | null;
-        direction: "DEBIT" | "CREDIT";
-        amount: number;
-      };
-      const signedAmount =
-        raw.direction === "DEBIT"
-          ? -Math.abs(Number(raw.amount))
-          : Math.abs(Number(raw.amount));
-      return {
-        raw_transaction_id: raw.id,
-        entity: synth.entityCode,
-        account_id: codeToId.get(synth.accountCode) ?? null,
-        amount: signedAmount,
-        txn_date: raw.transaction_date,
-        acc_date: raw.accounting_date ?? raw.transaction_date,
-        description: raw.description ?? "",
-        memo: "",
-        cashbook_snapshot_id: snapId,
-        source: txnSource,
-      };
-    });
-    const { error: txnErr } = await supabase
-      .from("transactions")
-      .insert(txnInserts);
-    if (txnErr) throw new Error(txnErr.message);
-
     const classifiedAt = new Date().toISOString();
-    const { error: flipErr } = await supabase
-      .from("raw_transactions")
-      .update({ classified: true, classified_at: classifiedAt })
-      .in(
-        "id",
-        insertedRaw.map((r) => (r as { id: string }).id),
-      );
-    if (flipErr) throw new Error(flipErr.message);
-    txnInsertCount += txnInserts.length;
+
+    for (const slice of chunk(result.rows, DB_BATCH_SIZE)) {
+      const { data: insertedRaw, error: rawErr } = await supabase
+        .from("raw_transactions")
+        .insert(slice.map((r) => r.raw))
+        .select("id, accounting_date, transaction_date, description, direction, amount");
+      if (rawErr) throw new Error(rawErr.message);
+      if (!insertedRaw || insertedRaw.length !== slice.length) {
+        throw new Error(
+          `raw_transactions insert returned ${insertedRaw?.length ?? 0} rows, expected ${slice.length}`,
+        );
+      }
+
+      const txnInserts = slice.map((synth, i) => {
+        const raw = insertedRaw[i] as {
+          id: string;
+          accounting_date: string | null;
+          transaction_date: string;
+          description: string | null;
+          direction: "DEBIT" | "CREDIT";
+          amount: number;
+        };
+        const signedAmount =
+          raw.direction === "DEBIT"
+            ? -Math.abs(Number(raw.amount))
+            : Math.abs(Number(raw.amount));
+        return {
+          raw_transaction_id: raw.id,
+          entity: synth.entityCode,
+          account_id: codeToId.get(synth.accountCode) ?? null,
+          amount: signedAmount,
+          txn_date: raw.transaction_date,
+          acc_date: raw.accounting_date ?? raw.transaction_date,
+          description: raw.description ?? "",
+          memo: "",
+          cashbook_snapshot_id: snapId,
+          source: txnSource,
+        };
+      });
+      const { error: txnErr } = await supabase
+        .from("transactions")
+        .insert(txnInserts);
+      if (txnErr) throw new Error(txnErr.message);
+
+      const rawIds = insertedRaw.map((r) => (r as { id: string }).id);
+      const { error: flipErr } = await supabase
+        .from("raw_transactions")
+        .update({ classified: true, classified_at: classifiedAt })
+        .in("id", rawIds);
+      if (flipErr) {
+        throw new Error(
+          flipErr.message ||
+            `raw_transactions classify-flip failed for ${rawIds.length} rows`,
+        );
+      }
+      txnInsertCount += txnInserts.length;
+    }
   }
 
   await writeAuditLog({

@@ -72,9 +72,20 @@ export const SalesSummaryRow = z
     cogs_estimated: num.optional(),
     cogs_pct: num.optional(),
     ads_cost_total: num,
-    ads_cost_google: num,
-    ads_cost_bing: num,
-    ads_cost_meta: num,
+    // The dev API now reports per-platform ad spend under `platform_costs`
+    // ({ go: google, fb: meta, bi: bing }) and no longer sends the flat
+    // ads_cost_google/meta/bing fields. Accept both: keep the flat fields
+    // optional and backfill them from platform_costs in the transform below
+    // so downstream consumers (synthesize / journal-mapping / KPI tiles)
+    // stay unchanged.
+    ads_cost_google: num.optional(),
+    ads_cost_bing: num.optional(),
+    ads_cost_meta: num.optional(),
+    platform_costs: z
+      .object({ go: num, fb: num, bi: num })
+      .partial()
+      .passthrough()
+      .optional(),
     ads_cost_asi: num,
     ads_pct: num.optional(),
     roas: num.nullable().optional(),
@@ -87,7 +98,13 @@ export const SalesSummaryRow = z
     gross_margin_pct: num.optional(),
     target_net_sales: num.nullable().optional(),
   })
-  .passthrough();
+  .passthrough()
+  .transform((r) => ({
+    ...r,
+    ads_cost_google: r.ads_cost_google ?? r.platform_costs?.go ?? 0,
+    ads_cost_meta: r.ads_cost_meta ?? r.platform_costs?.fb ?? 0,
+    ads_cost_bing: r.ads_cost_bing ?? r.platform_costs?.bi ?? 0,
+  }));
 export type SalesSummaryRow = z.infer<typeof SalesSummaryRow>;
 
 export const SalesSummaryReport = z.object({

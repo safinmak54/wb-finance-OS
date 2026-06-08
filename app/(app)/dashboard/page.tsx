@@ -21,9 +21,9 @@ import {
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import {
   periodFromSearchParams,
-  resolvePeriod,
-  yearRange,
   monthlyBuckets,
+  recentMonths,
+  currentMonthKey,
 } from "@/lib/period";
 import { DashboardClient } from "./DashboardClient";
 import {
@@ -42,37 +42,41 @@ export default async function DashboardPage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  // Monthly-summary view toggle (independent of the KPI-card period filter).
+  // Monthly-summary view toggle (independent of the KPI-card period filter):
+  // full year, a single quarter (q1–q4), or one individual month.
   const view: MonthlySummaryView =
-    sp.view === "ytd"
-      ? "ytd"
-      : sp.view === "current-month"
-        ? "current-month"
-        : "monthly";
+    sp.view === "q1" ||
+    sp.view === "q2" ||
+    sp.view === "q3" ||
+    sp.view === "q4" ||
+    sp.view === "month"
+      ? sp.view
+      : "year";
+
+  // Per-month view: a single user-selected month (defaults to current month).
+  const monthOptions = recentMonths(24);
+  const selectedMonth =
+    typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
+      ? sp.month
+      : currentMonthKey();
 
   // Resolve the month buckets + date range the summary spans.
-  let summaryRange: { from: string; to: string };
-  let summaryMonths: { key: string; label: string }[];
-  if (view === "current-month") {
-    const cm = resolvePeriod({ key: "month" });
-    const cmKey = cm.from.slice(0, 7);
-    summaryRange = { from: cm.from, to: cm.to };
-    summaryMonths = monthlyBuckets(Number(cm.from.slice(0, 4))).filter(
-      (m) => m.key === cmKey,
-    );
-  } else if (view === "ytd") {
-    const ytd = resolvePeriod({ key: "ytd" });
-    const toKey = ytd.to.slice(0, 7);
-    summaryRange = { from: ytd.from, to: ytd.to };
-    summaryMonths = monthlyBuckets(Number(ytd.from.slice(0, 4))).filter(
-      (m) => m.key <= toKey,
-    );
+  let summaryMonths: { key: string; label: string; from: string; to: string }[];
+  if (view === "month") {
+    const my = Number(selectedMonth.slice(0, 4));
+    summaryMonths = monthlyBuckets(my).filter((m) => m.key === selectedMonth);
+  } else if (view === "q1" || view === "q2" || view === "q3" || view === "q4") {
+    const year = Number(period.from.slice(0, 4));
+    const qIdx = Number(view.slice(1)) - 1; // 0..3
+    summaryMonths = monthlyBuckets(year).slice(qIdx * 3, qIdx * 3 + 3);
   } else {
     const year = Number(period.from.slice(0, 4));
-    const yr = yearRange(year);
-    summaryRange = { from: yr.from, to: yr.to };
     summaryMonths = monthlyBuckets(year);
   }
+  const summaryRange = {
+    from: summaryMonths[0].from,
+    to: summaryMonths[summaryMonths.length - 1].to,
+  };
 
   const supabase = createDataClient();
 
@@ -150,7 +154,12 @@ export default async function DashboardPage({
       subtitle={`KPIs · ${period.label}`}
     >
       <div className="flex flex-col gap-5">
-        <MonthlySummary view={view} months={monthlyRows} />
+        <MonthlySummary
+          view={view}
+          months={monthlyRows}
+          selectedMonth={selectedMonth}
+          monthOptions={monthOptions}
+        />
         <DashboardClient
           kpis={{
             revenue: t.revenue,

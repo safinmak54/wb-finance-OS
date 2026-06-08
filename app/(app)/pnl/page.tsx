@@ -16,6 +16,8 @@ import {
   resolvePeriod,
   yearRange,
   monthlyBuckets,
+  recentMonths,
+  currentMonthKey,
 } from "@/lib/period";
 import {
   PNL_ENTITY_COLUMNS,
@@ -88,12 +90,20 @@ export default async function PnlPage({
 }) {
   const sp = await searchParams;
   const period = periodFromSearchParams(sp);
-  const view: "annual" | "monthly" | "current-month" =
+  const view: "annual" | "monthly" | "month" =
     sp.view === "monthly"
       ? "monthly"
-      : sp.view === "current-month"
-        ? "current-month"
+      : sp.view === "month"
+        ? "month"
         : "annual";
+
+  // "Per Month" view: a single user-selected month (defaults to the current
+  // month). Options going back two years are offered in the picker.
+  const monthOptions = recentMonths(24);
+  const selectedMonth =
+    typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
+      ? sp.month
+      : currentMonthKey();
 
   // Monthly view is scoped to one entity column at a time (picker in the UI).
   // Annual view shows all entity columns side by side.
@@ -108,8 +118,8 @@ export default async function PnlPage({
   const range =
     view === "monthly"
       ? yearRange(year)
-      : view === "current-month"
-        ? resolvePeriod({ key: "month" })
+      : view === "month"
+        ? resolvePeriod({ key: selectedMonth })
         : period;
   const months = view === "monthly" ? monthlyBuckets(year) : [];
 
@@ -179,7 +189,7 @@ export default async function PnlPage({
       range: { from: range.from, to: range.to },
     });
   } else {
-    // annual + current-month both lay out as one column per entity group.
+    // annual + per-month both lay out as one column per entity group.
     valueColumns = PNL_ENTITY_COLUMNS.map((c) => ({
       key: c.key,
       label: c.label,
@@ -417,6 +427,8 @@ export default async function PnlPage({
       key: c.key,
       label: c.label,
     })),
+    selectedMonth: view === "month" ? selectedMonth : null,
+    monthOptions,
     accounts: accounts.map((a) => ({
       id: a.id,
       code: a.account_code,
@@ -427,7 +439,7 @@ export default async function PnlPage({
   const subtitleSuffix =
     view === "monthly"
       ? `FY ${year} · ${monthlyEntityCol.label}`
-      : view === "current-month"
+      : view === "month"
         ? `${range.label} · All entity columns`
         : `${period.label} · All entity columns`;
 
