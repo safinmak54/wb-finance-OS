@@ -183,8 +183,11 @@ export async function refreshCashbookSnapshot(
 
   for (const { source, payload } of sources) {
     const checksum = payloadChecksum(payload);
+    const txnSource = `admin_api:${source}`;
 
-    // Existing snapshots for this exact (period, source), newest first.
+    // Prior snapshots for this exact (period, source), newest first. Used
+    // for the checksum fast-path and to keep a single snapshot row per
+    // fetched range.
     const { data: existing, error: existErr } = await supabase
       .from("cashbook_snapshots")
       .select("id, payload_checksum")
@@ -203,49 +206,66 @@ export async function refreshCashbookSnapshot(
       continue;
     }
 
-    // Changed (or first sync, or pre-checksum row): drop every prior
-    // snapshot for this (period, source) and the rows they produced, then
-    // insert fresh. Deleting a snapshot cascades to its `transactions`;
-    // the paired `raw_transactions` carry no snapshot FK, so collect their
-    // ids first and delete them explicitly to avoid orphans.
-    const oldIds = (existing ?? []).map((e) => (e as { id: string }).id);
-    if (oldIds.length > 0) {
-      const { data: oldTxns, error: oldTxnErr } = await supabase
+    // --- Day-grain replacement (overlap-safe) ---
+    // Synthesized rows are keyed by day (source × entity × account ×
+    // acc_date), so this sync authoritatively owns every admin row for
+    // `txnSource` whose accounting date falls in [startDate, endDate].
+    // Delete them all before re-inserting, regardless of which snapshot
+    // produced them. This is what keeps OVERLAPPING syncs from
+    // double-counting: a YTD refresh and a single-month refresh both
+    // touch June, but each day ends up represented exactly once — by
+    // whichever sync ran last.
+    //
+    // We delete by DATE RANGE, not by snapshot id, on purpose: a narrow
+    // sync replaces only the days it actually re-fetched and never drops
+    // data a wider prior sync brought in. (Syncing June after a YTD sync
+    // leaves the Jan–May rows untouched; syncing YTD after a June sync
+    // re-claims June.) Keying off the requested period instead would
+    // either double-count overlaps or silently lose the non-overlapping
+    // tail.
+    //
+    // Order respects the FKs (transactions → raw_transactions); both
+    // carry per-row audit triggers, so delete in bounded chunks.
+    const { data: staleTxns, error: staleErr } = await supabase
+      .from("transactions")
+      .select("id, raw_transaction_id")
+      .eq("source", txnSource)
+      .gte("acc_date", parsed.startDate)
+      .lte("acc_date", parsed.endDate);
+    if (staleErr) throw new Error(staleErr.message);
+    const staleTxnIds = (staleTxns ?? []).map((t) => (t as { id: string }).id);
+    const staleRawIds = (staleTxns ?? [])
+      .map(
+        (t) => (t as { raw_transaction_id: string | null }).raw_transaction_id,
+      )
+      .filter((id): id is string => !!id);
+    for (const ids of chunk(staleTxnIds, DB_BATCH_SIZE)) {
+      const { error } = await supabase
         .from("transactions")
-        .select("id, raw_transaction_id")
-        .in("cashbook_snapshot_id", oldIds);
-      if (oldTxnErr) throw new Error(oldTxnErr.message);
-      const oldTxnIds = (oldTxns ?? []).map((t) => (t as { id: string }).id);
-      const rawIds = (oldTxns ?? [])
-        .map(
-          (t) => (t as { raw_transaction_id: string | null }).raw_transaction_id,
-        )
-        .filter((id): id is string => !!id);
+        .delete()
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+    }
+    for (const ids of chunk(staleRawIds, DB_BATCH_SIZE)) {
+      const { error } = await supabase
+        .from("raw_transactions")
+        .delete()
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+    }
 
-      // Delete `transactions` then `raw_transactions` explicitly in chunks,
-      // then the snapshot rows. We do NOT lean on the snapshot-delete cascade
-      // here: that would remove every linked `transactions` row in one
-      // trigger-heavy statement. Order respects the FKs (transactions →
-      // raw_transactions → cashbook_snapshots).
-      for (const ids of chunk(oldTxnIds, DB_BATCH_SIZE)) {
-        const { error } = await supabase
-          .from("transactions")
-          .delete()
-          .in("id", ids);
-        if (error) throw new Error(error.message);
-      }
-      for (const ids of chunk(rawIds, DB_BATCH_SIZE)) {
-        const { error } = await supabase
-          .from("raw_transactions")
-          .delete()
-          .in("id", ids);
-        if (error) throw new Error(error.message);
-      }
-
+    // Drop prior snapshot rows for this exact (period, source). Their
+    // transactions all fall within [startDate, endDate], so they were
+    // just removed by the day-grain delete above and the snapshot rows
+    // have no remaining children. (Snapshots from *other* periods that
+    // overlap this range keep their rows — only their now-replaced days
+    // were deleted, which is exactly what we want.)
+    const oldSnapIds = (existing ?? []).map((e) => (e as { id: string }).id);
+    if (oldSnapIds.length > 0) {
       const { error: delSnapErr } = await supabase
         .from("cashbook_snapshots")
         .delete()
-        .in("id", oldIds);
+        .in("id", oldSnapIds);
       if (delSnapErr) throw new Error(delSnapErr.message);
     }
 
@@ -286,9 +306,10 @@ export async function refreshCashbookSnapshot(
 
     // Auto-classify by building `transactions` rows directly (one per raw)
     // and flipping classified=true on the raw rows. This is the same shape
-    // `classifyTransaction` produces, batched. cashbook_snapshot_id + source
-    // are required so transactions_pnl can dedupe re-fetches to the latest
-    // snapshot per (period_start, period_end, source).
+    // `classifyTransaction` produces, batched. `source` is what the
+    // day-grain delete above keys off to keep overlapping syncs from
+    // double-counting; cashbook_snapshot_id ties each row back to the fetch
+    // that produced it (audit + transactions_pnl's latest-snapshot filter).
     //
     // Process in bounded chunks: `raw_transactions` and `transactions` both
     // carry a per-row AFTER trigger (audit_capture, migration 0004), so each
@@ -296,7 +317,6 @@ export async function refreshCashbookSnapshot(
     // thousands of rows; a single `UPDATE ... WHERE id IN (<thousands>)`
     // fires thousands of triggers in one statement and overruns the DB
     // request timeout. Chunking keeps every statement small and fast.
-    const txnSource = `admin_api:${source}`;
     const classifiedAt = new Date().toISOString();
 
     for (const slice of chunk(result.rows, DB_BATCH_SIZE)) {
