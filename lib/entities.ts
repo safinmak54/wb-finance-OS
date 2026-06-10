@@ -58,6 +58,7 @@ export const PNL_ENTITY_COLUMNS: ReadonlyArray<{
   { key: "WB", label: "WB", entityCodes: ["WB"] },
   { key: "WBP", label: "WBP", entityCodes: ["WBP"] },
   { key: "LP", label: "LP", entityCodes: ["LP"] },
+  { key: "KP", label: "KP", entityCodes: ["KP"] },
   { key: "BP", label: "BP", entityCodes: ["BP"] },
   { key: "SP", label: "SP", entityCodes: ["SP"] },
   { key: "ONEOPS", label: "One Ops", entityCodes: ["ONEOPS"] },
