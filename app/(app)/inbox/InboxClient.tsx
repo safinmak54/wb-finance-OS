@@ -79,6 +79,7 @@ export function InboxClient({
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitting, setSplitting] = useState<Row | null>(null);
+  const [detail, setDetail] = useState<Row | null>(null);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [bankFilter, setBankFilter] = useState<string>("all");
@@ -476,7 +477,14 @@ export function InboxClient({
                       />
                     </td>
                     <td className="px-3 py-1.5">
-                      <div className="max-w-[300px] truncate">{r.description}</div>
+                      <button
+                        type="button"
+                        onClick={() => setDetail(r)}
+                        title="View transaction details"
+                        className="max-w-[300px] truncate text-left text-info hover:underline focus:outline-none focus:ring-1 focus:ring-info"
+                      >
+                        {r.description || <span className="text-muted">—</span>}
+                      </button>
                     </td>
                     <td
                       className={cn(
@@ -546,6 +554,13 @@ export function InboxClient({
         </table>
       </div>
 
+      <DetailModal
+        open={detail !== null}
+        row={detail}
+        banks={banks}
+        onClose={() => setDetail(null)}
+      />
+
       <SplitModal
         key={splitting?.id ?? "split-empty"}
         open={splitting !== null}
@@ -597,6 +612,88 @@ function KindChip({
     >
       {label}
     </button>
+  );
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[140px_1fr] gap-3 border-t border-border py-2 first:border-t-0">
+      <dt className="text-[11px] uppercase tracking-wider text-muted">{label}</dt>
+      <dd className="text-xs text-foreground">{children}</dd>
+    </div>
+  );
+}
+
+function DetailModal({
+  open,
+  row,
+  banks,
+  onClose,
+}: {
+  open: boolean;
+  row: Row | null;
+  banks: BankConnection[];
+  onClose: () => void;
+}) {
+  if (!row) return null;
+
+  const signed =
+    row.direction === "DEBIT"
+      ? -Math.abs(Number(row.amount))
+      : Math.abs(Number(row.amount));
+  const bank = banks.find((b) => b.id === row.bank_connection_id);
+
+  return (
+    <Modal open={open} onClose={onClose} title="Transaction details" size="md">
+      <dl className="flex flex-col">
+        <DetailRow label="Description">
+          <span className="whitespace-pre-wrap break-words">
+            {row.description || "—"}
+          </span>
+        </DetailRow>
+        <DetailRow label="Amount">
+          <span className={cn("font-mono", signed < 0 ? "text-danger" : "text-success")}>
+            {fmt(signed)}
+          </span>
+          <span className="ml-2 text-[11px] text-muted">({row.direction})</span>
+        </DetailRow>
+        <DetailRow label="Accounting date">
+          {String(row.accounting_date ?? row.transaction_date)}
+        </DetailRow>
+        <DetailRow label="Transaction date">{String(row.transaction_date)}</DetailRow>
+        <DetailRow label="Source">{row.source}</DetailRow>
+        {row.category ? <DetailRow label="Payment method">{row.category}</DetailRow> : null}
+        {bank ? (
+          <DetailRow label="Bank">
+            {bank.institution}
+            {bank.account_number ? ` · ${bank.account_number}` : ""}
+            {bank.entity ? ` (${bank.entity})` : ""}
+          </DetailRow>
+        ) : null}
+        {row.bank_account ? <DetailRow label="Bank account">{row.bank_account}</DetailRow> : null}
+        {row.account_number ? (
+          <DetailRow label="Account number">{row.account_number}</DetailRow>
+        ) : null}
+        <DetailRow label="Entity">{row.entity_code ?? "—"}</DetailRow>
+        <DetailRow label="Status">
+          {row.classified ? (
+            <span className="text-success">Classified</span>
+          ) : (
+            <span className="text-muted">Unclassified</span>
+          )}
+          {row.status ? <span className="ml-2 text-[11px] text-muted">{row.status}</span> : null}
+        </DetailRow>
+        <DetailRow label="Raw ID">
+          <span className="font-mono text-[11px] text-muted">{row.id}</span>
+        </DetailRow>
+      </dl>
+
+      <div className="mt-4 flex justify-end">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
