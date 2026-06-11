@@ -35,7 +35,7 @@ const COLUMNS: Array<{ key: MetricKey; label: string; color: string }> = [
   { key: "grossRevenue", label: "Gross Revenue", color: "#1e3a5f" },
   { key: "cogs", label: "COGS", color: "#dc2626" },
   { key: "adSpends", label: "Ad Spends", color: "#d97706" },
-  { key: "adminExp", label: "Admin Exp", color: "#7c3aed" },
+  { key: "adminExp", label: "Operating Exp", color: "#7c3aed" },
   { key: "netIncome", label: "Net Income", color: "#059669" },
 ];
 
@@ -64,7 +64,7 @@ export function MonthlySummary({
     <Card>
       <CardHeader
         title="Monthly summary"
-        subtitle="Gross Revenue · COGS · Ad Spends · Admin Exp · Net Income — % of gross revenue"
+        subtitle="Gross Revenue · COGS · Ad Spends · Operating Exp · Net Income — % of gross revenue"
         actions={
           <ViewToggle
             current={view}
@@ -79,7 +79,7 @@ export function MonthlySummary({
         ) : (
           <>
             <div className="-mx-4 overflow-x-auto px-4">
-              <table className="w-full min-w-[640px] border-collapse text-sm">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted">
                     <th className="px-2 py-2 text-left font-medium">Month</th>
@@ -99,7 +99,7 @@ export function MonthlySummary({
                       key={m.key}
                       className="border-b border-border/60 last:border-0"
                     >
-                      <td className="px-2 py-2 font-medium text-foreground">
+                      <td className="px-2 py-1.5 font-medium text-foreground">
                         {m.label}
                       </td>
                       {COLUMNS.map((c) => (
@@ -115,7 +115,7 @@ export function MonthlySummary({
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-border-strong">
-                    <td className="px-2 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    <td className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
                       Total
                     </td>
                     {COLUMNS.map((c) => (
@@ -170,18 +170,20 @@ function MetricCell({
         : "text-danger"
       : "text-foreground";
   return (
-    <td className="px-2 py-2 text-right">
-      <div
-        className={cn(
-          "font-mono tabular-nums",
-          emphasis ? "font-semibold" : "",
-          tone,
-        )}
-      >
-        {fmt(value)}
-      </div>
-      <div className="text-[11px] text-muted">
-        {pct === null ? "—" : fmtPct(pct)}
+    <td className="px-2 py-1.5 text-right">
+      <div className="flex items-baseline justify-end gap-2">
+        <span
+          className={cn(
+            "font-mono tabular-nums",
+            emphasis ? "font-semibold" : "",
+            tone,
+          )}
+        >
+          {fmt(value)}
+        </span>
+        <span className="w-10 shrink-0 text-right text-[10px] text-muted">
+          {pct === null ? "—" : fmtPct(pct)}
+        </span>
       </div>
     </td>
   );
