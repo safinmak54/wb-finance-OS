@@ -24,7 +24,7 @@ export type SynthesizeResult = {
  *   - 4040/4050/4060 ← cc+gpay+klarna / paypal / check_wire
  *   - 4045/4055/4065 ← per-channel refunds (stored negative)
  *   - 5000          ← cogs (stored negative)
- *   - 6000/6001/6002/6003 ← google / meta / bing / asi (stored negative)
+ *   - 6000/6001/6002/6005/6003 ← google / meta / bing / mntn / asi (stored negative)
  *
  * Sign convention matches existing `transactions.amount` semantics so
  * signFor() in app/(app)/pnl/page.tsx works unchanged:
@@ -35,7 +35,13 @@ export type SynthesizeResult = {
 const REVENUE = { STRIPE: "4040", PAYPAL: "4050", DIRECT: "4060" } as const;
 const RETURN = { STRIPE: "4045", PAYPAL: "4055", DIRECT: "4065" } as const;
 const COGS = "5000";
-const ADS = { GOOGLE: "6000", META: "6001", BING: "6002", ASI: "6003" } as const;
+const ADS = {
+  GOOGLE: "6000",
+  META: "6001",
+  BING: "6002",
+  MNTN: "6005",
+  ASI: "6003",
+} as const;
 
 export const SYNTHESIZED_ACCOUNT_CODES: readonly string[] = [
   REVENUE.STRIPE,
@@ -48,6 +54,7 @@ export const SYNTHESIZED_ACCOUNT_CODES: readonly string[] = [
   ADS.GOOGLE,
   ADS.META,
   ADS.BING,
+  ADS.MNTN,
   ADS.ASI,
 ];
 
@@ -254,6 +261,15 @@ export function synthesizeTransactionRows(
         description: "Bing Ads",
         memo: null,
         vendor: "Bing",
+      });
+      emit({
+        date,
+        entity,
+        accountCode: ADS.MNTN,
+        amount: -(row.ads_cost_mntn ?? 0),
+        description: "MNTN Ads",
+        memo: null,
+        vendor: "MNTN",
       });
       emit({
         date,

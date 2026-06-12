@@ -73,16 +73,17 @@ export const SalesSummaryRow = z
     cogs_pct: num.optional(),
     ads_cost_total: num,
     // The dev API now reports per-platform ad spend under `platform_costs`
-    // ({ go: google, fb: meta, bi: bing }) and no longer sends the flat
-    // ads_cost_google/meta/bing fields. Accept both: keep the flat fields
-    // optional and backfill them from platform_costs in the transform below
-    // so downstream consumers (synthesize / journal-mapping / KPI tiles)
-    // stay unchanged.
+    // ({ go: google, fb: meta, bi: bing, mn: mntn/ctv }) and no longer sends
+    // the flat ads_cost_google/meta/bing fields. `mn` (MNTN/CTV) is new in the
+    // v2 doc. Accept both shapes: keep the flat fields optional and backfill
+    // them from platform_costs in the transform below so downstream consumers
+    // (synthesize / journal-mapping / KPI tiles) read a stable field set.
     ads_cost_google: num.optional(),
     ads_cost_bing: num.optional(),
     ads_cost_meta: num.optional(),
+    ads_cost_mntn: num.optional(),
     platform_costs: z
-      .object({ go: num, fb: num, bi: num })
+      .object({ go: num, fb: num, bi: num, mn: num })
       .partial()
       .passthrough()
       .optional(),
@@ -104,6 +105,7 @@ export const SalesSummaryRow = z
     ads_cost_google: r.ads_cost_google ?? r.platform_costs?.go ?? 0,
     ads_cost_meta: r.ads_cost_meta ?? r.platform_costs?.fb ?? 0,
     ads_cost_bing: r.ads_cost_bing ?? r.platform_costs?.bi ?? 0,
+    ads_cost_mntn: r.ads_cost_mntn ?? r.platform_costs?.mn ?? 0,
   }));
 export type SalesSummaryRow = z.infer<typeof SalesSummaryRow>;
 

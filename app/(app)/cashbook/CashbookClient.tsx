@@ -506,6 +506,7 @@ function SalesSummaryPanel({
         <KpiTile label="Google Ads" value={t.ads_cost_google} />
         <KpiTile label="Meta Ads" value={t.ads_cost_meta} />
         <KpiTile label="Bing Ads" value={t.ads_cost_bing} />
+        <KpiTile label="MNTN Ads" value={t.ads_cost_mntn} />
         <KpiTile label="ASI Ads" value={t.ads_cost_asi} />
         <KpiTile label="Total ad spend" value={t.ads_cost_total} highlight />
         <KpiTile label="Orders" value={t.orders_count} isCount />

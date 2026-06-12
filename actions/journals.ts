@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createDataClient } from "@/lib/supabase/data";
+import { dedupeByChecksum } from "@/lib/transactions/dedupe-key";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -84,17 +85,23 @@ export async function createJournal(
   if (leErr) throw new Error(leErr.message);
 
   // Mirror to `transactions` so P&L picks it up. One row per line, signed.
+  // Dedupe identical lines within this JE (they share a checksum and would
+  // collide in one statement), then ignore on checksum conflict (migration 0016).
   if (parsed.status === "POSTED") {
-    const txns = parsed.lines.map((l) => ({
-      entity: parsed.entity,
-      account_id: l.account_id,
-      amount: l.credit_amount > 0 ? l.credit_amount : -l.debit_amount,
-      txn_date: parsed.accounting_date,
-      acc_date: parsed.accounting_date,
-      description: parsed.description,
-      memo: `je:${je.id}`,
-    }));
-    await supabase.from("transactions").insert(txns);
+    const txns = dedupeByChecksum(
+      parsed.lines.map((l) => ({
+        entity: parsed.entity,
+        account_id: l.account_id,
+        amount: l.credit_amount > 0 ? l.credit_amount : -l.debit_amount,
+        txn_date: parsed.accounting_date,
+        acc_date: parsed.accounting_date,
+        description: parsed.description,
+        memo: `je:${je.id}`,
+      })),
+    );
+    await supabase
+      .from("transactions")
+      .upsert(txns, { onConflict: "checksum", ignoreDuplicates: true });
   }
 
   await writeAuditLog({

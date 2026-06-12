@@ -51,16 +51,21 @@ export async function classifyTransaction(
       ? -Math.abs(Number(raw.amount))
       : Math.abs(Number(raw.amount));
 
-  const { error: insErr } = await supabase.from("transactions").insert({
-    raw_transaction_id: parsed.rawId,
-    entity: parsed.entityCode,
-    account_id: parsed.accountId,
-    amount: signedAmount,
-    txn_date: normalizeDate(raw.transaction_date),
-    acc_date: normalizeDate(raw.accounting_date ?? raw.transaction_date),
-    description: raw.description ?? "",
-    memo: "",
-  });
+  // Ignore on checksum conflict so re-classifying the same content is a no-op
+  // rather than creating a duplicate `transactions` row (migration 0016).
+  const { error: insErr } = await supabase.from("transactions").upsert(
+    {
+      raw_transaction_id: parsed.rawId,
+      entity: parsed.entityCode,
+      account_id: parsed.accountId,
+      amount: signedAmount,
+      txn_date: normalizeDate(raw.transaction_date),
+      acc_date: normalizeDate(raw.accounting_date ?? raw.transaction_date),
+      description: raw.description ?? "",
+      memo: "",
+    },
+    { onConflict: "checksum", ignoreDuplicates: true },
+  );
   if (insErr) throw new Error(insErr.message);
 
   const { error: upErr } = await supabase
