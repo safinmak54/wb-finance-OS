@@ -15,9 +15,17 @@ type Props = {
   profile: UserProfile;
   pageTitle: string;
   pageSubtitle?: string;
+  /** Hide the global period + entity pickers (e.g. pages with their own
+   *  in-page filters). Defaults to shown. */
+  showFilters?: boolean;
 };
 
-export function Topbar({ profile, pageTitle, pageSubtitle }: Props) {
+export function Topbar({
+  profile,
+  pageTitle,
+  pageSubtitle,
+  showFilters = true,
+}: Props) {
   const initials = (profile.displayName ?? profile.email)
     .split(/[\s@]/)
     .filter(Boolean)
@@ -35,8 +43,12 @@ export function Topbar({ profile, pageTitle, pageSubtitle }: Props) {
       </div>
 
       <div className="flex items-center gap-3">
-        <PeriodPicker />
-        <EntitySwitcher />
+        {showFilters ? (
+          <>
+            <PeriodPicker />
+            <EntitySwitcher />
+          </>
+        ) : null}
 
         <RoleGate role={profile.role} action="add-transaction">
           <a

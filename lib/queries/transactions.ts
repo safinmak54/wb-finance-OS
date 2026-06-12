@@ -20,32 +20,97 @@ export type LedgerRow = Transaction & {
 const CC_SOURCES = "(credit_card,amex,capital_one)";
 const CAPONE_DESC_LIKE = "%CAPITAL ONE ONLINE%";
 
-/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources
- *  AND Capital One Online description matches (mirrors legacy renderInbox),
- *  and Admin-API-sourced rows, which have their own dedicated inbox
- *  (see {@link listUnclassifiedAdminApi}). */
-export async function listUnclassifiedBank(
+/** Which side of the transaction inbox a query targets. */
+export type TxnSide = "bank" | "cc";
+
+export type RawListOpts = {
+  entity?: EntityFilterValue;
+  codeToId?: Record<string, string>;
+  /** Optional accounting-date window (inclusive). Used by the month picker. */
+  range?: { from: string; to: string };
+};
+
+/** Narrow a `raw_transactions` query to one side of the inbox.
+ *  - "bank": exclude CC sources, Capital One Online description matches, and
+ *    Admin-API rows (which have their own dedicated inbox).
+ *  - "cc": credit-card sources OR untagged Capital One Online rows (mirrors
+ *    legacy renderCCInbox). */
+function applySideFilter<
+  Q extends {
+    not(column: string, operator: string, value: string): Q;
+    neq(column: string, value: string): Q;
+    or(filters: string): Q;
+  },
+>(q: Q, side: TxnSide): Q {
+  if (side === "cc") {
+    return q.or(`source.in.${CC_SOURCES},description.ilike.${CAPONE_DESC_LIKE}`);
+  }
+  return q
+    .not("source", "in", CC_SOURCES)
+    .not("description", "ilike", CAPONE_DESC_LIKE)
+    .neq("source", ADMIN_API_RAW_SOURCE);
+}
+
+/** Core lister for the bank/CC inbox: raw rows for one side, either pending
+ *  (`classified=false`) or finalized (`classified=true`), optionally windowed
+ *  by accounting date. Pending rows order by accounting date (oldest work
+ *  surfaces predictably); finalized rows order by when they were finalized. */
+async function listRawBySide(
   supabase: Sb,
-  opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
+  side: TxnSide,
+  classified: boolean,
+  opts: RawListOpts,
 ): Promise<RawTxnRow[]> {
   let q = supabase
     .from("raw_transactions")
     .select("*")
-    .eq("classified", false)
-    .order("accounting_date", { ascending: false });
+    .eq("classified", classified)
+    .order(classified ? "classified_at" : "accounting_date", {
+      ascending: false,
+    });
 
   if (opts.entity && opts.codeToId) {
     q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
   }
 
-  q = q
-    .not("source", "in", CC_SOURCES)
-    .not("description", "ilike", CAPONE_DESC_LIKE)
-    .neq("source", ADMIN_API_RAW_SOURCE);
+  q = applySideFilter(q, side);
+
+  if (opts.range) {
+    q = q
+      .gte("accounting_date", opts.range.from)
+      .lte("accounting_date", opts.range.to);
+  }
 
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+/** Bank-side inbox: unclassified bank statement rows. Excludes CC sources
+ *  AND Capital One Online description matches (mirrors legacy renderInbox),
+ *  and Admin-API-sourced rows, which have their own dedicated inbox
+ *  (see {@link listUnclassifiedAdminApi}). */
+export function listUnclassifiedBank(
+  supabase: Sb,
+  opts: RawListOpts = {},
+): Promise<RawTxnRow[]> {
+  return listRawBySide(supabase, "bank", false, opts);
+}
+
+/** Bank-side finalized rows (classified=true) for the read-only Finalized tab. */
+export function listClassifiedBank(
+  supabase: Sb,
+  opts: RawListOpts = {},
+): Promise<RawTxnRow[]> {
+  return listRawBySide(supabase, "bank", true, opts);
+}
+
+/** CC-side finalized rows (classified=true) for the read-only Finalized tab. */
+export function listClassifiedCC(
+  supabase: Sb,
+  opts: RawListOpts = {},
+): Promise<RawTxnRow[]> {
+  return listRawBySide(supabase, "cc", true, opts);
 }
 
 /** Admin-API inbox: unclassified rows synthesized from the Admin API
@@ -76,27 +141,72 @@ export async function listUnclassifiedAdminApi(
 /** CC-side inbox: unclassified credit-card rows. Mirrors legacy renderCCInbox
  *  which uses `or(source.in.(…), description.ilike.%CAPITAL ONE ONLINE%)`
  *  so untagged Capital One Online rows still surface here. */
-export async function listUnclassifiedCC(
+export function listUnclassifiedCC(
   supabase: Sb,
-  opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
+  opts: RawListOpts = {},
 ): Promise<RawTxnRow[]> {
+  return listRawBySide(supabase, "cc", false, opts);
+}
+
+/** Count of still-pending rows for one side (ignores any date window) — drives
+ *  the "To classify (N)" tab label so it stays accurate while viewing the
+ *  Finalized tab or a narrowed month. */
+export async function countUnclassifiedSide(
+  supabase: Sb,
+  side: TxnSide,
+  opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
+): Promise<number> {
   let q = supabase
     .from("raw_transactions")
-    .select("*")
-    .eq("classified", false)
-    .order("accounting_date", { ascending: false });
+    .select("id", { count: "exact", head: true })
+    .eq("classified", false);
 
   if (opts.entity && opts.codeToId) {
     q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
   }
+  q = applySideFilter(q, side);
 
-  q = q.or(
-    `source.in.${CC_SOURCES},description.ilike.${CAPONE_DESC_LIKE}`,
-  );
-
-  const { data, error } = await q;
+  const { count, error } = await q;
   if (error) throw error;
-  return data ?? [];
+  return count ?? 0;
+}
+
+/** Account + entity a finalized raw row was posted to, keyed by
+ *  `raw_transaction_id`. Rows marked as internal transfer / CC payment post no
+ *  ledger row, so they simply won't appear in this map. */
+export type PostedMeta = {
+  entity: string;
+  account_code: string | null;
+  account_name: string | null;
+};
+
+export async function postedMetaForRawIds(
+  supabase: Sb,
+  rawIds: string[],
+): Promise<Record<string, PostedMeta>> {
+  if (rawIds.length === 0) return {};
+  type PostedJoinRow = {
+    raw_transaction_id: string | null;
+    entity: string;
+    accounts: { account_code: string; account_name: string } | null;
+  };
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("raw_transaction_id, entity, accounts(account_code, account_name)")
+    .in("raw_transaction_id", rawIds)
+    .returns<PostedJoinRow[]>();
+  if (error) throw error;
+
+  const map: Record<string, PostedMeta> = {};
+  for (const t of data ?? []) {
+    if (!t.raw_transaction_id) continue;
+    map[t.raw_transaction_id] = {
+      entity: t.entity,
+      account_code: t.accounts?.account_code ?? null,
+      account_name: t.accounts?.account_name ?? null,
+    };
+  }
+  return map;
 }
 
 /** Posted ledger view: classified transactions with their account joined.

@@ -4,10 +4,8 @@ import {
   fetchReportData,
   fetchPnlReportData,
   groupByAccountAndEntity,
-  totals,
 } from "@/lib/queries/reports";
 import { listOpenInvoices } from "@/lib/queries/invoices";
-import { listCashBalances } from "@/lib/queries/cash";
 import { listAccounts } from "@/lib/queries/accounts";
 import {
   listPnlManualEntries,
@@ -80,7 +78,7 @@ export default async function DashboardPage({
 
   const supabase = createDataClient();
 
-  const [reportData, openInvoices, cashRows, pnlReport, manualEntries, accounts] =
+  const [reportData, openInvoices, pnlReport, manualEntries, accounts] =
     await Promise.all([
       fetchReportData(supabase, {
         entity,
@@ -88,7 +86,6 @@ export default async function DashboardPage({
         to: period.to,
       }),
       listOpenInvoices(supabase),
-      listCashBalances(supabase),
       fetchPnlReportData(supabase, {
         entity,
         from: summaryRange.from,
@@ -100,23 +97,6 @@ export default async function DashboardPage({
       }),
       listAccounts(supabase, { activeOnly: true }),
     ]);
-
-  const t = totals(reportData.txns);
-  const grossProfit = t.revenue - t.cogs;
-  const netIncome = grossProfit - t.expense;
-  const grossMargin = t.revenue ? (grossProfit / t.revenue) * 100 : 0;
-  const netMargin = t.revenue ? (netIncome / t.revenue) * 100 : 0;
-
-  // Cash position = sum of section-1 columns minus payables
-  const sec1Keys = ["tfb", "hunt", "vend_pay", "cc", "int_xfer", "google", "hunt_bal"];
-  const payableKeys = ["cc_pay", "vend_pmts", "goog_pend", "fedex"];
-  let cashTotal = 0;
-  let payTotal = 0;
-  for (const r of cashRows) {
-    const v = Number(r.value ?? 0);
-    if (sec1Keys.includes(r.col_key)) cashTotal += v;
-    else if (payableKeys.includes(r.col_key)) payTotal += Math.abs(v);
-  }
 
   const overdueCount = openInvoices.filter((i) => i.status === "overdue").length;
   const overdueTotal = openInvoices
@@ -147,6 +127,24 @@ export default async function DashboardPage({
     metrics: monthlyMetrics.get(m.key)!,
   }));
 
+  // Top KPI cards mirror the Monthly-summary columns (the only source that
+  // splits expenses into Ad Spend vs Operating Exp), totalled across the
+  // summary range so the cards tie out to the table below.
+  const summaryTotals = monthlyRows.reduce(
+    (acc, m) => {
+      acc.grossRevenue += m.metrics.grossRevenue;
+      acc.cogs += m.metrics.cogs;
+      acc.adSpends += m.metrics.adSpends;
+      acc.adminExp += m.metrics.adminExp;
+      acc.netIncome += m.metrics.netIncome;
+      return acc;
+    },
+    { grossRevenue: 0, cogs: 0, adSpends: 0, adminExp: 0, netIncome: 0 },
+  );
+  const summaryNetMargin = summaryTotals.grossRevenue
+    ? (summaryTotals.netIncome / summaryTotals.grossRevenue) * 100
+    : 0;
+
   return (
     <PageShell
       page="dashboard"
@@ -154,24 +152,24 @@ export default async function DashboardPage({
       subtitle={`KPIs · ${period.label}`}
     >
       <div className="flex flex-col gap-5">
+        <DashboardClient
+          kpis={{
+            grossRevenue: summaryTotals.grossRevenue,
+            cogs: summaryTotals.cogs,
+            adSpends: summaryTotals.adSpends,
+            adminExp: summaryTotals.adminExp,
+            netIncome: summaryTotals.netIncome,
+            netMargin: summaryNetMargin,
+            overdueCount,
+            overdueTotal,
+          }}
+          txns={reportData.txns}
+        />
         <MonthlySummary
           view={view}
           months={monthlyRows}
           selectedMonth={selectedMonth}
           monthOptions={monthOptions}
-        />
-        <DashboardClient
-          kpis={{
-            revenue: t.revenue,
-            grossProfit,
-            netIncome,
-            grossMargin,
-            netMargin,
-            cashPosition: cashTotal - payTotal,
-            overdueCount,
-            overdueTotal,
-          }}
-          txns={reportData.txns}
         />
       </div>
     </PageShell>
