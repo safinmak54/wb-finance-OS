@@ -33,16 +33,18 @@ create extension if not exists pgcrypto;
 drop index if exists transactions_checksum_uniq;
 alter table public.transactions drop column if exists checksum;
 drop function if exists public.transactions_checksum(
-  text, text, numeric, text, text, text, text
+  text, text, numeric, text, date, date, text
 );
 
+-- txn_date / acc_date are `date` params (see 0016's note): taken cast-free at
+-- the call site and normalized to `YYYY-MM-DD` inside this IMMUTABLE function.
 create or replace function public.transactions_checksum(
   p_entity              text,
   p_account_id          text,
   p_amount              numeric,
   p_description         text,
-  p_txn_date            text,
-  p_acc_date            text,
+  p_txn_date            date,
+  p_acc_date            date,
   p_source              text,
   p_raw_transaction_id  text,
   p_memo                text
@@ -57,8 +59,8 @@ as $$
       coalesce(p_account_id, '')               || '|' ||
       coalesce(round(p_amount, 2)::text, '')   || '|' ||
       coalesce(p_description, '')              || '|' ||
-      coalesce(p_txn_date, '')                 || '|' ||
-      coalesce(p_acc_date, '')                 || '|' ||
+      coalesce(to_char(p_txn_date, 'YYYY-MM-DD'), '') || '|' ||
+      coalesce(to_char(p_acc_date, 'YYYY-MM-DD'), '') || '|' ||
       coalesce(p_source, '')                   || '|' ||
       coalesce(p_raw_transaction_id, '')       || '|' ||
       coalesce(p_memo, ''),

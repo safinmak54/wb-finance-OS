@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
@@ -60,19 +61,36 @@ export function MonthlySummary({
     COLUMNS.some((c) => m.metrics[c.key] !== 0),
   );
 
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <Card>
       <CardHeader
         title="Monthly summary"
         subtitle="Gross Revenue · COGS · Ad Spends · Operating Exp · Net Income — % of gross revenue"
         actions={
-          <ViewToggle
-            current={view}
-            selectedMonth={selectedMonth}
-            monthOptions={monthOptions}
-          />
+          <>
+            {!collapsed && (
+              <ViewToggle
+                current={view}
+                selectedMonth={selectedMonth}
+                monthOptions={monthOptions}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface-2"
+              title={collapsed ? "Expand" : "Minimize"}
+              aria-expanded={!collapsed}
+            >
+              <span className="text-[9px]">{collapsed ? "▶" : "▼"}</span>
+              {collapsed ? "Expand" : "Minimize"}
+            </button>
+          </>
         }
       />
+      {collapsed ? null : (
       <CardBody className="flex flex-col gap-5">
         {!hasData ? (
           <Empty />
@@ -147,6 +165,7 @@ export function MonthlySummary({
           </>
         )}
       </CardBody>
+      )}
     </Card>
   );
 }

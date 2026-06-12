@@ -8,12 +8,12 @@ import { fmt, fmtPct } from "@/lib/format";
 import type { ReportTxn } from "@/lib/queries/reports";
 
 type Kpis = {
-  revenue: number;
-  grossProfit: number;
+  grossRevenue: number;
+  cogs: number;
+  adSpends: number;
+  adminExp: number;
   netIncome: number;
-  grossMargin: number;
   netMargin: number;
-  cashPosition: number;
   overdueCount: number;
   overdueTotal: number;
 };
@@ -51,24 +51,16 @@ export function DashboardClient({ kpis, txns }: Props) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Revenue" value={fmt(kpis.revenue)} />
-        <Stat
-          label="Gross profit"
-          value={fmt(kpis.grossProfit)}
-          delta={`${fmtPct(kpis.grossMargin)} margin`}
-          tone={kpis.grossProfit >= 0 ? "positive" : "negative"}
-        />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <Stat label="Gross Revenue" value={fmt(kpis.grossRevenue)} />
+        <Stat label="COGS" value={fmt(kpis.cogs)} />
+        <Stat label="Ad Spend" value={fmt(kpis.adSpends)} />
+        <Stat label="Operating Exp" value={fmt(kpis.adminExp)} />
         <Stat
           label="Net income"
           value={fmt(kpis.netIncome)}
           delta={`${fmtPct(kpis.netMargin)} margin`}
           tone={kpis.netIncome >= 0 ? "positive" : "negative"}
-        />
-        <Stat
-          label="Cash position"
-          value={fmt(kpis.cashPosition)}
-          tone={kpis.cashPosition >= 0 ? "default" : "negative"}
         />
       </div>
 
