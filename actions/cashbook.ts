@@ -23,6 +23,7 @@ import {
 } from "@/lib/admin-api/synthesize-transactions";
 import { getLatestSnapshots } from "@/lib/queries/cashbook";
 import { entityCodeToId } from "@/lib/queries/entities";
+import { dedupeByChecksum } from "@/lib/transactions/dedupe-key";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 
@@ -357,9 +358,14 @@ export async function refreshCashbookSnapshot(
           source: txnSource,
         };
       });
+      // Dedupe within the batch (sibling rows sharing a checksum would collide
+      // in one statement), then ignore on checksum conflict (migration 0016).
+      // The date-range delete above still does the bulk of dedup; this guards
+      // against duplicate content within a single sync.
+      const dedupedTxns = dedupeByChecksum(txnInserts);
       const { error: txnErr } = await supabase
         .from("transactions")
-        .insert(txnInserts);
+        .upsert(dedupedTxns, { onConflict: "checksum", ignoreDuplicates: true });
       if (txnErr) throw new Error(txnErr.message);
 
       const rawIds = insertedRaw.map((r) => (r as { id: string }).id);
@@ -373,7 +379,7 @@ export async function refreshCashbookSnapshot(
             `raw_transactions classify-flip failed for ${rawIds.length} rows`,
         );
       }
-      txnInsertCount += txnInserts.length;
+      txnInsertCount += dedupedTxns.length;
     }
   }
 

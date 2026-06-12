@@ -49,10 +49,27 @@ export const CODE_TO_SUBTYPE: Record<string, Subtype> = (() => {
   for (const c of ["5040"]) {
     map[c] = "sales_tax";
   }
-  for (const c of ["6000", "6001", "6002", "6003", "6004", "6030"]) {
+  // 6010/6025/6028 are the per-channel ad *clearing* accounts (bank cash
+  // parked before it's reclassified to 6000/6001/6002). They hold real
+  // spend and are distinct from the synthesized ad accounts, so they belong
+  // in Marketing too — surfacing them avoids hiding money stuck in clearing.
+  for (const c of [
+    "6000",
+    "6001",
+    "6002",
+    "6003",
+    "6004",
+    "6005",
+    "6010",
+    "6025",
+    "6028",
+    "6030",
+  ]) {
     map[c] = "marketing";
   }
-  for (const c of ["6100", "6110", "6112", "6120", "6121"]) {
+  // 6101 Wages - Clearing and 6115 Upwork sit alongside the other labour
+  // accounts; without them, wages parked in the clearing account never show.
+  for (const c of ["6100", "6101", "6110", "6112", "6115", "6120", "6121"]) {
     map[c] = "labour";
   }
   for (const c of [
@@ -60,10 +77,14 @@ export const CODE_TO_SUBTYPE: Record<string, Subtype> = (() => {
     "6300",
     "6400",
     "6450",
+    "6500",
+    "6510",
     "6600",
+    "6610",
     "6615",
     "6620",
     "6640",
+    "6645",
     "6646",
     "6648",
   ]) {
@@ -75,12 +96,47 @@ export const CODE_TO_SUBTYPE: Record<string, Subtype> = (() => {
   return map;
 })();
 
+/**
+ * Resolve an account to a P&L section. The explicit `CODE_TO_SUBTYPE` map
+ * wins (it places known accounts in the right section and handles clearing
+ * accounts typed as assets). Anything not in the map falls back to its
+ * `account_type` so a revenue or expense account is NEVER silently dropped
+ * from the P&L — a new GL account shows up under its natural section the
+ * moment it has activity, with no code change needed.
+ *
+ * Returns null only for balance-sheet accounts (asset / liability / equity)
+ * that aren't explicitly mapped — those legitimately don't belong on the P&L.
+ * If a balance-sheet account ever needs to appear (e.g. a new clearing
+ * account), add it to `CODE_TO_SUBTYPE` above.
+ */
+export function subtypeFor(a: Account): Subtype | null {
+  const explicit = CODE_TO_SUBTYPE[a.account_code];
+  if (explicit) return explicit;
+  if (a.account_type === "revenue") return "gross_revenue";
+  if (a.account_type === "expense") return "opex";
+  return null;
+}
+
 export function signFor(a: Account): 1 | -1 {
   // Sales Return accounts are revenue-type but debit-normal — stored amounts
   // are negative. Flip so the section shows a positive figure, letting
   // `totalRevenue = revenue − salesReturn − platformFee` work.
   const subtype = CODE_TO_SUBTYPE[a.account_code];
   if (subtype === "sales_return") return -1;
+  // Expense-like sections are debit-normal (amounts stored negative, shown
+  // positive). Drive the sign off the P&L subtype, not account_type, so
+  // clearing accounts typed as "asset" (6010 Ads-Clearing, 6101
+  // Wages-Clearing) still book into their expense section with the correct
+  // sign instead of falling through to +1 and inflating Net Profit.
+  if (
+    subtype === "cogs" ||
+    subtype === "sales_tax" ||
+    subtype === "marketing" ||
+    subtype === "labour" ||
+    subtype === "opex"
+  ) {
+    return -1;
+  }
   if (a.account_type === "revenue") return 1;
   if (a.account_type === "expense") return -1;
   if (a.account_type === "equity") return -1;
@@ -128,7 +184,7 @@ export function computeMonthlyPnl(
     const account = accountsById.get(accountId);
     if (!account) continue;
     if (HIDDEN_ACCOUNT_CODES.has(account.account_code)) continue;
-    const subtype = CODE_TO_SUBTYPE[account.account_code];
+    const subtype = subtypeFor(account);
     if (!subtype) continue;
     const sign = signFor(account);
 

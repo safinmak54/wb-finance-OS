@@ -98,6 +98,8 @@ export type Transaction = {
   memo: string | null;
   cashbook_snapshot_id: string | null;
   source: string | null;
+  /** Generated STORED dedup hash (migration 0016). Read-only; never inserted. */
+  checksum: string;
 }
 
 export type JournalEntry = {

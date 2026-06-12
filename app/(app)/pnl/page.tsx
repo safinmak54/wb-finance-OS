@@ -29,6 +29,7 @@ import {
   CODE_TO_SUBTYPE,
   HIDDEN_ACCOUNT_CODES,
   signFor,
+  subtypeFor,
 } from "@/lib/pnl/structure";
 import { PnlClient, type PnlDocument, type PnlRow } from "./PnlClient";
 
@@ -153,7 +154,7 @@ export default async function PnlPage({
 
   const accountsBySubtype = new Map<Subtype, Account[]>();
   for (const a of accounts) {
-    const k = CODE_TO_SUBTYPE[a.account_code];
+    const k = subtypeFor(a);
     if (!k) continue;
     if (!accountsBySubtype.has(k)) accountsBySubtype.set(k, []);
     accountsBySubtype.get(k)!.push(a);

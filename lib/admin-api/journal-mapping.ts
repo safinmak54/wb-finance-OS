@@ -49,6 +49,7 @@ const ACCT = {
   GOOGLE_ADS: "6000",
   META_ADS: "6001",
   BING_ADS: "6002",
+  MNTN_ADS: "6005",
   ASI_ADS: "6003",
 } as const;
 
@@ -166,6 +167,7 @@ export function buildSalesSummaryJournal(
   const google = r(t.ads_cost_google ?? 0);
   const meta = r(t.ads_cost_meta ?? 0);
   const bing = r(t.ads_cost_bing ?? 0);
+  const mntn = r(t.ads_cost_mntn ?? 0);
   const asi = r(t.ads_cost_asi ?? 0);
 
   const expenses: JournalLineSpec[] = [];
@@ -173,6 +175,7 @@ export function buildSalesSummaryJournal(
   if (google > 0) expenses.push({ account_code: ACCT.GOOGLE_ADS, debit: google, credit: 0, memo: "Google Ads → 6000" });
   if (meta > 0) expenses.push({ account_code: ACCT.META_ADS, debit: meta, credit: 0, memo: "Meta Ads → 6001" });
   if (bing > 0) expenses.push({ account_code: ACCT.BING_ADS, debit: bing, credit: 0, memo: "Bing Ads → 6002" });
+  if (mntn > 0) expenses.push({ account_code: ACCT.MNTN_ADS, debit: mntn, credit: 0, memo: "MNTN Ads → 6005" });
   if (asi > 0) expenses.push({ account_code: ACCT.ASI_ADS, debit: asi, credit: 0, memo: "ASI Ads → 6003" });
 
   if (expenses.length === 0) return null;
@@ -220,8 +223,9 @@ export function buildSalesSummaryJournalsByCompany(
     const google = r(t.ads_cost_google ?? 0);
     const meta = r(t.ads_cost_meta ?? 0);
     const bing = r(t.ads_cost_bing ?? 0);
+    const mntn = r(t.ads_cost_mntn ?? 0);
     const asi = r(t.ads_cost_asi ?? 0);
-    const total = r(cogs + google + meta + bing + asi);
+    const total = r(cogs + google + meta + bing + mntn + asi);
 
     if (total === 0) continue;
     if (!entity) {
@@ -238,6 +242,8 @@ export function buildSalesSummaryJournalsByCompany(
       expenses.push({ account_code: ACCT.META_ADS, debit: meta, credit: 0, memo: "Meta Ads → 6001" });
     if (bing > 0)
       expenses.push({ account_code: ACCT.BING_ADS, debit: bing, credit: 0, memo: "Bing Ads → 6002" });
+    if (mntn > 0)
+      expenses.push({ account_code: ACCT.MNTN_ADS, debit: mntn, credit: 0, memo: "MNTN Ads → 6005" });
     if (asi > 0)
       expenses.push({ account_code: ACCT.ASI_ADS, debit: asi, credit: 0, memo: "ASI Ads → 6003" });
 
