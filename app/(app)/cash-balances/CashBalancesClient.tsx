@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { saveCashBalance } from "@/actions/cash";
 import { useToast } from "@/components/ui/Toast";
 import { fmt } from "@/lib/format";
@@ -43,7 +43,6 @@ type Props = { rows: CashBalance[] };
 
 export function CashBalancesClient({ rows }: Props) {
   const toast = useToast();
-  const [, startTransition] = useTransition();
 
   const initial = useMemo(() => {
     const m = new Map<string, number>();
@@ -54,27 +53,53 @@ export function CashBalancesClient({ rows }: Props) {
   }, [rows]);
 
   const [values, setValues] = useState(initial);
+  const [saving, setSaving] = useState<Set<string>>(() => new Set());
+
+  function addSaving(key: string) {
+    setSaving((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }
+
+  function removeSaving(key: string) {
+    setSaving((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }
 
   function getVal(entity: string, key: string): number {
     return values.get(`${entity}_${key}`) ?? 0;
   }
 
-  function commit(entity: string, key: string, raw: string) {
+  async function commit(entity: string, key: string, raw: string) {
     const cleaned = raw.replace(/[$,()]/g, "").trim();
     const next = cleaned === "" ? null : Number(cleaned) || 0;
     const k = `${entity}_${key}`;
+    const prev = values.get(k);
     const m = new Map(values);
     if (next === null || next === 0) m.delete(k);
     else m.set(k, next);
     setValues(m);
 
-    startTransition(async () => {
-      try {
-        await saveCashBalance({ entity, col_key: key, value: next });
-      } catch (err) {
-        toast.push((err as Error).message, "error");
-      }
-    });
+    addSaving(k);
+    try {
+      await saveCashBalance({ entity, col_key: key, value: next });
+    } catch (err) {
+      toast.push((err as Error).message, "error");
+      // Revert to last-known-good so a failed save isn't shown as saved.
+      setValues((current) => {
+        const reverted = new Map(current);
+        if (prev === undefined) reverted.delete(k);
+        else reverted.set(k, prev);
+        return reverted;
+      });
+    } finally {
+      removeSaving(k);
+    }
   }
 
   function fmtCell(value: number, payable: boolean | undefined) {
@@ -156,10 +181,14 @@ export function CashBalancesClient({ rows }: Props) {
               <span
                 contentEditable
                 suppressContentEditableWarning
+                aria-busy={saving.has(`${entity}_${col.key}`)}
                 onBlur={(e) =>
                   commit(entity, col.key, e.currentTarget.textContent ?? "")
                 }
-                className="block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                className={cn(
+                  "block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20",
+                  saving.has(`${entity}_${col.key}`) && "animate-pulse opacity-50",
+                )}
               >
                 {value !== 0 ? value : ""}
               </span>
@@ -180,10 +209,14 @@ export function CashBalancesClient({ rows }: Props) {
               <span
                 contentEditable
                 suppressContentEditableWarning
+                aria-busy={saving.has(`${entity}_${col.key}`)}
                 onBlur={(e) =>
                   commit(entity, col.key, e.currentTarget.textContent ?? "")
                 }
-                className="block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                className={cn(
+                  "block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20",
+                  saving.has(`${entity}_${col.key}`) && "animate-pulse opacity-50",
+                )}
               >
                 {Math.abs(value) !== 0 ? Math.abs(value) : ""}
               </span>
@@ -200,10 +233,14 @@ export function CashBalancesClient({ rows }: Props) {
             <span
               contentEditable
               suppressContentEditableWarning
+              aria-busy={saving.has(`${entity}_stripe_pp`)}
               onBlur={(e) =>
                 commit(entity, "stripe_pp", e.currentTarget.textContent ?? "")
               }
-              className="block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20"
+              className={cn(
+                "block min-w-[60px] cursor-text font-mono text-xs outline-none focus:ring-2 focus:ring-primary/20",
+                saving.has(`${entity}_stripe_pp`) && "animate-pulse opacity-50",
+              )}
             >
               {stripe !== 0 ? stripe : ""}
             </span>

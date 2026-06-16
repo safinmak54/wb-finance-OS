@@ -256,8 +256,8 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
               </Select>
             </Field>
           ) : null}
-          <Button size="sm" onClick={previewFile} disabled={!file || pending}>
-            Preview
+          <Button size="sm" onClick={previewFile} disabled={!file} loading={pending}>
+            {pending ? "Previewing…" : "Preview"}
           </Button>
         </CardBody>
       </Card>
@@ -324,8 +324,8 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
             ) : null}
 
             <div className="flex justify-end">
-              <Button onClick={commit} disabled={pending}>
-                Import
+              <Button onClick={commit} disabled={pending} loading={pending}>
+                {pending ? "Importing…" : "Import"}
               </Button>
             </div>
           </CardBody>

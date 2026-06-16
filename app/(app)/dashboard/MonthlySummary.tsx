@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { BarChart } from "@/components/charts/BarChart";
@@ -70,13 +69,11 @@ export function MonthlySummary({
         subtitle="Gross Revenue · COGS · Ad Spends · Operating Exp · Net Income — % of gross revenue"
         actions={
           <>
-            {!collapsed && (
-              <ViewToggle
-                current={view}
-                selectedMonth={selectedMonth}
-                monthOptions={monthOptions}
-              />
-            )}
+            <ViewToggle
+              current={view}
+              selectedMonth={selectedMonth}
+              monthOptions={monthOptions}
+            />
             <button
               type="button"
               onClick={() => setCollapsed((c) => !c)}
@@ -90,12 +87,25 @@ export function MonthlySummary({
           </>
         }
       />
-      {collapsed ? null : (
       <CardBody className="flex flex-col gap-5">
         {!hasData ? (
           <Empty />
         ) : (
           <>
+            <div>
+              <BarChart
+                labels={months.map((m) => m.label)}
+                series={COLUMNS.map((c) => ({
+                  label: c.label,
+                  data: months.map((m) => m.metrics[c.key]),
+                  color: c.color,
+                }))}
+                yFmt={fmt}
+                height={260}
+              />
+            </div>
+
+            {collapsed ? null : (
             <div className="-mx-4 overflow-x-auto px-4">
               <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
@@ -149,23 +159,10 @@ export function MonthlySummary({
                 </tfoot>
               </table>
             </div>
-
-            <div>
-              <BarChart
-                labels={months.map((m) => m.label)}
-                series={COLUMNS.map((c) => ({
-                  label: c.label,
-                  data: months.map((m) => m.metrics[c.key]),
-                  color: c.color,
-                }))}
-                yFmt={fmt}
-                height={260}
-              />
-            </div>
+            )}
           </>
         )}
       </CardBody>
-      )}
     </Card>
   );
 }
@@ -229,6 +226,7 @@ function ViewToggle({
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
   function hrefFor(value: MonthlySummaryView): string {
     const sp = new URLSearchParams(params.toString());
@@ -243,32 +241,37 @@ function ViewToggle({
     const sp = new URLSearchParams(params.toString());
     sp.set("view", "month");
     sp.set("month", month);
-    router.push(`${pathname}?${sp.toString()}`);
+    startTransition(() => router.push(`${pathname}?${sp.toString()}`));
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
         {VIEW_OPTIONS.map((o, i) => (
-          <Link
+          <button
             key={o.value}
-            href={hrefFor(o.value)}
+            type="button"
+            disabled={isPending}
+            aria-disabled={isPending}
+            onClick={() => startTransition(() => router.push(hrefFor(o.value)))}
             className={cn(
               "px-2 py-1",
               i > 0 && "border-l border-border",
               current === o.value
                 ? "bg-info-soft text-info"
                 : "text-muted hover:bg-surface-2",
+              isPending && "opacity-50",
             )}
           >
             {o.label}
-          </Link>
+          </button>
         ))}
       </div>
       {current === "month" && (
         <select
           value={selectedMonth}
           onChange={(e) => onMonthChange(e.target.value)}
+          disabled={isPending}
           className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
           aria-label="Select month"
         >

@@ -25,12 +25,13 @@ type Props = {
 
 export function RulesClient({ rules, accounts }: Props) {
   const toast = useToast();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pattern, setPattern] = useState("");
   const [accountId, setAccountId] = useState("");
   const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function reset() {
     setEditingId(null);
@@ -65,15 +66,20 @@ export function RulesClient({ rules, accounts }: Props) {
     });
   }
 
-  async function onDelete(id: string) {
+  function onDelete(id: string) {
     if (!confirm("Delete this rule?")) return;
-    try {
-      await deleteClassificationRule(id);
-      toast.push("Rule deleted", "success");
-      if (editingId === id) reset();
-    } catch (err) {
-      toast.push((err as Error).message, "error");
-    }
+    setDeletingId(id);
+    startTransition(async () => {
+      try {
+        await deleteClassificationRule(id);
+        toast.push("Rule deleted", "success");
+        if (editingId === id) reset();
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      } finally {
+        setDeletingId(null);
+      }
+    });
   }
 
   const accountById = new Map(accounts.map((a) => [a.id, a]));
@@ -128,8 +134,16 @@ export function RulesClient({ rules, accounts }: Props) {
               </Select>
             </Field>
             <div className="flex items-end gap-2">
-              <Button size="sm" onClick={save}>
-                {editingId ? "Update" : "Add"}
+              <Button
+                size="sm"
+                onClick={save}
+                loading={isPending && deletingId === null}
+              >
+                {isPending && deletingId === null
+                  ? "Saving…"
+                  : editingId
+                    ? "Update"
+                    : "Add"}
               </Button>
               {editingId ? (
                 <Button size="sm" variant="outline" onClick={reset}>
@@ -203,10 +217,11 @@ export function RulesClient({ rules, accounts }: Props) {
                           </button>
                           <button
                             type="button"
-                            className="text-[11px] font-medium text-danger hover:underline"
+                            disabled={deletingId === r.id}
+                            className="text-[11px] font-medium text-danger hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
                             onClick={() => onDelete(r.id)}
                           >
-                            Delete
+                            {deletingId === r.id ? "Deleting…" : "Delete"}
                           </button>
                         </td>
                       </tr>

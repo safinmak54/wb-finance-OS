@@ -237,8 +237,8 @@ function AddInvoiceModal({
           <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={pending}>
-            Create
+          <Button type="submit" size="sm" loading={pending}>
+            {pending ? "Creating…" : "Create"}
           </Button>
         </div>
       </form>
@@ -258,6 +258,7 @@ function PayInvoiceModal({
   onSubmitted: () => void;
 }) {
   const [pending, startTransition] = useTransition();
+  const [isDeleting, startDelete] = useTransition();
   const remaining = invoice
     ? Number(invoice.amount) - Number(invoice.amount_paid ?? 0)
     : 0;
@@ -282,15 +283,18 @@ function PayInvoiceModal({
     });
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!invoice) return;
     if (!confirm(`Delete invoice ${invoice.invoice_number}?`)) return;
-    try {
-      await deleteInvoice(invoice.id);
-      onSubmitted();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    setError(null);
+    startDelete(async () => {
+      try {
+        await deleteInvoice(invoice!.id);
+        onSubmitted();
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -324,16 +328,17 @@ function PayInvoiceModal({
             size="sm"
             onClick={onDelete}
             className="text-danger"
+            loading={isDeleting}
             disabled={pending}
           >
             Delete invoice
           </Button>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending || isDeleting}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
-              Record payment
+            <Button type="submit" size="sm" loading={pending} disabled={isDeleting}>
+              {pending ? "Recording…" : "Record payment"}
             </Button>
           </div>
         </div>

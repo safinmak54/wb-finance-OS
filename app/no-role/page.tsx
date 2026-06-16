@@ -2,8 +2,9 @@ import { redirect } from "next/navigation";
 import { logout } from "@/app/login/actions";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/auth/profile";
-import { claimFirstAdmin, countAdmins } from "./actions";
+import { countAdmins } from "./actions";
 import { ClaimAdminButton } from "./ClaimAdminButton";
+import { SignOutButton } from "./SignOutButton";
 
 /**
  * Shown when a user is authenticated but has no role assigned.
@@ -64,19 +65,10 @@ export default async function NoRolePage() {
         </p>
 
         <div className="flex flex-col gap-2">
-          {canBootstrap ? (
-            <form action={claimFirstAdmin}>
-              <ClaimAdminButton />
-            </form>
-          ) : null}
+          {canBootstrap ? <ClaimAdminButton /> : null}
 
           <form action={logout}>
-            <button
-              type="submit"
-              className="h-10 w-full rounded-md border border-border bg-surface text-sm font-medium text-foreground transition hover:bg-surface-2"
-            >
-              Sign out
-            </button>
+            <SignOutButton />
           </form>
         </div>
       </div>

@@ -26,11 +26,8 @@ create extension if not exists pgcrypto;
 --    function's declared volatility (it does not re-derive the body) — it
 --    only re-checks the call-site argument expressions, and both casts here
 --    (uuid::text, numeric::numeric) are immutable. This also keeps the hash
---    computed in one place. txn_date / acc_date are `date` columns; we take
---    them as `date` params (a cast-free, immutable call site) and normalize
---    to a canonical `YYYY-MM-DD` string INSIDE the function with to_char (a
---    numeric-only pattern is deterministic, and the column trusts the
---    function's declared IMMUTABLE volatility for its body).
+--    computed in one place. txn_date / acc_date are already `text` columns
+--    holding normalized `YYYY-MM-DD` strings, so they hash as-is.
 --    round(amount, 2) normalizes representation so equal money values hash
 --    identically. search_path is pinned so digest() resolves whether
 --    pgcrypto landed in `extensions` (Supabase default) or `public`.
@@ -39,8 +36,8 @@ create or replace function public.transactions_checksum(
   p_account_id  text,
   p_amount      numeric,
   p_description text,
-  p_txn_date    date,
-  p_acc_date    date,
+  p_txn_date    text,
+  p_acc_date    text,
   p_source      text
 ) returns text
 language sql
@@ -53,8 +50,8 @@ as $$
       coalesce(p_account_id, '')               || '|' ||
       coalesce(round(p_amount, 2)::text, '')   || '|' ||
       coalesce(p_description, '')              || '|' ||
-      coalesce(to_char(p_txn_date, 'YYYY-MM-DD'), '') || '|' ||
-      coalesce(to_char(p_acc_date, 'YYYY-MM-DD'), '') || '|' ||
+      coalesce(p_txn_date, '')                 || '|' ||
+      coalesce(p_acc_date, '')                 || '|' ||
       coalesce(p_source, ''),
       'sha256'
     ),

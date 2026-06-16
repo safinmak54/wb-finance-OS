@@ -20,9 +20,20 @@ export type Subtype =
 
 // 4070 (Gross Revenue – RP) and 5005 (COGS – RP) are intentionally hidden
 // from the P&L view per business decision.
+//
+// 6020 Meta Ads, 6040 Bing Ads, 6050 ASI Ads, 6150 Platform Fee - Stripe,
+// and 6155 Platform Fee - Paypal are also hidden per business decision: they
+// previously fell through to the Operating Expenses (opex) fallback. Hiding
+// them removes their spend from the report entirely, so Net Profit / Balance
+// rise by their total — they are NOT reclassified to another section.
 export const HIDDEN_ACCOUNT_CODES: ReadonlySet<string> = new Set([
   "4070",
   "5005",
+  "6020",
+  "6040",
+  "6050",
+  "6150",
+  "6155",
 ]);
 
 // Account-code → P&L subtype mapping. This is intentionally a hardcoded list

@@ -64,7 +64,11 @@ export function InboxClient({
 }: Props) {
   const toast = useToast();
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
+  const [rowPending, startRowTransition] = useTransition();
+  /** Id of the row whose per-row action is currently running, so only its
+   *  buttons disable (a shared spinner across every row would feel wrong). */
+  const [busyRow, setBusyRow] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [picks, setPicks] = useState<Record<string, { acct?: string; entity?: string }>>(
     () => {
@@ -167,7 +171,8 @@ export function InboxClient({
       toast.push("Pick an entity", "error");
       return;
     }
-    startTransition(async () => {
+    setBusyRow(r.id);
+    startRowTransition(async () => {
       try {
         await classifyTransaction({
           rawId: r.id,
@@ -177,12 +182,22 @@ export function InboxClient({
         toast.push("Classified", "success");
       } catch (err) {
         toast.push((err as Error).message, "error");
+      } finally {
+        setBusyRow(null);
       }
     });
   }
 
   function bulk() {
+    if (selected.size === 0) {
+      toast.push("No rows selected", "error");
+      return;
+    }
     const targets: { rawId: string; accountId: string; entityCode: string }[] = [];
+    // Rows that are selected but can't be posted yet (no account and/or no
+    // entity). We skip these rather than aborting the whole batch, and keep
+    // them selected so they can be completed and re-finalized.
+    const incomplete = new Set<string>();
     for (const id of selected) {
       const r = rows.find((x) => x.id === id);
       if (!r) continue;
@@ -190,20 +205,30 @@ export function InboxClient({
       const acct = pick.acct;
       const entity = pick.entity ?? r.entity_code;
       if (!acct || !entity) {
-        toast.push(`Row ${r.description ?? r.id} missing account/entity`, "error");
-        return;
+        incomplete.add(id);
+        continue;
       }
       targets.push({ rawId: r.id, accountId: acct, entityCode: entity });
     }
     if (targets.length === 0) {
-      toast.push("No rows selected", "error");
+      toast.push(
+        `Nothing finalized — ${incomplete.size} selected ${
+          incomplete.size === 1 ? "row is" : "rows are"
+        } missing an account or entity`,
+        "error",
+      );
       return;
     }
     startTransition(async () => {
       try {
         await bulkClassifyTransactions({ rows: targets });
-        toast.push(`Classified ${targets.length}`, "success");
-        setSelected(new Set());
+        toast.push(
+          incomplete.size > 0
+            ? `Finalized ${targets.length} · skipped ${incomplete.size} missing account/entity`
+            : `Classified ${targets.length}`,
+          incomplete.size > 0 ? "info" : "success",
+        );
+        setSelected(incomplete);
       } catch (err) {
         toast.push((err as Error).message, "error");
       }
@@ -260,14 +285,19 @@ export function InboxClient({
     });
   }
 
-  async function onDelete(id: string) {
+  function onDelete(id: string) {
     if (!confirm("Delete this transaction?")) return;
-    try {
-      await deleteRawTransaction(id);
-      toast.push("Deleted", "success");
-    } catch (err) {
-      toast.push((err as Error).message, "error");
-    }
+    setBusyRow(id);
+    startRowTransition(async () => {
+      try {
+        await deleteRawTransaction(id);
+        toast.push("Deleted", "success");
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      } finally {
+        setBusyRow(null);
+      }
+    });
   }
 
   async function saveDate(id: string, accountingDate: string) {
@@ -306,8 +336,8 @@ export function InboxClient({
           </svg>
           Upload CSV/XLSX
         </button>
-        <Button size="sm" variant="outline" onClick={autoTagAll}>
-          Auto-tag matching rows
+        <Button size="sm" variant="outline" onClick={autoTagAll} loading={isPending}>
+          {isPending ? "Auto-tagging…" : "Auto-tag matching rows"}
         </Button>
         {autoTagCount > 0 ? (
           <Button size="sm" variant="ghost" onClick={selectRuleMatched}>
@@ -401,14 +431,14 @@ export function InboxClient({
         {selected.size > 0 ? (
           <>
             <span className="text-[11px] text-muted">{selected.size} selected</span>
-            <Button size="sm" variant="outline" onClick={markSelectedTransfer}>
+            <Button size="sm" variant="outline" onClick={markSelectedTransfer} loading={isPending}>
               Mark as Transfer
             </Button>
-            <Button size="sm" variant="outline" onClick={markSelectedCcPayment}>
+            <Button size="sm" variant="outline" onClick={markSelectedCcPayment} loading={isPending}>
               Mark as CC Payment
             </Button>
-            <Button size="sm" onClick={bulk}>
-              Finalize {selected.size}
+            <Button size="sm" onClick={bulk} loading={isPending}>
+              {isPending ? "Finalizing…" : `Finalize ${selected.size}`}
             </Button>
           </>
         ) : null}
@@ -526,7 +556,11 @@ export function InboxClient({
                     <td className="whitespace-nowrap px-3 py-1.5">
                       <button
                         type="button"
-                        className="mr-2 text-[11px] font-medium text-info hover:underline"
+                        disabled={rowPending && busyRow === r.id}
+                        className={cn(
+                          "mr-2 text-[11px] font-medium text-info hover:underline",
+                          rowPending && busyRow === r.id && "opacity-50",
+                        )}
                         onClick={() => classifyOne(r)}
                       >
                         ✓
@@ -540,7 +574,11 @@ export function InboxClient({
                       </button>
                       <button
                         type="button"
-                        className="text-[11px] font-medium text-danger hover:underline"
+                        disabled={rowPending && busyRow === r.id}
+                        className={cn(
+                          "text-[11px] font-medium text-danger hover:underline",
+                          rowPending && busyRow === r.id && "opacity-50",
+                        )}
                         onClick={() => onDelete(r.id)}
                       >
                         Del
@@ -713,6 +751,7 @@ function SplitModal({
     Array<{ amount: string; date: string }>
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   if (!row) return null;
 
@@ -746,12 +785,14 @@ function SplitModal({
       setError(`Splits total ${fmt(sum)} ≠ original ${fmt(total)}`);
       return;
     }
-    try {
-      await splitTransaction({ rawId: row!.id, splits: parsed });
-      onSubmitted();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    startTransition(async () => {
+      try {
+        await splitTransaction({ rawId: row!.id, splits: parsed });
+        onSubmitted();
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -801,8 +842,8 @@ function SplitModal({
           <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" size="sm">
-            Split
+          <Button type="submit" size="sm" loading={isPending}>
+            {isPending ? "Splitting…" : "Split"}
           </Button>
         </div>
       </form>

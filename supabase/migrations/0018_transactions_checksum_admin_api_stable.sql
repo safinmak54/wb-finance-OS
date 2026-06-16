@@ -39,30 +39,21 @@ create extension if not exists pgcrypto;
 -- before replacing the function body; otherwise stored checksums would keep
 -- their old (pre-0018) values until each row is next updated. Dropping and
 -- re-adding the column forces every row to recompute under the new formula.
--- The signature also changes here (txn_date / acc_date are `date` params,
--- not `text` — see note below), so drop the old function too.
+-- The signature is unchanged from 0017 (all-text, 9 args — txn_date /
+-- acc_date are `text` columns holding `YYYY-MM-DD` strings), so dropping the
+-- column is enough; `create or replace` then just swaps the body.
 drop index if exists transactions_checksum_uniq;
 alter table public.transactions drop column if exists checksum;
--- Drop both possible 9-arg overloads: the `date,date` one produced by 0017,
--- and the all-`text` one a partially-applied earlier draft of this migration
--- may have left behind. Dropping a non-existent signature is a no-op.
-drop function if exists public.transactions_checksum(
-  text, text, numeric, text, date, date, text, text, text
-);
-drop function if exists public.transactions_checksum(
-  text, text, numeric, text, text, text, text, text, text
-);
 
--- The function keeps 0017's signature (txn_date / acc_date are `date` params,
--- normalized to `YYYY-MM-DD` inside; see 0016's note) and only changes the
--- body: it now branches on `source` so admin_api rows hash content only.
+-- Same signature as 0017; only the body changes — it now branches on
+-- `source` so admin_api rows hash content only.
 create or replace function public.transactions_checksum(
   p_entity              text,
   p_account_id          text,
   p_amount              numeric,
   p_description         text,
-  p_txn_date            date,
-  p_acc_date            date,
+  p_txn_date            text,
+  p_acc_date            text,
   p_source              text,
   p_raw_transaction_id  text,
   p_memo                text
@@ -77,8 +68,8 @@ as $$
       coalesce(p_account_id, '')               || '|' ||
       coalesce(round(p_amount, 2)::text, '')   || '|' ||
       coalesce(p_description, '')              || '|' ||
-      coalesce(to_char(p_txn_date, 'YYYY-MM-DD'), '') || '|' ||
-      coalesce(to_char(p_acc_date, 'YYYY-MM-DD'), '') || '|' ||
+      coalesce(p_txn_date, '')                 || '|' ||
+      coalesce(p_acc_date, '')                 || '|' ||
       coalesce(p_source, '')                   ||
       -- Admin-API synthesized rows: hash content only. Every sync re-mints
       -- raw_transaction_id, so including identity fields would give the same
