@@ -1,3 +1,10 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
+import { unfinalizeTransaction } from "@/actions/transactions";
 import { fmt } from "@/lib/format";
 import { cn } from "@/lib/utils/cn";
 import type { PostedMeta } from "@/lib/queries/transactions";
@@ -7,16 +14,36 @@ export type FinalizedRow = RawTransaction & { entity_code: string | null };
 
 type Props = {
   rows: FinalizedRow[];
-  /** Posted account/entity keyed by raw_transaction_id (absent for rows marked
-   *  as internal transfer / CC payment, which post no ledger row). */
   posted: Record<string, PostedMeta>;
 };
 
-/** Read-only list of already-finalized bank/CC rows for the selected month.
- *  Shows where each row landed (account + entity) or flags the no-ledger
- *  transfer / CC-payment rows. No classify affordances — finalized rows are
- *  not editable from here. */
 export function FinalizedTable({ rows, posted }: Props) {
+  const router = useRouter();
+  const toast = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [busyRow, setBusyRow] = useState<string | null>(null);
+
+  function onUnfinalize(r: FinalizedRow) {
+    if (
+      !confirm(
+        "Unfinalize this transaction? It moves back to the To classify tab and its posted ledger entry is removed.",
+      )
+    )
+      return;
+    setBusyRow(r.id);
+    startTransition(async () => {
+      try {
+        await unfinalizeTransaction({ rawId: r.id });
+        toast.push("Moved back to To classify", "success");
+        router.refresh();
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      } finally {
+        setBusyRow(null);
+      }
+    });
+  }
+
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
       <table className="w-full text-xs">
@@ -29,12 +56,13 @@ export function FinalizedTable({ rows, posted }: Props) {
             <th className="px-3 py-2 text-left">Entity</th>
             <th className="px-3 py-2 text-left">Account</th>
             <th className="px-3 py-2 text-left">Finalized</th>
+            <th className="px-3 py-2"></th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={7} className="px-3 py-8 text-center text-muted">
+              <td colSpan={8} className="px-3 py-8 text-center text-muted">
                 No finalized transactions for this period.
               </td>
             </tr>
@@ -49,6 +77,7 @@ export function FinalizedTable({ rows, posted }: Props) {
               const account = meta?.account_code
                 ? `${meta.account_code} · ${meta.account_name ?? ""}`.trim()
                 : null;
+              const rowBusy = isPending && busyRow === r.id;
               return (
                 <tr key={r.id} className="border-t border-border align-top">
                   <td className="whitespace-nowrap px-3 py-1.5">
@@ -84,6 +113,17 @@ export function FinalizedTable({ rows, posted }: Props) {
                     {r.classified_at
                       ? String(r.classified_at).slice(0, 10)
                       : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      loading={rowBusy}
+                      disabled={isPending}
+                      onClick={() => onUnfinalize(r)}
+                    >
+                      Unfinalize
+                    </Button>
                   </td>
                 </tr>
               );

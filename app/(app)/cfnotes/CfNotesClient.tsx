@@ -101,6 +101,7 @@ type FormProps = {
 function NoteFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
+  const [isDeleting, startDelete] = useTransition();
   const [period, setPeriod] = useState(
     initial?.period ?? new Date().toISOString().slice(0, 7),
   );
@@ -130,16 +131,19 @@ function NoteFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
     });
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!initial) return;
     if (!confirm(`Delete this note?`)) return;
-    try {
-      await deleteCfoNote(initial.id);
-      onSubmitted();
-      toast.push("Note deleted", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    setError(null);
+    startDelete(async () => {
+      try {
+        await deleteCfoNote(initial.id);
+        onSubmitted();
+        toast.push("Note deleted", "success");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -191,8 +195,9 @@ function NoteFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
               onClick={onDelete}
               className="text-danger"
               disabled={pending}
+              loading={isDeleting}
             >
-              Delete
+              {isDeleting ? "Deleting…" : "Delete"}
             </Button>
           ) : (
             <div />
@@ -201,8 +206,8 @@ function NoteFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
             <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
-              Save
+            <Button type="submit" size="sm" loading={pending}>
+              {pending ? "Saving…" : "Save"}
             </Button>
           </div>
         </div>

@@ -16,6 +16,7 @@ export function AdvisorPanel() {
   const [pending, startTransition] = useTransition();
 
   function send() {
+    if (pending) return;
     const trimmed = input.trim();
     if (!trimmed) return;
     const next = [...history, { role: "user" as const, content: trimmed }];
@@ -129,8 +130,13 @@ export function AdvisorPanel() {
               placeholder="Ask…"
               className="min-h-[44px] flex-1 resize-none rounded-md border border-border bg-surface px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
-            <Button size="sm" onClick={send} disabled={pending || !input.trim()}>
-              Send
+            <Button
+              size="sm"
+              onClick={send}
+              loading={pending}
+              disabled={!input.trim()}
+            >
+              {pending ? "Sending…" : "Send"}
             </Button>
           </div>
         </div>

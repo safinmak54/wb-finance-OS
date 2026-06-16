@@ -87,6 +87,98 @@ export async function classifyTransaction(
   revalidatePath("/ledger");
 }
 
+const UnfinalizeSchema = z.object({
+  rawId: z.string().uuid(),
+});
+
+/**
+ * Revert a finalized (classified) raw row back to the inbox — the inverse of
+ * {@link classifyTransaction} / {@link markAsInternalTransfer} /
+ * {@link markAsCcPayment}. Deletes the posted `transactions` row(s) for this
+ * raw id (transfer / CC-payment rows have none, so that's a no-op), then
+ * clears `classified` / `classified_at` and resets `status` to "review" so the
+ * row reappears in the "To classify" tab, fully editable again.
+ *
+ * Closed-period gated like classification: a finalized row in a closed period
+ * can't be silently reopened.
+ */
+export async function unfinalizeTransaction(
+  input: z.input<typeof UnfinalizeSchema>,
+) {
+  const me = await requireRole(TXN_ROLES);
+  const parsed = UnfinalizeSchema.parse(input);
+
+  const supabase = createDataClient();
+
+  const { data: raw, error: loadErr } = await supabase
+    .from("raw_transactions")
+    .select("*")
+    .eq("id", parsed.rawId)
+    .single();
+  if (loadErr || !raw) throw new Error("Transaction not found");
+  if (!raw.classified) throw new Error("Transaction is not finalized");
+
+  // Posted ledger row(s) for this raw id — present for normally-classified
+  // rows, absent for those marked as internal transfer / CC payment.
+  const { data: posted, error: postedErr } = await supabase
+    .from("transactions")
+    .select("id, entity")
+    .eq("raw_transaction_id", parsed.rawId);
+  if (postedErr) throw new Error(postedErr.message);
+
+  // Resolve the entity code for the closed-period check: prefer the posted
+  // row's entity, fall back to mapping raw.entity_id through `entities`.
+  let entityCode: string | null = posted?.[0]?.entity ?? null;
+  if (!entityCode && raw.entity_id) {
+    const { data: ent } = await supabase
+      .from("entities")
+      .select("code")
+      .eq("id", raw.entity_id)
+      .maybeSingle();
+    entityCode = ent?.code ?? null;
+  }
+
+  const accDate = raw.accounting_date ?? raw.transaction_date;
+  const period = String(accDate).slice(0, 7);
+  if (entityCode) {
+    const { data: closed } = await supabase
+      .from("closed_periods")
+      .select("id")
+      .eq("period", period)
+      .eq("entity", entityCode)
+      .maybeSingle();
+    if (closed) throw new Error(`Period ${period} is closed`);
+  }
+
+  if (posted && posted.length > 0) {
+    const { error: delErr } = await supabase
+      .from("transactions")
+      .delete()
+      .eq("raw_transaction_id", parsed.rawId);
+    if (delErr) throw new Error(delErr.message);
+  }
+
+  const { error: upErr } = await supabase
+    .from("raw_transactions")
+    .update({ classified: false, classified_at: null, status: "review" })
+    .eq("id", parsed.rawId);
+  if (upErr) throw new Error(upErr.message);
+
+  await writeAuditLog({
+    actorUserId: me.userId,
+    table: "raw_transactions",
+    rowId: parsed.rawId,
+    op: "UPDATE",
+    before: { classified: true },
+    after: { classified: false, unpostedLedgerRows: posted?.length ?? 0 },
+  });
+
+  revalidatePath("/inbox");
+  revalidatePath("/cc-inbox");
+  revalidatePath("/ledger");
+  revalidatePath("/journals");
+}
+
 const BulkClassifySchema = z.object({
   rows: z
     .array(
@@ -106,21 +198,95 @@ export async function bulkClassifyTransactions(
   const me = await requireRole(TXN_ROLES);
   const parsed = BulkClassifySchema.parse(input);
 
-  // Run sequentially so we get clear error semantics; volume here is
-  // bounded by the schema (max 500 rows).
-  for (const row of parsed.rows) {
-    await classifyTransaction(row);
+  const supabase = createDataClient();
+
+  // Batched, not per-row: doing this one `classifyTransaction` at a time meant
+  // ~5 serial Supabase round-trips per row (load → closed-check → upsert →
+  // update → audit) plus repeated requireRole / revalidatePath. At a few
+  // hundred rows that's thousands of serial round-trips — minutes of wall time
+  // and enough load to time the origin out (522). Here it's a fixed handful of
+  // queries regardless of batch size.
+  const ids = parsed.rows.map((r) => r.rawId);
+  const { data: raws, error: loadErr } = await supabase
+    .from("raw_transactions")
+    .select("*")
+    .in("id", ids);
+  if (loadErr) throw new Error(loadErr.message);
+  const rawById = new Map((raws ?? []).map((r) => [r.id, r] as const));
+
+  // Closed-period gate (mirrors classifyTransaction): reject the whole batch if
+  // any row would post into a closed (period, entity). One query for all pairs.
+  const pairs = parsed.rows
+    .map((row) => {
+      const raw = rawById.get(row.rawId);
+      if (!raw) return null;
+      const accDate = raw.accounting_date ?? raw.transaction_date;
+      return { period: String(accDate).slice(0, 7), entity: row.entityCode };
+    })
+    .filter((p): p is { period: string; entity: string } => p !== null);
+
+  if (pairs.length > 0) {
+    const { data: closed } = await supabase
+      .from("closed_periods")
+      .select("period, entity")
+      .in("period", [...new Set(pairs.map((p) => p.period))])
+      .in("entity", [...new Set(pairs.map((p) => p.entity))]);
+    const closedSet = new Set(
+      (closed ?? [])
+        .filter((c) => c.entity)
+        .map((c) => `${c.period}|${c.entity}`),
+    );
+    const hit = pairs.find((p) => closedSet.has(`${p.period}|${p.entity}`));
+    if (hit) throw new Error(`Period ${hit.period} is closed for ${hit.entity}`);
   }
+
+  // Build every ledger insert and post them in a single upsert. Ignore on
+  // checksum conflict so re-finalizing identical content is a no-op (0016).
+  const inserts = parsed.rows
+    .map((row) => {
+      const raw = rawById.get(row.rawId);
+      if (!raw) return null;
+      const signedAmount =
+        raw.direction === "DEBIT"
+          ? -Math.abs(Number(raw.amount))
+          : Math.abs(Number(raw.amount));
+      return {
+        raw_transaction_id: row.rawId,
+        entity: row.entityCode,
+        account_id: row.accountId,
+        amount: signedAmount,
+        txn_date: normalizeDate(raw.transaction_date),
+        acc_date: normalizeDate(raw.accounting_date ?? raw.transaction_date),
+        description: raw.description ?? "",
+        memo: "",
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  if (inserts.length === 0) return;
+
+  const { error: insErr } = await supabase
+    .from("transactions")
+    .upsert(inserts, { onConflict: "checksum", ignoreDuplicates: true });
+  if (insErr) throw new Error(insErr.message);
+
+  const postedIds = inserts.map((i) => i.raw_transaction_id);
+  const { error: upErr } = await supabase
+    .from("raw_transactions")
+    .update({ classified: true, classified_at: new Date().toISOString() })
+    .in("id", postedIds);
+  if (upErr) throw new Error(upErr.message);
 
   await writeAuditLog({
     actorUserId: me.userId,
     table: "raw_transactions",
     op: "UPDATE",
-    after: { bulk: parsed.rows.length },
+    after: { bulk: postedIds.length },
   });
 
   revalidatePath("/inbox");
   revalidatePath("/cc-inbox");
+  revalidatePath("/ledger");
 }
 
 const SplitSchema = z.object({

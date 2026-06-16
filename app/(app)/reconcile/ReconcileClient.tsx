@@ -26,7 +26,8 @@ type Props = {
 
 export function ReconcileClient({ bank, book, period, entity }: Props) {
   const toast = useToast();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
+  const [isUnmatching, startUnmatch] = useTransition();
   const [selectedBank, setSelectedBank] = useState<Side | null>(null);
   const [selectedBook, setSelectedBook] = useState<Side | null>(null);
 
@@ -61,14 +62,16 @@ export function ReconcileClient({ bank, book, period, entity }: Props) {
     });
   }
 
-  async function onUnmatch(bankId: string) {
+  function onUnmatch(bankId: string) {
     if (!confirm("Remove this match?")) return;
-    try {
-      await unmatch(bankId);
-      toast.push("Unmatched", "success");
-    } catch (err) {
-      toast.push((err as Error).message, "error");
-    }
+    startUnmatch(async () => {
+      try {
+        await unmatch(bankId);
+        toast.push("Unmatched", "success");
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      }
+    });
   }
 
   function runAutoMatch() {
@@ -97,11 +100,16 @@ export function ReconcileClient({ bank, book, period, entity }: Props) {
           Click a row on each side, then click <strong>Match</strong>.
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={runAutoMatch}>
-            Auto-match
+          <Button size="sm" variant="outline" onClick={runAutoMatch} loading={isPending}>
+            {isPending ? "Auto-matching…" : "Auto-match"}
           </Button>
-          <Button size="sm" onClick={pair} disabled={!selectedBank || !selectedBook}>
-            Match
+          <Button
+            size="sm"
+            onClick={pair}
+            loading={isPending}
+            disabled={!selectedBank || !selectedBook}
+          >
+            {isPending ? "Matching…" : "Match"}
           </Button>
         </div>
       </div>
@@ -113,6 +121,7 @@ export function ReconcileClient({ bank, book, period, entity }: Props) {
           selectedId={selectedBank?.id}
           onSelect={(r) => setSelectedBank((s) => (s?.id === r.id ? null : r))}
           onUnmatch={onUnmatch}
+          unmatching={isUnmatching}
         />
         <SideColumn
           title="Book / ledger"
@@ -131,12 +140,14 @@ function SideColumn({
   selectedId,
   onSelect,
   onUnmatch,
+  unmatching,
 }: {
   title: string;
   rows: Side[];
   selectedId: string | undefined;
   onSelect: (r: Side) => void;
   onUnmatch?: (id: string) => void;
+  unmatching?: boolean;
 }) {
   return (
     <Card>
@@ -183,11 +194,15 @@ function SideColumn({
                   {r.matched ? (
                     <button
                       type="button"
+                      disabled={unmatching}
                       onClick={(e) => {
                         e.stopPropagation();
                         onUnmatch?.(r.id);
                       }}
-                      className="text-[10px] text-info hover:underline"
+                      className={cn(
+                        "text-[10px] text-info hover:underline",
+                        unmatching && "opacity-50",
+                      )}
                     >
                       ✓
                     </button>

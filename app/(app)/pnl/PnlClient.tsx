@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useEffect, useState, useTransition } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -395,41 +394,55 @@ function ViewToggle({
   entityCol: string | null;
   selectedMonth: string | null;
 }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   // Preserve entityCol when switching to monthly so re-toggling feels stable.
   const monthlyHref = `?view=monthly${entityCol ? `&entityCol=${entityCol}` : ""}`;
   // Preserve the selected month when switching to per-month.
   const monthHref = `?view=month${selectedMonth ? `&month=${selectedMonth}` : ""}`;
   return (
     <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
-      <Link
-        href="?view=annual"
+      <button
+        type="button"
+        disabled={isPending}
+        aria-disabled={isPending}
+        onClick={() => startTransition(() => router.push("?view=annual"))}
         className={cn(
           "px-2 py-1",
           current === "annual" ? "bg-info-soft text-info" : "text-muted hover:bg-surface-2",
+          isPending && "opacity-50",
         )}
       >
         Annual
-      </Link>
-      <Link
-        href={monthlyHref}
+      </button>
+      <button
+        type="button"
+        disabled={isPending}
+        aria-disabled={isPending}
+        onClick={() => startTransition(() => router.push(monthlyHref))}
         className={cn(
           "border-l border-border px-2 py-1",
           current === "monthly" ? "bg-info-soft text-info" : "text-muted hover:bg-surface-2",
+          isPending && "opacity-50",
         )}
       >
         Monthly
-      </Link>
-      <Link
-        href={monthHref}
+      </button>
+      <button
+        type="button"
+        disabled={isPending}
+        aria-disabled={isPending}
+        onClick={() => startTransition(() => router.push(monthHref))}
         className={cn(
           "border-l border-border px-2 py-1",
           current === "month"
             ? "bg-info-soft text-info"
             : "text-muted hover:bg-surface-2",
+          isPending && "opacity-50",
         )}
       >
         Per Month
-      </Link>
+      </button>
     </div>
   );
 }
@@ -442,10 +455,15 @@ function MonthPicker({
   options: Array<{ key: string; label: string }>;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   return (
     <select
       value={selected}
-      onChange={(e) => router.push(`?view=month&month=${e.target.value}`)}
+      onChange={(e) => {
+        const month = e.target.value;
+        startTransition(() => router.push(`?view=month&month=${month}`));
+      }}
+      disabled={isPending}
       className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
       aria-label="Select month"
     >
@@ -465,22 +483,32 @@ function EntityTabs({
   current: string;
   options: Array<{ key: string; label: string }>;
 }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   return (
     <div className="inline-flex flex-wrap overflow-hidden rounded-md border border-border text-[11px]">
       {options.map((o, i) => (
-        <Link
+        <button
           key={o.key}
-          href={`?view=monthly&entityCol=${o.key}`}
+          type="button"
+          disabled={isPending}
+          aria-disabled={isPending}
+          onClick={() =>
+            startTransition(() =>
+              router.push(`?view=monthly&entityCol=${o.key}`),
+            )
+          }
           className={cn(
             "px-2 py-1",
             i > 0 && "border-l border-border",
             current === o.key
               ? "bg-info-soft text-info"
               : "text-muted hover:bg-surface-2",
+            isPending && "opacity-50",
           )}
         >
           {o.label}
-        </Link>
+        </button>
       ))}
     </div>
   );

@@ -209,6 +209,8 @@ function AccountFormModal({
 }: FormProps) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
+  const [deactivatePending, startDeactivate] = useTransition();
+  const [deletePending, startDelete] = useTransition();
   const [code, setCode] = useState(initial?.account_code ?? "");
   const [name, setName] = useState(initial?.account_name ?? "");
   const [type, setType] = useState<
@@ -242,19 +244,21 @@ function AccountFormModal({
     });
   }
 
-  async function onDeactivate() {
+  function onDeactivate() {
     if (!initial) return;
     if (!confirm(`Deactivate ${initial.account_code}?`)) return;
-    try {
-      await deactivateAccount(initial.id);
-      onSubmitted();
-      toast.push("Account deactivated", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    startDeactivate(async () => {
+      try {
+        await deactivateAccount(initial.id);
+        onSubmitted();
+        toast.push("Account deactivated", "success");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!initial) return;
     if (
       !confirm(
@@ -262,13 +266,15 @@ function AccountFormModal({
       )
     )
       return;
-    try {
-      await deleteAccount(initial.id);
-      onSubmitted();
-      toast.push("Account deleted", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    startDelete(async () => {
+      try {
+        await deleteAccount(initial.id);
+        onSubmitted();
+        toast.push("Account deleted", "success");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -337,7 +343,8 @@ function AccountFormModal({
                 size="sm"
                 onClick={onDeactivate}
                 className="text-warning"
-                disabled={pending}
+                loading={deactivatePending}
+                disabled={pending || deletePending}
               >
                 Deactivate
               </Button>
@@ -347,7 +354,8 @@ function AccountFormModal({
                 size="sm"
                 onClick={onDelete}
                 className="text-danger"
-                disabled={pending}
+                loading={deletePending}
+                disabled={pending || deactivatePending}
               >
                 Delete
               </Button>
@@ -356,11 +364,23 @@ function AccountFormModal({
             <div />
           )}
           <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              disabled={pending || deactivatePending || deletePending}
+            >
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
-              {mode === "create" ? "Create" : "Save"}
+            <Button type="submit" size="sm" loading={pending}>
+              {pending
+                ? mode === "create"
+                  ? "Creating…"
+                  : "Saving…"
+                : mode === "create"
+                  ? "Create"
+                  : "Save"}
             </Button>
           </div>
         </div>

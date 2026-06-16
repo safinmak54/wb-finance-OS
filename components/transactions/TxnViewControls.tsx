@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
@@ -23,6 +24,7 @@ export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
   function pushWith(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -31,7 +33,7 @@ export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
       else params.set(key, value);
     }
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }
 
   return (
@@ -40,12 +42,14 @@ export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
         <Tab
           label={`To classify (${openCount})`}
           active={view === "open"}
+          disabled={isPending}
           // Drop the period param so the open tab defaults back to "All months".
           onClick={() => pushWith({ view: null, period: null })}
         />
         <Tab
           label="Finalized"
           active={view === "finalized"}
+          disabled={isPending}
           onClick={() => pushWith({ view: "finalized" })}
         />
       </div>
@@ -58,6 +62,7 @@ export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
           // defaults to the current month when `period` is absent, so dropping
           // the param would silently re-narrow to this month instead of "all".
           onChange={(e) => pushWith({ period: e.target.value })}
+          disabled={isPending}
           className="h-7 rounded-md border border-border bg-surface px-1.5 text-[11px]"
         >
           {months.map((m) => (
@@ -75,20 +80,25 @@ function Tab({
   label,
   active,
   onClick,
+  disabled = false,
 }: {
   label: string;
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled}
       className={cn(
         "rounded px-3 py-1 text-xs font-medium transition-colors",
         active
           ? "bg-primary text-primary-foreground shadow-sm"
           : "text-muted hover:text-foreground",
+        disabled && "opacity-50",
       )}
     >
       {label}

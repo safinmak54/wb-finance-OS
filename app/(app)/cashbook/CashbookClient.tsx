@@ -37,6 +37,7 @@ export function CashbookClient({
   const router = useRouter();
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
+  const [isApplying, startApplying] = useTransition();
   const [isGenerating, startGenerating] = useTransition();
   const [isDeleting, startDeleting] = useTransition();
   const [tabMode, setTabMode] = useState<"month" | "range">(mode);
@@ -45,11 +46,13 @@ export function CashbookClient({
   const [to, setTo] = useState(endDate);
 
   function applyPeriod() {
-    if (tabMode === "month") {
-      router.push(`/cashbook?period=${encodeURIComponent(period)}`);
-    } else {
-      router.push(`/cashbook?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-    }
+    startApplying(() => {
+      if (tabMode === "month") {
+        router.push(`/cashbook?period=${encodeURIComponent(period)}`);
+      } else {
+        router.push(`/cashbook?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      }
+    });
   }
 
   function refresh() {
@@ -189,8 +192,13 @@ export function CashbookClient({
             </>
           )}
 
-          <Button variant="outline" size="md" onClick={applyPeriod}>
-            Apply
+          <Button
+            variant="outline"
+            size="md"
+            onClick={applyPeriod}
+            loading={isApplying}
+          >
+            {isApplying ? "Applying…" : "Apply"}
           </Button>
 
           <div className="ml-auto flex items-center gap-2">

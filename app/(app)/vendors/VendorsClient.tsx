@@ -166,16 +166,19 @@ function VendorFormModal({ open, onClose, onSubmitted, mode, initial }: FormProp
     });
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!initial) return;
     if (!confirm(`Deactivate ${initial.name}?`)) return;
-    try {
-      await deleteVendor(initial.id);
-      onSubmitted();
-      toast.push("Vendor deactivated", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    setError(null);
+    startTransition(async () => {
+      try {
+        await deleteVendor(initial.id);
+        onSubmitted();
+        toast.push("Vendor deactivated", "success");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -213,8 +216,9 @@ function VendorFormModal({ open, onClose, onSubmitted, mode, initial }: FormProp
               onClick={onDelete}
               className="text-danger"
               disabled={pending}
+              loading={pending}
             >
-              Deactivate
+              {pending ? "Deactivating…" : "Deactivate"}
             </Button>
           ) : (
             <div />
@@ -223,8 +227,14 @@ function VendorFormModal({ open, onClose, onSubmitted, mode, initial }: FormProp
             <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
-              {mode === "create" ? "Create" : "Save"}
+            <Button type="submit" size="sm" disabled={pending} loading={pending}>
+              {pending
+                ? mode === "create"
+                  ? "Creating…"
+                  : "Saving…"
+                : mode === "create"
+                  ? "Create"
+                  : "Save"}
             </Button>
           </div>
         </div>

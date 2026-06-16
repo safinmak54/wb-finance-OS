@@ -106,6 +106,7 @@ type FormProps = {
 function BankFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
+  const [isDisconnecting, startDisconnect] = useTransition();
   const [institution, setInstitution] = useState(initial?.institution ?? "");
   const [entity, setEntity] = useState(initial?.entity ?? "");
   const [accountNumber, setAccountNumber] = useState(initial?.account_number ?? "");
@@ -139,16 +140,19 @@ function BankFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
     });
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!initial) return;
     if (!confirm(`Disconnect ${initial.institution}?`)) return;
-    try {
-      await deleteBankConnection(initial.id);
-      onSubmitted();
-      toast.push("Bank disconnected", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    setError(null);
+    startDisconnect(async () => {
+      try {
+        await deleteBankConnection(initial.id);
+        onSubmitted();
+        toast.push("Bank disconnected", "success");
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    });
   }
 
   return (
@@ -214,8 +218,9 @@ function BankFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
               onClick={onDelete}
               className="text-danger"
               disabled={pending}
+              loading={isDisconnecting}
             >
-              Disconnect
+              {isDisconnecting ? "Disconnecting…" : "Disconnect"}
             </Button>
           ) : (
             <div />
@@ -224,8 +229,14 @@ function BankFormModal({ open, onClose, onSubmitted, mode, initial }: FormProps)
             <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={pending}>
-              {mode === "create" ? "Connect" : "Save"}
+            <Button type="submit" size="sm" loading={pending}>
+              {pending
+                ? mode === "create"
+                  ? "Connecting…"
+                  : "Saving…"
+                : mode === "create"
+                  ? "Connect"
+                  : "Save"}
             </Button>
           </div>
         </div>

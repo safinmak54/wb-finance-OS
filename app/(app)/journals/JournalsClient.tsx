@@ -42,16 +42,22 @@ export function JournalsClient({
   const toast = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [showClose, setShowClose] = useState(false);
-  const [, startTransition] = useTransition();
+  const [isDeleting, startDelete] = useTransition();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  async function onDelete(id: string) {
+  function onDelete(id: string) {
     if (!confirm("Delete this journal entry?")) return;
-    try {
-      await deleteJournal(id);
-      toast.push("Journal deleted", "success");
-    } catch (err) {
-      toast.push((err as Error).message, "error");
-    }
+    setDeletingId(id);
+    startDelete(async () => {
+      try {
+        await deleteJournal(id);
+        toast.push("Journal deleted", "success");
+      } catch (err) {
+        toast.push((err as Error).message, "error");
+      } finally {
+        setDeletingId(null);
+      }
+    });
   }
 
   function onCloseMonth() {
@@ -111,10 +117,11 @@ export function JournalsClient({
                       </span>
                       <button
                         type="button"
-                        className="text-[11px] font-medium text-danger hover:underline"
+                        className="text-[11px] font-medium text-danger hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => onDelete(j.id)}
+                        disabled={isDeleting && deletingId === j.id}
                       >
-                        Delete
+                        {isDeleting && deletingId === j.id ? "Deleting…" : "Delete"}
                       </button>
                     </>
                   }
@@ -638,8 +645,8 @@ function NewJournalModal({
           <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={pending}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={pending || !balanced}>
-            Post
+          <Button type="submit" size="sm" loading={pending} disabled={!balanced}>
+            {pending ? "Posting…" : "Post"}
           </Button>
         </div>
       </form>

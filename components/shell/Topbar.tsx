@@ -1,6 +1,8 @@
 import { logout } from "@/app/login/actions";
 import { RoleGate } from "@/components/auth/RoleGate";
 import { EntitySwitcher } from "./EntitySwitcher";
+import { LogoutButton } from "./LogoutButton";
+import { AddTransactionButton } from "./AddTransactionButton";
 import { PeriodPicker } from "@/components/filters/PeriodPicker";
 import type { UserProfile } from "@/lib/auth/profile";
 
@@ -15,8 +17,6 @@ type Props = {
   profile: UserProfile;
   pageTitle: string;
   pageSubtitle?: string;
-  /** Hide the global period + entity pickers (e.g. pages with their own
-   *  in-page filters). Defaults to shown. */
   showFilters?: boolean;
 };
 
@@ -51,12 +51,7 @@ export function Topbar({
         ) : null}
 
         <RoleGate role={profile.role} action="add-transaction">
-          <a
-            href="/inbox"
-            className="hidden rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary-hover sm:inline-flex"
-          >
-            + Add Transaction
-          </a>
+          <AddTransactionButton />
         </RoleGate>
 
         <span className="hidden rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-[11px] font-medium text-muted sm:inline-block">
@@ -64,27 +59,7 @@ export function Topbar({
         </span>
 
         <form action={logout}>
-          <button
-            type="submit"
-            title="Sign out"
-            className="grid h-8 w-8 place-items-center rounded-md text-muted transition hover:bg-surface-2 hover:text-foreground"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
+          <LogoutButton />
         </form>
 
         <div

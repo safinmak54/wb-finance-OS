@@ -95,7 +95,8 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               name="email"
               required
               autoComplete="off"
-              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              disabled={pending}
+              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </Field>
 
@@ -105,7 +106,8 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               name="displayName"
               maxLength={80}
               autoComplete="off"
-              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              disabled={pending}
+              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
             />
           </Field>
 
@@ -116,7 +118,8 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               required
               minLength={8}
               autoComplete="new-password"
-              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              disabled={pending}
+              className="h-9 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
             />
             <span className="mt-1 text-[11px] text-subtle">Minimum 8 characters.</span>
           </Field>
@@ -126,7 +129,8 @@ function CreateUserDialog({ onClose }: { onClose: () => void }) {
               name="role"
               defaultValue="bookkeeper"
               required
-              className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              disabled={pending}
+              className="h-9 rounded-md border border-border bg-surface px-2 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>

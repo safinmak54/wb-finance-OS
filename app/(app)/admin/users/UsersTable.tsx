@@ -53,6 +53,7 @@ function UserRow({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<Role | null>(user.role);
+  const [deleting, setDeleting] = useState(false);
 
   function onRoleChange(next: Role) {
     if (next === role) return;
@@ -73,11 +74,14 @@ function UserRow({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
     if (isSelf) return;
     if (!confirm(`Delete ${user.email}? This cannot be undone.`)) return;
     setError(null);
+    setDeleting(true);
     startTransition(async () => {
       try {
         await deleteUser(user.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to delete user");
+      } finally {
+        setDeleting(false);
       }
     });
   }
@@ -140,7 +144,7 @@ function UserRow({ user, isSelf }: { user: AdminUser; isSelf: boolean }) {
           title={isSelf ? "You can't delete yourself" : "Delete user"}
           className="rounded-md px-2 py-1 text-xs font-medium text-danger transition hover:bg-danger-soft disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Delete
+          {deleting ? "Deleting…" : "Delete"}
         </button>
       </td>
     </tr>
