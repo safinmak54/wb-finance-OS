@@ -7,6 +7,8 @@ import {
   groupBalanceByAccount,
   monthlyBalanceSnapshots,
 } from "@/lib/queries/reports";
+import { listAccounts } from "@/lib/queries/accounts";
+import type { Account } from "@/lib/supabase/types";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import {
   periodFromSearchParams,
@@ -27,6 +29,43 @@ export const dynamic = "force-dynamic";
 
 type View = "annual" | "monthly" | "current-month";
 
+type BalanceAccountMeta = Pick<
+  Account,
+  "id" | "account_code" | "account_name" | "account_type"
+>;
+
+/**
+ * Build the full set of accounts to render on the balance sheet. Like the
+ * P&L (which seeds rows from `listAccounts`), every active account is shown
+ * even when it has no transactions, so empty asset/liability/equity rows
+ * still appear. The union with transaction-bearing accounts keeps any
+ * account that has a balance but is inactive from being dropped.
+ */
+function mergeBalanceAccounts(
+  active: readonly Account[],
+  txnAccounts: ReadonlyArray<BalanceAccountMeta | null>,
+): BalanceAccountMeta[] {
+  const byId = new Map<string, BalanceAccountMeta>();
+  for (const a of active) {
+    byId.set(a.id, {
+      id: a.id,
+      account_code: a.account_code,
+      account_name: a.account_name,
+      account_type: a.account_type,
+    });
+  }
+  for (const a of txnAccounts) {
+    if (!a || byId.has(a.id)) continue;
+    byId.set(a.id, {
+      id: a.id,
+      account_code: a.account_code,
+      account_name: a.account_name,
+      account_type: a.account_type,
+    });
+  }
+  return [...byId.values()];
+}
+
 export default async function BalancePage({
   searchParams,
 }: {
@@ -45,13 +84,14 @@ export default async function BalancePage({
   const supabase = createDataClient();
 
   const yearStart = `${period.to.slice(0, 4)}-01-01`;
-  const [bsTxns, ytd] = await Promise.all([
+  const [bsTxns, ytd, accounts] = await Promise.all([
     fetchBalanceSheetData(supabase, { entity }),
     fetchReportData(supabase, {
       entity,
       from: yearStart,
       to: period.to,
     }),
+    listAccounts(supabase, { activeOnly: true }),
   ]);
 
   const entityLabel = entity === "all" ? "All entities" : entity;
@@ -69,6 +109,7 @@ export default async function BalancePage({
         view="monthly"
         bsTxns={bsTxns}
         ytdTxns={ytd.txns}
+        accounts={accounts}
         months={months}
         subtitle={`FY ${year} · Month-end balances · ${entityLabel}`}
       />
@@ -90,6 +131,7 @@ export default async function BalancePage({
         view="current-month"
         bsTxns={bsTxns}
         ytdTxns={ytd.txns}
+        accounts={accounts}
         months={months}
         subtitle={`As of ${cm.to} · ${entityLabel}`}
       />
@@ -99,22 +141,30 @@ export default async function BalancePage({
   // Annual (default): legacy single-snapshot card layout, cumulative across
   // all history. Retained earnings uses the YTD revenue/expense net.
   const groups = groupBalanceByAccount(bsTxns);
+  const totalsById = new Map<string, number>();
+  for (const g of groups) {
+    if (g.account?.id) totalsById.set(g.account.id, g.total);
+  }
+  // Show every active account (plus any with a balance), even at zero, so
+  // empty asset/liability/equity rows still render — matching the P&L.
+  const balanceAccounts = mergeBalanceAccounts(
+    accounts,
+    groups.map((g) => g.account),
+  );
 
   function lineFor(
     type: "asset" | "liability" | "equity",
   ): { lines: StatementLine[]; total: number } {
-    const filtered = groups.filter((g) => g.account?.account_type === type);
-    const lines: StatementLine[] = filtered
-      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
-      .map((g) => ({
-        label: `${g.account?.account_code} · ${g.account?.account_name}`,
-        amount:
-          type === "asset"
-            ? -g.total
-            : type === "liability"
-              ? g.total
-              : g.total,
-      }));
+    const lines: StatementLine[] = balanceAccounts
+      .filter((a) => a.account_type === type)
+      .map((a) => {
+        const raw = totalsById.get(a.id) ?? 0;
+        return {
+          label: `${a.account_code} · ${a.account_name}`,
+          amount: type === "asset" ? -raw : raw,
+        };
+      })
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
     const total = lines.reduce((s, l) => s + l.amount, 0);
     return { lines, total };
   }
@@ -201,17 +251,25 @@ function SnapshotTableView({
   view,
   bsTxns,
   ytdTxns,
+  accounts,
   months,
   subtitle,
 }: {
   view: "monthly" | "current-month";
   bsTxns: Awaited<ReturnType<typeof fetchBalanceSheetData>>;
   ytdTxns: Awaited<ReturnType<typeof fetchReportData>>["txns"];
+  accounts: Account[];
   months: SnapshotMonth[];
   subtitle: string;
 }) {
   const snapshotMonths = months.map((m) => ({ key: m.yyyymm, to: m.to }));
   const perAccount = monthlyBalanceSnapshots(bsTxns, snapshotMonths);
+  // Render every active account (plus any with activity), even at zero, so
+  // empty asset/liability/equity rows still appear — matching the P&L.
+  const balanceAccounts = mergeBalanceAccounts(
+    accounts,
+    [...perAccount.values()].map((e) => e.account),
+  );
 
   // YTD revenue/expense, bucketed by month, used to project retained earnings
   // at each snapshot's month-end. For the current-month view this collapses
@@ -234,30 +292,30 @@ function SnapshotTableView({
   function buildSection(
     type: "asset" | "liability" | "equity",
   ): { rows: BalanceMonthlyRow[]; totals: Record<string, number> } {
-    const entries = [...perAccount.values()].filter(
-      (e) => e.account?.account_type === type,
-    );
     const lastMonthKey = months[months.length - 1]?.yyyymm ?? "";
-    entries.sort((a, b) => {
-      const av = Math.abs(a.byMonth.get(lastMonthKey) ?? 0);
-      const bv = Math.abs(b.byMonth.get(lastMonthKey) ?? 0);
-      return bv - av;
-    });
+    const sectionAccounts = balanceAccounts
+      .filter((a) => a.account_type === type)
+      .sort((a, b) => {
+        const av = Math.abs(perAccount.get(a.id)?.byMonth.get(lastMonthKey) ?? 0);
+        const bv = Math.abs(perAccount.get(b.id)?.byMonth.get(lastMonthKey) ?? 0);
+        return bv - av;
+      });
 
     const totals: Record<string, number> = {};
     for (const m of months) totals[m.key] = 0;
 
-    const rows: BalanceMonthlyRow[] = entries.map((e) => {
+    const rows: BalanceMonthlyRow[] = sectionAccounts.map((a) => {
+      const byMonth = perAccount.get(a.id)?.byMonth;
       const values: Record<string, number> = {};
       for (const m of months) {
-        const raw = e.byMonth.get(m.yyyymm) ?? 0;
+        const raw = byMonth?.get(m.yyyymm) ?? 0;
         const v = type === "asset" ? -raw : raw;
         values[m.key] = v;
         totals[m.key] += v;
       }
       return {
         kind: "account",
-        label: `${e.account?.account_code} · ${e.account?.account_name}`,
+        label: `${a.account_code} · ${a.account_name}`,
         values,
       };
     });
