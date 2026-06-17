@@ -28,7 +28,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && pathname === "/login") {
+  // Only bounce an authenticated user away from the login *page view* (a GET
+  // navigation). A POST to /login is the sign-in Server Action — middleware
+  // must not answer it with a bare redirect, because the client's action
+  // handler only understands an RSC body or an `x-action-redirect` header. A
+  // plain redirect surfaces as "An unexpected response was received from the
+  // server." Let the action run; on success it issues its own redirect.
+  if (user && pathname === "/login" && request.method === "GET") {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     url.search = "";
