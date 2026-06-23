@@ -1,9 +1,7 @@
 import { logout } from "@/app/login/actions";
 import { RoleGate } from "@/components/auth/RoleGate";
-import { EntitySwitcher } from "./EntitySwitcher";
 import { LogoutButton } from "./LogoutButton";
 import { AddTransactionButton } from "./AddTransactionButton";
-import { PeriodPicker } from "@/components/filters/PeriodPicker";
 import type { UserProfile } from "@/lib/auth/profile";
 
 const ROLE_LABEL: Record<UserProfile["role"], string> = {
@@ -17,15 +15,9 @@ type Props = {
   profile: UserProfile;
   pageTitle: string;
   pageSubtitle?: string;
-  showFilters?: boolean;
 };
 
-export function Topbar({
-  profile,
-  pageTitle,
-  pageSubtitle,
-  showFilters = true,
-}: Props) {
+export function Topbar({ profile, pageTitle, pageSubtitle }: Props) {
   const initials = (profile.displayName ?? profile.email)
     .split(/[\s@]/)
     .filter(Boolean)
@@ -43,13 +35,6 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-3">
-        {showFilters ? (
-          <>
-            <PeriodPicker />
-            <EntitySwitcher />
-          </>
-        ) : null}
-
         <RoleGate role={profile.role} action="add-transaction">
           <AddTransactionButton />
         </RoleGate>

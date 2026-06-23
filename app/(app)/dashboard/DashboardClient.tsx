@@ -50,7 +50,7 @@ export function DashboardClient({ kpis, txns }: Props) {
     .slice(0, 8);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Gross Revenue" value={fmt(kpis.grossRevenue)} />
         <Stat label="COGS" value={fmt(kpis.cogs)} />
@@ -64,16 +64,16 @@ export function DashboardClient({ kpis, txns }: Props) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {kpis.overdueCount > 0 ? (
+      {kpis.overdueCount > 0 ? (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Stat
             label="Overdue invoices"
             value={fmt(kpis.overdueTotal)}
             delta={`${kpis.overdueCount} ${kpis.overdueCount === 1 ? "invoice" : "invoices"}`}
             tone="warning"
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>

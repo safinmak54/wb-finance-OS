@@ -94,7 +94,6 @@ export async function TransactionsPage({
       <PageShell
         page={page}
         title={title}
-        hideFilters
         subtitle={`${rows.length} finalized · ${entityLabel} · ${periodLabel}`}
       >
         {controls}
@@ -130,7 +129,6 @@ export async function TransactionsPage({
     <PageShell
       page={page}
       title={title}
-      hideFilters
       subtitle={`${rows.length} shown · ${openCount} to classify · ${entityLabel}${periodSuffix}`}
     >
       {controls}
