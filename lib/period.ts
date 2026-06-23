@@ -185,6 +185,29 @@ export function currentMonthKey(): string {
   return `${today.year}-${pad(today.month)}`;
 }
 
+/**
+ * The YYYY-MM keys from the month containing `from` through the month
+ * containing `to` (inclusive). Used to total per-month P&L metrics across an
+ * arbitrary date range — partial end months are bounded by the fetch range,
+ * so summing whole-month buckets still reflects only in-range activity.
+ */
+export function monthKeysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  let y = Number(from.slice(0, 4));
+  let m = Number(from.slice(5, 7));
+  const endY = Number(to.slice(0, 4));
+  const endM = Number(to.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    out.push(`${y}-${pad(m)}`);
+    m += 1;
+    if (m === 13) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return out;
+}
+
 export function yearRange(year: number): PeriodRange {
   return {
     key: String(year),
