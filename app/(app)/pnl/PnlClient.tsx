@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { fmt, fmtDate, toCsv } from "@/lib/format";
+import { PercentToggle, usePercentDisplay } from "@/components/ui/PercentDisplay";
 import { cn } from "@/lib/utils/cn";
 import { useRouter } from "next/navigation";
 import { drillDownAccount, drillDownAccountSet } from "@/actions/reports";
@@ -74,12 +75,29 @@ const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
 export function PnlClient({ doc }: { doc: PnlDocument }) {
   const router = useRouter();
   const toast = useToast();
+  const { showPct } = usePercentDisplay();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [drill, setDrill] = useState<DrillContext | null>(null);
   const [syncing, startSync] = useTransition();
 
+  // All collapsible section ids, in render order — used by the
+  // Simplified/Detailed toggle to collapse or expand every section at once.
+  const sectionIds = useMemo(
+    () => doc.rows.flatMap((r) => (r.kind === "section" ? [r.sectionId] : [])),
+    [doc.rows],
+  );
+
   function toggle(id: string) {
     setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  }
+
+  // Simplified collapses every section (totals only); Detailed expands all.
+  function setDetailLevel(level: "simplified" | "detailed") {
+    if (level === "simplified") {
+      setCollapsed(Object.fromEntries(sectionIds.map((id) => [id, true])));
+    } else {
+      setCollapsed({});
+    }
   }
 
   // Same Admin API refresh the Cashbook page runs, but scoped to year-to-date
@@ -113,11 +131,14 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
     });
   }
 
-  // Each value column expands into (amount, %) pair. % is narrow.
+  // Each value column expands into (amount, %) pair. % is narrow, and is
+  // dropped entirely when the $/% toggle is set to dollars-only.
   // Single label column (Group/Section/Account share it via indentation) |
-  // for each value col: amount, %.
+  // for each value col: amount[, %].
   const valueColTemplate = doc.valueColumns
-    .map(() => "minmax(80px, 1fr) minmax(38px, 0.45fr)")
+    .map(() =>
+      showPct ? "minmax(80px, 1fr) minmax(38px, 0.45fr)" : "minmax(80px, 1fr)",
+    )
     .join(" ");
   const gridCols = `minmax(220px, 1.6fr) ${valueColTemplate}`;
 
@@ -166,34 +187,43 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
-        <ViewToggle
-          current={doc.view}
-          entityCol={doc.entityCol}
-          selectedMonth={doc.selectedMonth}
-        />
+      <div className="mb-3 space-y-2 text-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <ViewToggle
+            current={doc.view}
+            entityCol={doc.entityCol}
+            selectedMonth={doc.selectedMonth}
+          />
+          <DetailToggle
+            simplified={
+              sectionIds.length > 0 && sectionIds.every((id) => collapsed[id])
+            }
+            onChange={setDetailLevel}
+          />
+          <PercentToggle />
+          {doc.view === "monthly" && (
+            <EntityTabs current={doc.entityCol ?? "ALL"} options={doc.entityColOptions} />
+          )}
+          <span className="text-muted">
+            {doc.range.from} → {doc.range.to}
+          </span>
+          <div className="ml-auto">
+            <Button
+              size="sm"
+              onClick={syncYtd}
+              disabled={syncing}
+              title={`Refresh Admin API data for year-to-date (${doc.ytd.from} → ${doc.ytd.to})`}
+            >
+              {syncing ? "Syncing…" : "Sync YTD from Admin API"}
+            </Button>
+          </div>
+        </div>
         {doc.view === "month" && (
-          <MonthPicker
+          <InlineMonthFilter
             selected={doc.selectedMonth ?? doc.monthOptions[0]?.key ?? ""}
             options={doc.monthOptions}
           />
         )}
-        {doc.view === "monthly" && (
-          <EntityTabs current={doc.entityCol ?? "ALL"} options={doc.entityColOptions} />
-        )}
-        <span className="text-muted">
-          {doc.range.from} → {doc.range.to}
-        </span>
-        <div className="ml-auto">
-          <Button
-            size="sm"
-            onClick={syncYtd}
-            disabled={syncing}
-            title={`Refresh Admin API data for year-to-date (${doc.ytd.from} → ${doc.ytd.to})`}
-          >
-            {syncing ? "Syncing…" : "Sync YTD from Admin API"}
-          </Button>
-        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
@@ -207,12 +237,14 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
             {doc.valueColumns.map((c) => (
               <Fragment key={c.key}>
                 <div className="text-right">{c.label}</div>
-                <div
-                  className="text-right text-[10px] normal-case tracking-normal text-muted/70"
-                  title="% of Gross Revenue (Revenue section)"
-                >
-                  %
-                </div>
+                {showPct && (
+                  <div
+                    className="text-right text-[10px] normal-case tracking-normal text-muted/70"
+                    title="% of Gross Revenue (Revenue section)"
+                  >
+                    %
+                  </div>
+                )}
               </Fragment>
             ))}
           </div>
@@ -266,9 +298,11 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
                         >
                           {fmt(v)}
                         </button>
-                        <div className="text-right font-mono text-[10px] text-muted">
-                          {pct(v, denom)}
-                        </div>
+                        {showPct && (
+                          <div className="text-right font-mono text-[10px] text-muted">
+                            {pct(v, denom)}
+                          </div>
+                        )}
                       </Fragment>
                     );
                   })}
@@ -329,9 +363,11 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
                             {fmt(v)}
                           </button>
                         )}
-                        <div className="text-right font-mono text-[10px] text-muted">
-                          {pct(v, denom)}
-                        </div>
+                        {showPct && (
+                          <div className="text-right font-mono text-[10px] text-muted">
+                            {pct(v, denom)}
+                          </div>
+                        )}
                       </Fragment>
                     );
                   })}
@@ -368,9 +404,11 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
                       >
                         {fmt(v)}
                       </button>
-                      <div className="text-right font-mono text-[10px] text-muted">
-                        {pct(v, denom)}
-                      </div>
+                      {showPct && (
+                        <div className="text-right font-mono text-[10px] text-muted">
+                          {pct(v, denom)}
+                        </div>
+                      )}
                     </Fragment>
                   );
                 })}
@@ -447,7 +485,53 @@ function ViewToggle({
   );
 }
 
-function MonthPicker({
+function DetailToggle({
+  simplified,
+  onChange,
+}: {
+  simplified: boolean;
+  onChange: (level: "simplified" | "detailed") => void;
+}) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
+      <button
+        type="button"
+        onClick={() => onChange("simplified")}
+        title="Collapse all sections — show section totals only"
+        className={cn(
+          "px-2 py-1",
+          simplified ? "bg-info-soft text-info" : "text-muted hover:bg-surface-2",
+        )}
+      >
+        Simplified
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("detailed")}
+        title="Expand all sections — show every account"
+        className={cn(
+          "border-l border-border px-2 py-1",
+          !simplified ? "bg-info-soft text-info" : "text-muted hover:bg-surface-2",
+        )}
+      >
+        Detailed
+      </button>
+    </div>
+  );
+}
+
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/**
+ * Month filter for the "Per Month" view: a year selector (dropdown) paired
+ * with a row of month chips (Jan–Dec) scoped to the chosen year. Months
+ * without data (outside the available range) are disabled. `options` is the
+ * flat list of selectable YYYY-MM keys most recent first.
+ */
+function InlineMonthFilter({
   selected,
   options,
 }: {
@@ -456,23 +540,83 @@ function MonthPicker({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  const validKeys = useMemo(
+    () => new Set(options.map((o) => o.key)),
+    [options],
+  );
+  // Distinct years present in the options, newest first.
+  const years = useMemo(
+    () =>
+      Array.from(new Set(options.map((o) => o.key.slice(0, 4)))).sort((a, b) =>
+        b.localeCompare(a),
+      ),
+    [options],
+  );
+
+  const selectedYear = selected.slice(0, 4);
+
+  function go(monthKey: string) {
+    startTransition(() => router.push(`?view=month&month=${monthKey}`));
+  }
+
+  function selectYear(year: string) {
+    // Keep the same month-of-year if it exists for the new year; otherwise
+    // fall back to the most recent available month in that year.
+    const sameMonth = `${year}-${selected.slice(5, 7)}`;
+    if (validKeys.has(sameMonth)) {
+      go(sameMonth);
+      return;
+    }
+    const latest = options.find((o) => o.key.slice(0, 4) === year);
+    if (latest) go(latest.key);
+  }
+
   return (
-    <select
-      value={selected}
-      onChange={(e) => {
-        const month = e.target.value;
-        startTransition(() => router.push(`?view=month&month=${month}`));
-      }}
-      disabled={isPending}
-      className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
-      aria-label="Select month"
-    >
-      {options.map((o) => (
-        <option key={o.key} value={o.key}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Select month">
+      <select
+        value={selectedYear}
+        disabled={isPending}
+        onChange={(e) => selectYear(e.target.value)}
+        aria-label="Select year"
+        className={cn(
+          "shrink-0 rounded-md border border-border bg-surface px-2 py-1 font-medium",
+          isPending && "opacity-50",
+        )}
+      >
+        {years.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        {MONTH_LABELS.map((label, i) => {
+          const key = `${selectedYear}-${String(i + 1).padStart(2, "0")}`;
+          const available = validKeys.has(key);
+          const active = key === selected;
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={isPending || !available}
+              aria-pressed={active}
+              onClick={() => go(key)}
+              className={cn(
+                "shrink-0 whitespace-nowrap rounded-md border px-2 py-1",
+                active
+                  ? "border-info bg-info-soft font-medium text-info"
+                  : "border-border text-muted hover:bg-surface-2",
+                !available && "cursor-not-allowed opacity-30 hover:bg-transparent",
+                isPending && "opacity-50",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

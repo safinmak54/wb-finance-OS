@@ -1,5 +1,8 @@
+"use client";
+
 import { Fragment } from "react";
 import { fmt } from "@/lib/format";
+import { PercentToggle, usePercentDisplay } from "@/components/ui/PercentDisplay";
 import { cn } from "@/lib/utils/cn";
 
 export type BalanceMonthlyRow =
@@ -34,14 +37,21 @@ export function BalanceMonthlyTable({
   /** Per-month denominator for % column (typically total assets). */
   denomByMonth: Record<string, number>;
 }) {
+  const { showPct } = usePercentDisplay();
   const colTemplate = months
-    .map(() => "minmax(80px, 1fr) minmax(38px, 0.45fr)")
+    .map(() =>
+      showPct ? "minmax(80px, 1fr) minmax(38px, 0.45fr)" : "minmax(80px, 1fr)",
+    )
     .join(" ");
   const gridCols = `minmax(220px, 1.6fr) ${colTemplate}`;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
-      <div className="min-w-fit">
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <PercentToggle />
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
+        <div className="min-w-fit">
         <div
           className="grid items-end gap-x-1.5 border-b border-border bg-surface-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted"
           style={{ gridTemplateColumns: gridCols }}
@@ -50,12 +60,14 @@ export function BalanceMonthlyTable({
           {months.map((m) => (
             <Fragment key={m.key}>
               <div className="text-right">{m.label}</div>
-              <div
-                className="text-right text-[10px] normal-case tracking-normal text-muted/70"
-                title="% of total assets"
-              >
-                % a.
-              </div>
+              {showPct && (
+                <div
+                  className="text-right text-[10px] normal-case tracking-normal text-muted/70"
+                  title="% of total assets"
+                >
+                  % a.
+                </div>
+              )}
             </Fragment>
           ))}
         </div>
@@ -95,9 +107,11 @@ export function BalanceMonthlyTable({
                       >
                         {fmt(v)}
                       </div>
-                      <div className="text-right font-mono text-[10px] text-muted">
-                        {pct(v, denom)}
-                      </div>
+                      {showPct && (
+                        <div className="text-right font-mono text-[10px] text-muted">
+                          {pct(v, denom)}
+                        </div>
+                      )}
                     </Fragment>
                   );
                 })}
@@ -130,15 +144,18 @@ export function BalanceMonthlyTable({
                     >
                       {fmt(v)}
                     </div>
-                    <div className="text-right font-mono text-[10px] text-muted">
-                      {pct(v, denom)}
-                    </div>
+                    {showPct && (
+                      <div className="text-right font-mono text-[10px] text-muted">
+                        {pct(v, denom)}
+                      </div>
+                    )}
                   </Fragment>
                 );
               })}
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );

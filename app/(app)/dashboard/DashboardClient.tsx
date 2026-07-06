@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
+import type { StatChange } from "@/components/ui/Card";
 import { Stat } from "@/components/ui/Card";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { DonutChart } from "@/components/charts/DonutChart";
 import { BarChart } from "@/components/charts/BarChart";
 import { fmt, fmtPct } from "@/lib/format";
+import type { CompareMode } from "@/lib/period";
 import type { ReportTxn } from "@/lib/queries/reports";
+import {
+  StatDetailDrawer,
+  type MetricId,
+  type MetricMonth,
+} from "./StatDetailDrawer";
 
 type Kpis = {
   grossRevenue: number;
@@ -18,12 +26,63 @@ type Kpis = {
   overdueTotal: number;
 };
 
+/** Prior-period KPI totals (same shape, sans derived fields). */
+type CompareKpis = {
+  grossRevenue: number;
+  cogs: number;
+  adSpends: number;
+  adminExp: number;
+  netIncome: number;
+};
+
 type Props = {
   kpis: Kpis;
+  compareKpis: CompareKpis | null;
+  compareMode: CompareMode | null;
+  /** Reference year the per-card detail drawer breaks down. */
+  drawerYear: number;
+  /** Latest month with activity in `drawerYear` (1–12). */
+  drawerMonth: number;
+  /** `drawerYear` monthly P&L series (Jan→Dec), for the detail drawer. */
+  drawerMonthly: MetricMonth[];
+  /** `drawerYear − 1` monthly P&L series (Jan→Dec), for YoY / January MoM. */
+  drawerPriorMonthly: MetricMonth[];
   txns: ReportTxn[];
 };
 
-export function DashboardClient({ kpis, txns }: Props) {
+const COMPARE_LABEL: Record<CompareMode, string> = {
+  mom: "vs prior month",
+  yoy: "vs prior year",
+};
+
+export function DashboardClient({
+  kpis,
+  compareKpis,
+  compareMode,
+  drawerYear,
+  drawerMonth,
+  drawerMonthly,
+  drawerPriorMonthly,
+  txns,
+}: Props) {
+  const [selected, setSelected] = useState<MetricId | null>(null);
+
+  // Build the period-over-period change shown under a KPI value. `invert` is
+  // true for cost metrics, where a decrease is the favorable direction.
+  function changeFor(
+    current: number,
+    prior: number | undefined,
+    invert: boolean,
+  ): StatChange | undefined {
+    if (!compareMode) return undefined;
+    const label = COMPARE_LABEL[compareMode];
+    if (prior === undefined || prior === 0) {
+      return { pct: null, favorable: false, label };
+    }
+    const pct = ((current - prior) / Math.abs(prior)) * 100;
+    return { pct, favorable: invert ? pct < 0 : pct > 0, label };
+  }
+
   // Group revenue by source (Stripe/PayPal/Wire) using account_subtype + name
   const revenueByName = new Map<string, number>();
   const expenseByLine = new Map<string, number>();
@@ -52,15 +111,42 @@ export function DashboardClient({ kpis, txns }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat label="Gross Revenue" value={fmt(kpis.grossRevenue)} />
-        <Stat label="COGS" value={fmt(kpis.cogs)} />
-        <Stat label="Ad Spend" value={fmt(kpis.adSpends)} />
-        <Stat label="Operating Exp" value={fmt(kpis.adminExp)} />
+        <Stat
+          label="Gross Revenue"
+          value={fmt(kpis.grossRevenue)}
+          strong
+          change={changeFor(kpis.grossRevenue, compareKpis?.grossRevenue, false)}
+          onClick={() => setSelected("grossRevenue")}
+        />
+        <Stat
+          label="COGS"
+          value={fmt(kpis.cogs)}
+          strong
+          change={changeFor(kpis.cogs, compareKpis?.cogs, true)}
+          onClick={() => setSelected("cogs")}
+        />
+        <Stat
+          label="Ad Spend"
+          value={fmt(kpis.adSpends)}
+          strong
+          change={changeFor(kpis.adSpends, compareKpis?.adSpends, true)}
+          onClick={() => setSelected("adSpends")}
+        />
+        <Stat
+          label="Operating Exp"
+          value={fmt(kpis.adminExp)}
+          strong
+          change={changeFor(kpis.adminExp, compareKpis?.adminExp, true)}
+          onClick={() => setSelected("adminExp")}
+        />
         <Stat
           label="Net income"
           value={fmt(kpis.netIncome)}
+          strong
           delta={`${fmtPct(kpis.netMargin)} margin`}
           tone={kpis.netIncome >= 0 ? "positive" : "negative"}
+          change={changeFor(kpis.netIncome, compareKpis?.netIncome, false)}
+          onClick={() => setSelected("netIncome")}
         />
       </div>
 
@@ -108,6 +194,15 @@ export function DashboardClient({ kpis, txns }: Props) {
           </CardBody>
         </Card>
       </div>
+
+      <StatDetailDrawer
+        metricId={selected}
+        refYear={drawerYear}
+        refMonth={drawerMonth}
+        monthly={drawerMonthly}
+        priorYearMonthly={drawerPriorMonthly}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
 }

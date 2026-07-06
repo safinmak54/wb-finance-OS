@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { ToastProvider } from "@/components/ui/Toast";
+import { PercentDisplayProvider } from "@/components/ui/PercentDisplay";
 import { AdvisorPanel } from "@/components/ai/AdvisorPanel";
 import { RoleGate } from "@/components/auth/RoleGate";
 import { getCurrentProfile } from "@/lib/auth/profile";
@@ -21,15 +22,17 @@ export default async function AppLayout({
 
   return (
     <ToastProvider>
-      <div className="flex h-screen w-screen overflow-hidden bg-background">
-        <Sidebar role={profile.role} />
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-      </div>
-      <RoleGate role={profile.role} action="ai-advisor">
-        <Suspense fallback={null}>
-          <AdvisorPanel />
-        </Suspense>
-      </RoleGate>
+      <PercentDisplayProvider>
+        <div className="flex h-screen w-screen overflow-hidden bg-background">
+          <Sidebar role={profile.role} />
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </div>
+        <RoleGate role={profile.role} action="ai-advisor">
+          <Suspense fallback={null}>
+            <AdvisorPanel />
+          </Suspense>
+        </RoleGate>
+      </PercentDisplayProvider>
     </ToastProvider>
   );
 }

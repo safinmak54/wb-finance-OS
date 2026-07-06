@@ -15,23 +15,41 @@ import {
   CODE_TO_SUBTYPE,
   HIDDEN_ACCOUNT_CODES,
   computeMonthlyPnl,
+  type MonthlyPnlMetrics,
 } from "@/lib/pnl/structure";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import {
   periodFromSearchParams,
+  comparisonRange,
   monthlyBuckets,
   monthKeysBetween,
-  recentMonths,
   currentMonthKey,
+  type CompareMode,
 } from "@/lib/period";
 import { DashboardClient } from "./DashboardClient";
 import { DashboardFilters } from "./DashboardFilters";
-import {
-  MonthlySummary,
-  type MonthlySummaryView,
-} from "./MonthlySummary";
+import { MonthlySummary } from "./MonthlySummary";
 
 export const dynamic = "force-dynamic";
+
+/** Sum per-month P&L metrics into a single set of period totals. */
+function sumMetrics(metrics: Iterable<MonthlyPnlMetrics>): MonthlyPnlMetrics {
+  const totals: MonthlyPnlMetrics = {
+    grossRevenue: 0,
+    cogs: 0,
+    adSpends: 0,
+    adminExp: 0,
+    netIncome: 0,
+  };
+  for (const m of metrics) {
+    totals.grossRevenue += m.grossRevenue;
+    totals.cogs += m.cogs;
+    totals.adSpends += m.adSpends;
+    totals.adminExp += m.adminExp;
+    totals.netIncome += m.netIncome;
+  }
+  return totals;
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -42,41 +60,60 @@ export default async function DashboardPage({
   const period = periodFromSearchParams(sp);
   const entity = entityFilterFromSearchParams(sp);
 
-  // Monthly-summary view toggle (independent of the KPI-card period filter):
-  // full year, a single quarter (q1–q4), or one individual month.
-  const view: MonthlySummaryView =
-    sp.view === "q1" ||
-    sp.view === "q2" ||
-    sp.view === "q3" ||
-    sp.view === "q4" ||
-    sp.view === "month"
-      ? sp.view
-      : "year";
+  // Period-over-period comparison for the KPI cards (independent of the
+  // Monthly-summary view): previous month (MoM) or previous year (YoY).
+  const compare: CompareMode | null =
+    sp.compare === "mom" || sp.compare === "yoy" ? sp.compare : null;
 
-  // Per-month view: a single user-selected month (defaults to current month).
-  const monthOptions = recentMonths(24);
-  const selectedMonth =
-    typeof sp.month === "string" && /^\d{4}-\d{2}$/.test(sp.month)
-      ? sp.month
-      : currentMonthKey();
+  // Monthly-summary selector (independent of the KPI-card period filter):
+  // pick a year, then toggle which months (Jan–Dec) the summary spans.
+  const currentYear = Number(currentMonthKey().slice(0, 4));
+  const summaryYear =
+    typeof sp.summaryYear === "string" && /^\d{4}$/.test(sp.summaryYear)
+      ? Number(sp.summaryYear)
+      : currentYear;
 
-  // Resolve the month buckets + date range the summary spans.
-  let summaryMonths: { key: string; label: string; from: string; to: string }[];
-  if (view === "month") {
-    const my = Number(selectedMonth.slice(0, 4));
-    summaryMonths = monthlyBuckets(my).filter((m) => m.key === selectedMonth);
-  } else if (view === "q1" || view === "q2" || view === "q3" || view === "q4") {
-    const year = Number(period.from.slice(0, 4));
-    const qIdx = Number(view.slice(1)) - 1; // 0..3
-    summaryMonths = monthlyBuckets(year).slice(qIdx * 3, qIdx * 3 + 3);
-  } else {
-    const year = Number(period.from.slice(0, 4));
-    summaryMonths = monthlyBuckets(year);
+  // Year dropdown options: the current year back through four prior years.
+  const summaryYearOptions: number[] = [];
+  for (let y = currentYear; y >= currentYear - 4; y -= 1) {
+    summaryYearOptions.push(y);
   }
-  const summaryRange = {
-    from: summaryMonths[0].from,
-    to: summaryMonths[summaryMonths.length - 1].to,
-  };
+
+  // Selected month numbers (1–12). No param → all 12 selected; an explicit
+  // (possibly empty) list is respected so months can be toggled on and off.
+  const selectedMonths: number[] =
+    typeof sp.summaryMonths === "string"
+      ? sp.summaryMonths
+          .split(",")
+          .map((s) => Number(s))
+          .filter((n) => Number.isInteger(n) && n >= 1 && n <= 12)
+      : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const selectedSet = new Set(selectedMonths);
+
+  // The month buckets the summary spans, in calendar order.
+  const summaryMonths = monthlyBuckets(summaryYear).filter((m) =>
+    selectedSet.has(Number(m.key.slice(5, 7))),
+  );
+  // Fetch bound: first → last selected month (gaps are bucketed out below).
+  const summaryRange =
+    summaryMonths.length > 0
+      ? {
+          from: summaryMonths[0].from,
+          to: summaryMonths[summaryMonths.length - 1].to,
+        }
+      : { from: `${summaryYear}-01-01`, to: `${summaryYear}-01-01` };
+
+  // Per-card detail drawer: a full 12-month breakdown of the reference year
+  // (the year of the active period's end) plus the prior year, so the drawer
+  // can show a Month/Value/MoM table with January comparing to prior December
+  // and a full-year YoY. `refMonth` is the current calendar month for the
+  // ongoing year, or December for a past year — it bounds the average, peak,
+  // and YoY windows so not-yet-happened months don't dilute them.
+  const refYear = Number(period.to.slice(0, 4));
+  const refMonth =
+    refYear === currentYear ? Number(currentMonthKey().slice(5, 7)) : 12;
+  const drawerFrom = `${refYear - 1}-01-01`;
+  const drawerTo = `${refYear}-12-31`;
 
   const supabase = createDataClient();
 
@@ -88,6 +125,8 @@ export default async function DashboardPage({
     kpiPnlReport,
     kpiManualEntries,
     accounts,
+    drawerPnlReport,
+    drawerManualEntries,
   ] = await Promise.all([
     fetchReportData(supabase, {
       entity,
@@ -116,6 +155,15 @@ export default async function DashboardPage({
       to: period.to,
     }),
     listAccounts(supabase, { activeOnly: true }),
+    fetchPnlReportData(supabase, {
+      entity,
+      from: drawerFrom,
+      to: drawerTo,
+    }),
+    listPnlManualEntries(supabase, {
+      from: drawerFrom,
+      to: drawerTo,
+    }),
   ]);
 
   const overdueCount = openInvoices.filter((i) => i.status === "overdue").length;
@@ -164,17 +212,65 @@ export default async function DashboardPage({
     summaryAccounts,
     monthKeysBetween(period.from, period.to),
   );
-  const kpiTotals = { grossRevenue: 0, cogs: 0, adSpends: 0, adminExp: 0, netIncome: 0 };
-  for (const m of kpiMetrics.values()) {
-    kpiTotals.grossRevenue += m.grossRevenue;
-    kpiTotals.cogs += m.cogs;
-    kpiTotals.adSpends += m.adSpends;
-    kpiTotals.adminExp += m.adminExp;
-    kpiTotals.netIncome += m.netIncome;
-  }
+  const kpiTotals = sumMetrics(kpiMetrics.values());
   const kpiNetMargin = kpiTotals.grossRevenue
     ? (kpiTotals.netIncome / kpiTotals.grossRevenue) * 100
     : 0;
+
+  // Per-card detail drawer: reuse the same P&L pipeline over the reference year
+  // and the prior year, keyed month-by-month so the drawer can present a
+  // 12-month table plus average/peak/YoY. Same mapping/sign/manual-merge as the
+  // KPI cards and Monthly summary, so the drawer's numbers tie out to both.
+  const drawerAggregates = groupByAccountAndEntity(drawerPnlReport.txns);
+  mergeManualEntriesIntoAggregates(
+    drawerAggregates,
+    drawerManualEntries,
+    summaryAccounts,
+    CODE_TO_SUBTYPE,
+  );
+  const drawerMetrics = computeMonthlyPnl(
+    drawerAggregates,
+    summaryAccounts,
+    monthKeysBetween(drawerFrom, drawerTo),
+  );
+  const drawerMonthly = monthlyBuckets(refYear).map((m) => ({
+    key: m.key,
+    label: m.label,
+    metrics: drawerMetrics.get(m.key)!,
+  }));
+  const drawerPriorMonthly = monthlyBuckets(refYear - 1).map((m) => ({
+    key: m.key,
+    label: m.label,
+    metrics: drawerMetrics.get(m.key)!,
+  }));
+
+  // Run the same P&L pipeline over an arbitrary shifted range so the KPI
+  // cards can show a period-over-period delta.
+  async function rangeTotals(range: { from: string; to: string }) {
+    const [rep, manual] = await Promise.all([
+      fetchPnlReportData(supabase, { entity, from: range.from, to: range.to }),
+      listPnlManualEntries(supabase, { from: range.from, to: range.to }),
+    ]);
+    const agg = groupByAccountAndEntity(rep.txns);
+    mergeManualEntriesIntoAggregates(
+      agg,
+      manual,
+      summaryAccounts,
+      CODE_TO_SUBTYPE,
+    );
+    const metrics = computeMonthlyPnl(
+      agg,
+      summaryAccounts,
+      monthKeysBetween(range.from, range.to),
+    );
+    return sumMetrics(metrics.values());
+  }
+
+  // The inline card delta follows the compare toggle; only fetch the totals
+  // for the active mode (the detail drawer no longer depends on these).
+  const compareKpis = compare
+    ? await rangeTotals(comparisonRange(period, compare))
+    : null;
 
   return (
     <PageShell
@@ -188,6 +284,7 @@ export default async function DashboardPage({
           activeKey={period.key}
           from={period.from}
           to={period.to}
+          compare={compare ?? ""}
         />
         <DashboardClient
           kpis={{
@@ -200,13 +297,19 @@ export default async function DashboardPage({
             overdueCount,
             overdueTotal,
           }}
+          compareKpis={compareKpis}
+          compareMode={compare}
+          drawerYear={refYear}
+          drawerMonth={refMonth}
+          drawerMonthly={drawerMonthly}
+          drawerPriorMonthly={drawerPriorMonthly}
           txns={reportData.txns}
         />
         <MonthlySummary
-          view={view}
+          year={summaryYear}
+          yearOptions={summaryYearOptions}
+          selectedMonths={selectedMonths}
           months={monthlyRows}
-          selectedMonth={selectedMonth}
-          monthOptions={monthOptions}
         />
       </div>
     </PageShell>

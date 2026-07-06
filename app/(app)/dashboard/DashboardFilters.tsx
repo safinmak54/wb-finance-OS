@@ -12,12 +12,20 @@ const PRESETS: Array<{ value: string; label: string }> = [
   { value: "ytd", label: "YTD" },
 ];
 
+const COMPARE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "", label: "No compare" },
+  { value: "mom", label: "MoM" },
+  { value: "yoy", label: "YoY" },
+];
+
 type Props = {
   /** Active period key resolved server-side, so the bar reflects the URL. */
   activeKey: string;
   /** Resolved range for the active period — prefills the custom inputs. */
   from: string;
   to: string;
+  /** Active comparison mode ("mom" | "yoy"), or "" when off. */
+  compare: string;
 };
 
 /**
@@ -25,7 +33,7 @@ type Props = {
  * Pushes `?period=…` (and `?from`/`?to` for custom) to the URL so the
  * Server Component re-renders the KPIs and charts for the new window.
  */
-export function DashboardFilters({ activeKey, from, to }: Props) {
+export function DashboardFilters({ activeKey, from, to, compare }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -55,6 +63,13 @@ export function DashboardFilters({ activeKey, from, to }: Props) {
     sp.set("period", "custom");
     sp.set("from", draftFrom);
     sp.set("to", draftTo);
+    startTransition(() => router.push(`${pathname}?${sp.toString()}`));
+  }
+
+  function pushCompare(value: string) {
+    const sp = new URLSearchParams(params.toString());
+    if (value) sp.set("compare", value);
+    else sp.delete("compare");
     startTransition(() => router.push(`${pathname}?${sp.toString()}`));
   }
 
@@ -123,6 +138,32 @@ export function DashboardFilters({ activeKey, from, to }: Props) {
         >
           Apply
         </Button>
+      </div>
+
+      <div
+        className={cn(
+          "inline-flex overflow-hidden rounded-md border border-border text-xs",
+          pending && "opacity-50",
+        )}
+        aria-label="Comparison mode"
+      >
+        {COMPARE_OPTIONS.map((c, i) => (
+          <button
+            key={c.value || "off"}
+            type="button"
+            disabled={pending}
+            onClick={() => pushCompare(c.value)}
+            className={cn(
+              "px-3 py-1.5 font-medium transition",
+              i > 0 && "border-l border-border",
+              compare === c.value
+                ? "bg-info-soft text-info"
+                : "text-muted hover:bg-surface-2",
+            )}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
     </div>
   );
