@@ -5,16 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { BarChart } from "@/components/charts/BarChart";
 import { fmt, fmtPct } from "@/lib/format";
+import { PercentToggle, usePercentDisplay } from "@/components/ui/PercentDisplay";
 import { cn } from "@/lib/utils/cn";
 import type { MonthlyPnlMetrics } from "@/lib/pnl/structure";
-
-export type MonthlySummaryView =
-  | "year"
-  | "q1"
-  | "q2"
-  | "q3"
-  | "q4"
-  | "month";
 
 type MonthRow = {
   key: string;
@@ -23,10 +16,13 @@ type MonthRow = {
 };
 
 type Props = {
-  view: MonthlySummaryView;
+  /** Selected year for the summary. */
+  year: number;
+  /** Years offered in the year dropdown. */
+  yearOptions: number[];
+  /** Selected month numbers (1–12) — the summary spans these. */
+  selectedMonths: number[];
   months: MonthRow[];
-  selectedMonth: string;
-  monthOptions: Array<{ key: string; label: string }>;
 };
 
 type MetricKey = keyof MonthlyPnlMetrics;
@@ -40,10 +36,10 @@ const COLUMNS: Array<{ key: MetricKey; label: string; color: string }> = [
 ];
 
 export function MonthlySummary({
-  view,
+  year,
+  yearOptions,
+  selectedMonths,
   months,
-  selectedMonth,
-  monthOptions,
 }: Props) {
   const totals: MonthlyPnlMetrics = {
     grossRevenue: 0,
@@ -69,10 +65,11 @@ export function MonthlySummary({
         subtitle="Gross Revenue · COGS · Ad Spends · Operating Exp · Net Income — % of gross revenue"
         actions={
           <>
-            <ViewToggle
-              current={view}
-              selectedMonth={selectedMonth}
-              monthOptions={monthOptions}
+            <PercentToggle />
+            <YearMonthPicker
+              year={year}
+              yearOptions={yearOptions}
+              selectedMonths={selectedMonths}
             />
             <button
               type="button"
@@ -178,6 +175,7 @@ function MetricCell({
   grossRevenue: number;
   emphasis?: boolean;
 }) {
+  const { showPct } = usePercentDisplay();
   const pct = grossRevenue ? (value / grossRevenue) * 100 : null;
   const tone =
     metricKey === "netIncome"
@@ -197,91 +195,118 @@ function MetricCell({
         >
           {fmt(value)}
         </span>
-        <span className="w-10 shrink-0 text-right text-[10px] text-muted">
-          {pct === null ? "—" : fmtPct(pct)}
-        </span>
+        {showPct && (
+          <span className="w-10 shrink-0 text-right text-[10px] text-muted">
+            {pct === null ? "—" : fmtPct(pct)}
+          </span>
+        )}
       </div>
     </td>
   );
 }
 
-const VIEW_OPTIONS: Array<{ value: MonthlySummaryView; label: string }> = [
-  { value: "year", label: "Full Year" },
-  { value: "q1", label: "Q1" },
-  { value: "q2", label: "Q2" },
-  { value: "q3", label: "Q3" },
-  { value: "q4", label: "Q4" },
-  { value: "month", label: "Month" },
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-function ViewToggle({
-  current,
-  selectedMonth,
-  monthOptions,
+/**
+ * Summary date selector: one year dropdown plus a row of month chips
+ * (Jan–Dec) that toggle on and off. The year is chosen once, so the chips
+ * don't repeat it. Drives `?summaryYear=…&summaryMonths=1,2,…`.
+ */
+function YearMonthPicker({
+  year,
+  yearOptions,
+  selectedMonths,
 }: {
-  current: MonthlySummaryView;
-  selectedMonth: string;
-  monthOptions: Array<{ key: string; label: string }>;
+  year: number;
+  yearOptions: number[];
+  selectedMonths: number[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  function hrefFor(value: MonthlySummaryView): string {
-    const sp = new URLSearchParams(params.toString());
-    sp.set("view", value);
-    // Carry the selected month so toggling into "Month" lands somewhere sane.
-    if (value === "month" && !sp.get("month")) sp.set("month", selectedMonth);
-    const qs = sp.toString();
-    return qs ? `${pathname}?${qs}` : pathname;
-  }
+  const selected = new Set(selectedMonths);
 
-  function onMonthChange(month: string) {
+  function push(nextYear: number, nextMonths: number[]) {
     const sp = new URLSearchParams(params.toString());
-    sp.set("view", "month");
-    sp.set("month", month);
+    sp.set("summaryYear", String(nextYear));
+    sp.set("summaryMonths", nextMonths.join(","));
     startTransition(() => router.push(`${pathname}?${sp.toString()}`));
   }
 
+  function onYearChange(nextYear: number) {
+    push(nextYear, selectedMonths);
+  }
+
+  function toggleMonth(month: number) {
+    const next = selected.has(month)
+      ? selectedMonths.filter((m) => m !== month)
+      : [...selectedMonths, month].sort((a, b) => a - b);
+    push(year, next);
+  }
+
+  const allSelected = selectedMonths.length === 12;
+
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="inline-flex overflow-hidden rounded-md border border-border text-[11px]">
-        {VIEW_OPTIONS.map((o, i) => (
-          <button
-            key={o.value}
-            type="button"
-            disabled={isPending}
-            aria-disabled={isPending}
-            onClick={() => startTransition(() => router.push(hrefFor(o.value)))}
-            className={cn(
-              "px-2 py-1",
-              i > 0 && "border-l border-border",
-              current === o.value
-                ? "bg-info-soft text-info"
-                : "text-muted hover:bg-surface-2",
-              isPending && "opacity-50",
-            )}
-          >
-            {o.label}
-          </button>
+      <select
+        value={year}
+        onChange={(e) => onYearChange(Number(e.target.value))}
+        disabled={isPending}
+        className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
+        aria-label="Select year"
+      >
+        {yearOptions.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
         ))}
+      </select>
+
+      <div
+        className="inline-flex overflow-hidden rounded-md border border-border text-[11px]"
+        role="group"
+        aria-label="Select months"
+      >
+        {MONTH_LABELS.map((label, i) => {
+          const month = i + 1;
+          const active = selected.has(month);
+          return (
+            <button
+              key={month}
+              type="button"
+              disabled={isPending}
+              aria-pressed={active}
+              onClick={() => toggleMonth(month)}
+              className={cn(
+                "px-2 py-1",
+                i > 0 && "border-l border-border",
+                active
+                  ? "bg-info-soft font-medium text-info"
+                  : "text-muted hover:bg-surface-2",
+                isPending && "opacity-50",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
-      {current === "month" && (
-        <select
-          value={selectedMonth}
-          onChange={(e) => onMonthChange(e.target.value)}
-          disabled={isPending}
-          className="rounded-md border border-border bg-surface px-2 py-1 text-[11px]"
-          aria-label="Select month"
-        >
-          {monthOptions.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      )}
+
+      <button
+        type="button"
+        disabled={isPending}
+        onClick={() =>
+          push(year, allSelected ? [] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        }
+        className="rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:bg-surface-2"
+      >
+        {allSelected ? "Clear" : "All"}
+      </button>
     </div>
   );
 }

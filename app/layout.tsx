@@ -28,7 +28,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${dmSans.variable} ${dmMono.variable}`}>
-      <body className="bg-background text-foreground antialiased">
+      <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
         {children}
       </body>
     </html>

@@ -208,6 +208,43 @@ export function monthKeysBetween(from: string, to: string): string[] {
   return out;
 }
 
+export type CompareMode = "mom" | "yoy";
+
+/**
+ * Shift a YYYY-MM-DD date back by whole months, clamping the day to the
+ * target month's length (so e.g. Mar 31 − 1mo → Feb 28). Avoids the
+ * day-overflow behavior of `Date.setUTCMonth`.
+ */
+function shiftDateByMonths(dateStr: string, months: number): string {
+  const y = Number(dateStr.slice(0, 4));
+  const m = Number(dateStr.slice(5, 7));
+  const d = Number(dateStr.slice(8, 10));
+  let ny = y;
+  let nm = m - months;
+  while (nm <= 0) {
+    nm += 12;
+    ny -= 1;
+  }
+  const nd = Math.min(d, lastDayOfMonth(ny, nm));
+  return ymd(ny, nm, nd);
+}
+
+/**
+ * The comparison range for a period-over-period view: the same span shifted
+ * back one month (MoM) or one year (YoY), preserving the day-of-month so the
+ * comparison covers an equivalent window.
+ */
+export function comparisonRange(
+  range: { from: string; to: string },
+  mode: CompareMode,
+): { from: string; to: string } {
+  const months = mode === "yoy" ? 12 : 1;
+  return {
+    from: shiftDateByMonths(range.from, months),
+    to: shiftDateByMonths(range.to, months),
+  };
+}
+
 export function yearRange(year: number): PeriodRange {
   return {
     key: String(year),

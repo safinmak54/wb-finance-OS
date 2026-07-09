@@ -6,8 +6,21 @@ import { createDataClient } from "@/lib/supabase/data";
 import { requireRole } from "./_authz";
 import { writeAuditLog } from "./_audit";
 import { normalizeDate } from "@/lib/format";
+import { detectEntityFromBankAccount } from "@/lib/entities";
 
 const TXN_ROLES = ["bookkeeper", "admin"] as const;
+
+/**
+ * Chart-of-accounts code for the credit-card settlement suspense account
+ * (migration 0019). CC settlements ("payments") are parked here — a
+ * balance-sheet liability line — instead of being silently dropped, until
+ * finance decides their final posting destination. See
+ * plan/credit-card-settlements-separation.md.
+ */
+const CC_SETTLEMENT_SUSPENSE_CODE = "2999";
+/** Memo stamped on parked settlement rows so the bucket is filterable and the
+ *  eventual reclass journal entry can target it. */
+const CC_SETTLEMENT_MEMO = "cc_settlement:unposted";
 
 const ClassifyOneSchema = z.object({
   rawId: z.string().uuid(),
@@ -396,8 +409,17 @@ export async function markAsInternalTransfer(
   revalidatePath("/cc-inbox");
 }
 
-/** Mark rows as credit-card payments (bank → CC). Same treatment as
- *  transfers — removed from inbox, no P&L impact. */
+/**
+ * Mark rows as credit-card payments / settlements (bank → CC). A settlement
+ * pays down the card balance — a balance-sheet event, NOT a P&L expense (the
+ * expense was already booked when the card was charged). Per finance
+ * (2026-06-30) these must be *separated* from real expenses; the final
+ * posting destination is still TBD, so each row is parked in the
+ * Credit Card Settlements suspense account (migration 0019) rather than
+ * dropped. Unlike a true internal transfer it DOES post a `transactions`
+ * row — so the parked total is visible, summable, and re-postable later.
+ * See plan/credit-card-settlements-separation.md.
+ */
 export async function markAsCcPayment(
   input: z.input<typeof MarkKindSchema>,
 ) {
@@ -405,6 +427,92 @@ export async function markAsCcPayment(
   const parsed = MarkKindSchema.parse(input);
 
   const supabase = createDataClient();
+
+  // Load the raw rows so we can post a settlement row per id.
+  const { data: rows, error: loadErr } = await supabase
+    .from("raw_transactions")
+    .select(
+      "id, entity_id, bank_account, description, amount, direction, transaction_date, accounting_date",
+    )
+    .in("id", parsed.ids);
+  if (loadErr) throw new Error(loadErr.message);
+
+  // Resolve the suspense account (must exist — migration 0019).
+  const { data: acct, error: acctErr } = await supabase
+    .from("accounts")
+    .select("id")
+    .eq("account_code", CC_SETTLEMENT_SUSPENSE_CODE)
+    .maybeSingle();
+  if (acctErr) throw new Error(acctErr.message);
+  if (!acct) {
+    throw new Error(
+      `CC settlement suspense account ${CC_SETTLEMENT_SUSPENSE_CODE} is missing — apply migration 0019`,
+    );
+  }
+
+  // entity_id → entity code, to stamp each posted row's entity (NOT NULL).
+  const idToCode: Record<string, string> = {};
+  const { data: ents } = await supabase.from("entities").select("id, code");
+  for (const e of ents ?? []) idToCode[e.id] = e.code;
+
+  // A settlement must not be posted into a locked period. Find which
+  // (period, entity) pairs among these rows are closed, and skip posting a
+  // GL row for those (they're still flipped to classified, as before).
+  const resolveEntity = (r: (typeof rows)[number]): string =>
+    (r.entity_id ? idToCode[r.entity_id] : undefined) ??
+    detectEntityFromBankAccount(r.bank_account ?? r.description) ??
+    "WB";
+  const periodFor = (r: (typeof rows)[number]): string =>
+    String(r.accounting_date ?? r.transaction_date).slice(0, 7);
+
+  const candidates = (rows ?? []).map((r) => ({
+    raw: r,
+    entity: resolveEntity(r),
+    period: periodFor(r),
+  }));
+
+  const periods = [...new Set(candidates.map((c) => c.period))];
+  const entities = [...new Set(candidates.map((c) => c.entity))];
+  const closedSet = new Set<string>();
+  if (periods.length && entities.length) {
+    const { data: closed } = await supabase
+      .from("closed_periods")
+      .select("period, entity")
+      .in("period", periods)
+      .in("entity", entities);
+    for (const c of closed ?? []) closedSet.add(`${c.period}__${c.entity}`);
+  }
+
+  const postable = candidates.filter(
+    (c) => !closedSet.has(`${c.period}__${c.entity}`),
+  );
+  const skippedClosed = candidates.length - postable.length;
+
+  if (postable.length) {
+    const settlementRows = postable.map(({ raw, entity }) => ({
+      raw_transaction_id: raw.id,
+      entity,
+      account_id: acct.id,
+      amount:
+        raw.direction === "DEBIT"
+          ? -Math.abs(Number(raw.amount))
+          : Math.abs(Number(raw.amount)),
+      txn_date: normalizeDate(raw.transaction_date),
+      acc_date: normalizeDate(raw.accounting_date ?? raw.transaction_date),
+      description: raw.description ?? "",
+      memo: CC_SETTLEMENT_MEMO,
+    }));
+    // Ignore on checksum conflict so re-marking the same content is a no-op
+    // (mirrors classifyTransaction; migration 0016).
+    const { error: insErr } = await supabase
+      .from("transactions")
+      .upsert(settlementRows, {
+        onConflict: "checksum",
+        ignoreDuplicates: true,
+      });
+    if (insErr) throw new Error(insErr.message);
+  }
+
   const { error } = await supabase
     .from("raw_transactions")
     .update({
@@ -419,11 +527,19 @@ export async function markAsCcPayment(
     actorUserId: me.userId,
     table: "raw_transactions",
     op: "UPDATE",
-    after: { markedAs: "cc_payment", count: parsed.ids.length },
+    after: {
+      markedAs: "cc_payment",
+      count: parsed.ids.length,
+      posted: postable.length,
+      skippedClosed,
+      suspenseAccount: CC_SETTLEMENT_SUSPENSE_CODE,
+    },
   });
 
   revalidatePath("/inbox");
   revalidatePath("/cc-inbox");
+  revalidatePath("/ledger");
+  revalidatePath("/balance");
 }
 
 export async function deleteRawTransaction(id: string) {
