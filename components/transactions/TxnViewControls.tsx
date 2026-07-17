@@ -4,23 +4,37 @@ import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
-export type TxnView = "open" | "finalized";
+export type TxnTab =
+  | "all"
+  | "transfer"
+  | "cc_payment"
+  | "finalized"
+  | "remaining";
 
 type Props = {
-  /** Current view, resolved server-side from `?view=`. */
-  view: TxnView;
+  /** Current tab, resolved server-side from `?tab=`. */
+  tab: TxnTab;
+  /** Which page — the bank tab bar includes "Internal transaction"; the
+   *  credit-card one does not. */
+  side: "bank" | "cc";
   /** Effective period key (`"all"` or `YYYY-MM`), resolved server-side. */
   periodKey: string;
   /** Month options for the picker (first entry is the "All months" sentinel). */
   months: Array<{ key: string; label: string }>;
-  /** Live count of still-pending rows, shown on the To-classify tab. */
+  /** Live count of still-pending rows, shown on the Remaining tab. */
   openCount: number;
 };
 
-/** Tab toggle (To classify / Finalized) + month picker for the bank & CC
- *  transaction pages. Drives the server fetch purely through the URL
- *  (`?view=` and `?period=`), preserving every other search param. */
-export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
+/** Tab bar + month picker for the bank & CC transaction pages. Drives the
+ *  server fetch purely through the URL (`?tab=` and `?period=`), preserving
+ *  every other search param. */
+export function TxnViewControls({
+  tab,
+  side,
+  periodKey,
+  months,
+  openCount,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -36,31 +50,34 @@ export function TxnViewControls({ view, periodKey, months, openCount }: Props) {
     startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }
 
+  const tabs: Array<{ key: TxnTab; label: string }> = [
+    { key: "all", label: "All" },
+    ...(side === "bank"
+      ? [{ key: "transfer" as const, label: "Internal transaction" }]
+      : []),
+    { key: "cc_payment", label: "CC Payment" },
+    { key: "finalized", label: "Finalised" },
+    { key: "remaining", label: `Remaining (${openCount})` },
+  ];
+
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
-      <div className="inline-flex rounded-md border border-border bg-surface p-0.5">
-        <Tab
-          label={`To classify (${openCount})`}
-          active={view === "open"}
-          disabled={isPending}
-          // Drop the period param so the open tab defaults back to "All months".
-          onClick={() => pushWith({ view: null, period: null })}
-        />
-        <Tab
-          label="Finalized"
-          active={view === "finalized"}
-          disabled={isPending}
-          onClick={() => pushWith({ view: "finalized" })}
-        />
+      <div className="inline-flex flex-wrap rounded-md border border-border bg-surface p-0.5">
+        {tabs.map((t) => (
+          <Tab
+            key={t.key}
+            label={t.label}
+            active={tab === t.key}
+            disabled={isPending}
+            onClick={() => pushWith({ tab: t.key })}
+          />
+        ))}
       </div>
 
       <div className="ml-auto flex items-center gap-2 text-xs">
         <span className="text-muted">Month:</span>
         <select
           value={periodKey}
-          // Always set an explicit value — including "all". The Finalized tab
-          // defaults to the current month when `period` is absent, so dropping
-          // the param would silently re-narrow to this month instead of "all".
           onChange={(e) => pushWith({ period: e.target.value })}
           disabled={isPending}
           className="h-7 rounded-md border border-border bg-surface px-1.5 text-[11px]"

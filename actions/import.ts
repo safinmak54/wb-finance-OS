@@ -9,6 +9,7 @@ import { parseSpreadsheet, detectColumns } from "@/lib/import/parse";
 import { normalizeDate } from "@/lib/format";
 import {
   detectEntityFromBankAccount,
+  detectEntityFromCardAccount,
   type EntityCode,
 } from "@/lib/entities";
 import { detectDirectionFromDescription } from "@/lib/import/direction";
@@ -51,6 +52,7 @@ const SubmitSchema = z.object({
     amount: z.number().int().nonnegative(),
     type: z.number().int(),
     vendor: z.number().int(),
+    account: z.number().int().optional().default(-1),
   }),
 });
 
@@ -112,16 +114,39 @@ export async function commitImport(
       continue;
     }
 
-    // Direction comes from the Type column first (e.g. "ACH DEBIT",
-    // "WIRE TRANSFER CREDIT"), then from the description as a fallback,
-    // and finally from the amount sign if no pattern matched.
-    const direction: "DEBIT" | "CREDIT" =
-      detectDirectionFromDescription(typeCell) ??
-      detectDirectionFromDescription(`${desc} ${vendor}`) ??
-      (rawSigned < 0 ? "DEBIT" : "CREDIT");
+    // Direction.
+    //
+    // Credit cards carry no reliable debit/credit column, and the
+    // bank-statement keyword patterns ("ach debit", "wire transfer
+    // credit", …) don't apply to card merchant descriptions and could
+    // only misfire. So a card's direction is decided purely by the sign
+    // of the amount: a positive amount is a charge (money spent → DEBIT)
+    // and a negative amount is a payment/refund (CREDIT).
+    //
+    // Bank statements keep the richer resolution: the Type column first
+    // (e.g. "ACH DEBIT"), then the description, then the sign — where a
+    // negative amount is money out (DEBIT).
+    let direction: "DEBIT" | "CREDIT";
+    if (meta.source === "credit_card") {
+      direction = rawSigned < 0 ? "CREDIT" : "DEBIT";
+    } else {
+      direction =
+        detectDirectionFromDescription(typeCell) ??
+        detectDirectionFromDescription(`${desc} ${vendor}`) ??
+        (rawSigned < 0 ? "DEBIT" : "CREDIT");
+    }
 
-    // Per-row entity detection from description, fallback to default
-    const detected = detectEntityFromBankAccount(`${desc} ${vendor}`);
+    // Entity detection. Credit-card rows carry no vendor/payee entity
+    // signal — the entity is the card itself — so they resolve from the
+    // account number (e.g. Amex "Account #" 01001 → LP). Bank rows keep
+    // the description/vendor keyword match. Both fall back to the
+    // user-selected default entity.
+    const accountCell =
+      meta.mapping.account >= 0 ? (row[meta.mapping.account] ?? "").trim() : "";
+    const detected =
+      meta.source === "credit_card"
+        ? detectEntityFromCardAccount(accountCell)
+        : detectEntityFromBankAccount(`${desc} ${vendor}`);
     const entityCode =
       (detected as EntityCode | null) ??
       (meta.defaultEntity as EntityCode | undefined) ??

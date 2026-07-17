@@ -339,3 +339,32 @@ export async function listTxnsForAccountSet(
   if (error) throw error;
   return data ?? [];
 }
+
+/** Balance-sheet drill-down: every transaction backing a set of balance
+ *  accounts. Reads the raw `transactions` table with no date bound and only
+ *  an entity filter — exactly matching `fetchBalanceSheetData`'s scope — so
+ *  the listed rows sum to the balance-sheet line they were opened from. */
+export async function listBalanceTxnsForAccountSet(
+  supabase: Sb,
+  args: {
+    accountIds: string[];
+    entity?: EntityFilterValue;
+  },
+): Promise<DrillDownTxn[]> {
+  if (args.accountIds.length === 0) return [];
+  let q = supabase
+    .from("transactions")
+    .select(
+      "id, acc_date, description, entity, amount, account_id, memo, raw_transaction_id",
+    )
+    .in("account_id", args.accountIds)
+    .order("acc_date", { ascending: false });
+
+  if (args.entity && args.entity !== "all") {
+    q = applyEntityCodeFilter(q, "entity", args.entity);
+  }
+
+  const { data, error } = await q.returns<DrillDownTxn[]>();
+  if (error) throw error;
+  return data ?? [];
+}

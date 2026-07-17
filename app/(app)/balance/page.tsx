@@ -16,13 +16,11 @@ import {
   resolvePeriod,
 } from "@/lib/period";
 import {
-  StatementSection,
-  type StatementLine,
-} from "@/components/financial/StatementSection";
-import {
   BalanceMonthlyTable,
   type BalanceMonthlyRow,
 } from "@/components/financial/BalanceMonthlyTable";
+import { CategorizedBalanceSheet } from "@/components/financial/CategorizedBalanceSheet";
+import { buildExactBalanceSheet } from "@/lib/balance/structure";
 import { cn } from "@/lib/utils/cn";
 
 export const dynamic = "force-dynamic";
@@ -138,36 +136,21 @@ export default async function BalancePage({
     );
   }
 
-  // Annual (default): legacy single-snapshot card layout, cumulative across
-  // all history. Retained earnings uses the YTD revenue/expense net.
+  // Annual (default): classic two-column balance sheet, cumulative across all
+  // history. Accounts are grouped into management categories (Cash, A/R by
+  // payment method, A/P — COGS/Marketing/Salaries/Others, …); Net Income uses
+  // the YTD revenue/expense net as a dedicated equity line.
   const groups = groupBalanceByAccount(bsTxns);
   const totalsById = new Map<string, number>();
   for (const g of groups) {
     if (g.account?.id) totalsById.set(g.account.id, g.total);
   }
-  // Show every active account (plus any with a balance), even at zero, so
-  // empty asset/liability/equity rows still render — matching the P&L.
+  // Include every active account (plus any with a balance) so the category
+  // subtotals tie out even for accounts with no current-period activity.
   const balanceAccounts = mergeBalanceAccounts(
     accounts,
     groups.map((g) => g.account),
   );
-
-  function lineFor(
-    type: "asset" | "liability" | "equity",
-  ): { lines: StatementLine[]; total: number } {
-    const lines: StatementLine[] = balanceAccounts
-      .filter((a) => a.account_type === type)
-      .map((a) => {
-        const raw = totalsById.get(a.id) ?? 0;
-        return {
-          label: `${a.account_code} · ${a.account_name}`,
-          amount: type === "asset" ? -raw : raw,
-        };
-      })
-      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
-    const total = lines.reduce((s, l) => s + l.amount, 0);
-    return { lines, total };
-  }
 
   let revenueTotal = 0;
   let expenseTotal = 0;
@@ -176,23 +159,30 @@ export default async function BalancePage({
     if (t.accounts.account_type === "revenue") revenueTotal += Number(t.amount);
     else if (t.accounts.account_type === "expense") expenseTotal += -Number(t.amount);
   }
-  const retainedEarnings = revenueTotal - expenseTotal;
+  const netIncome = revenueTotal - expenseTotal;
 
-  const assets = lineFor("asset");
-  const liabilities = lineFor("liability");
-  const equity = lineFor("equity");
+  // Owner's Distribution is a manually maintained equity figure entered on the
+  // sheet, persisted in cash_balances under a reserved key (no GL posting yet).
+  // Cumulative magnitude per entity; the consolidated view sums all entities.
+  let distQuery = supabase
+    .from("cash_balances")
+    .select("value")
+    .eq("col_key", "owner_distribution");
+  if (entity !== "all") distQuery = distQuery.eq("entity", entity);
+  const { data: distRows } = await distQuery;
+  const ownerDistribution = (distRows ?? []).reduce(
+    (s: number, r: { value: number | null }) => s + Math.abs(Number(r.value ?? 0)),
+    0,
+  );
 
-  if (retainedEarnings !== 0) {
-    equity.lines.push({
-      label: "Retained earnings (YTD net income)",
-      amount: retainedEarnings,
-      emphasis: "muted",
-    });
-    equity.total += retainedEarnings;
-  }
-
-  const totalLE = liabilities.total + equity.total;
-  const balanced = Math.abs(assets.total - totalLE) < 0.5;
+  const sheet = buildExactBalanceSheet(
+    balanceAccounts,
+    totalsById,
+    netIncome,
+    ownerDistribution,
+  );
+  const codeToId: Record<string, string> = {};
+  for (const a of balanceAccounts) codeToId[a.account_code] = a.id;
 
   return (
     <PageShell
@@ -204,38 +194,14 @@ export default async function BalancePage({
         <ViewToggle current="annual" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <StatementSection
-          title="Assets"
-          lines={assets.lines}
-          total={assets.total}
-          totalLabel="Total assets"
-        />
-        <div className="flex flex-col gap-4">
-          <StatementSection
-            title="Liabilities"
-            lines={liabilities.lines}
-            total={liabilities.total}
-            totalLabel="Total liabilities"
-          />
-          <StatementSection
-            title="Equity"
-            lines={equity.lines}
-            total={equity.total}
-            totalLabel="Total equity"
-          />
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Stat label="Total assets" value={assets.total} />
-        <Stat label="Liabilities + Equity" value={totalLE} />
-        <Stat
-          label={balanced ? "✓ Balanced" : "⚠ Out of balance"}
-          value={assets.total - totalLE}
-          tone={balanced ? "positive" : "negative"}
-        />
-      </div>
+      <CategorizedBalanceSheet
+        sheet={sheet}
+        codeToId={codeToId}
+        entity={entity}
+        ownerDistribution={ownerDistribution}
+        canEditDistribution={entity !== "all"}
+        equityExclDistribution={sheet.totalEquity + ownerDistribution}
+      />
     </PageShell>
   );
 }
@@ -454,31 +420,3 @@ function ViewToggle({ current }: { current: View }) {
   );
 }
 
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "positive" | "negative";
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted">
-        {label}
-      </div>
-      <div
-        className={
-          tone === "positive"
-            ? "mt-1.5 font-mono text-xl font-semibold text-success"
-            : tone === "negative"
-              ? "mt-1.5 font-mono text-xl font-semibold text-danger"
-              : "mt-1.5 font-mono text-xl font-semibold text-foreground"
-        }
-      >
-        {value < 0 ? `(${Math.abs(value).toLocaleString()})` : value.toLocaleString()}
-      </div>
-    </div>
-  );
-}

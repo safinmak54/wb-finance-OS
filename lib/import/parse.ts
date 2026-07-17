@@ -117,6 +117,7 @@ export function detectColumns(headers: string[]): {
   credit: number;
   vendor: number;
   type: number;
+  account: number;
 } {
   const lower = headers.map((h) => h.toLowerCase());
   const find = (...keys: string[]) =>
@@ -129,5 +130,9 @@ export function detectColumns(headers: string[]): {
     credit: find("credit", "deposit"),
     vendor: find("vendor", "payee", "merchant"),
     type: find("type"),
+    // Card statements carry the entity signal on the account number
+    // (e.g. Amex "Account #"), not the vendor. Match "account"/"acct"
+    // but not "card member".
+    account: find("account #", "account#", "account no", "account", "acct"),
   };
 }

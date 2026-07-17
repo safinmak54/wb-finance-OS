@@ -15,12 +15,22 @@ import {
 } from "@/actions/import";
 import type { BankConnection } from "@/lib/supabase/types";
 
-const FIELDS = [
+const CORE_FIELDS = [
   { key: "date", label: "Date", required: true },
   { key: "description", label: "Description", required: true },
   { key: "amount", label: "Amount", required: true },
+] as const;
+
+// Bank rows resolve direction from a Type column and entity from the
+// vendor/payee. Credit-card rows have neither — direction comes purely
+// from the amount sign and entity from the account number — so the card
+// field set swaps those two for an "Account #" mapping.
+const BANK_FIELDS = [
   { key: "type", label: "Type (Debit/Credit)", required: false },
   { key: "vendor", label: "Vendor / payee", required: false },
+] as const;
+const CREDIT_CARD_FIELDS = [
+  { key: "account", label: "Account # (entity mapping)", required: false },
 ] as const;
 
 type Mapping = {
@@ -29,6 +39,7 @@ type Mapping = {
   amount: number;
   type: number;
   vendor: number;
+  account: number;
 };
 
 type Props = {
@@ -51,7 +62,13 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
     amount: -1,
     type: -1,
     vendor: -1,
+    account: -1,
   });
+
+  const fields =
+    source === "credit_card"
+      ? [...CORE_FIELDS, ...CREDIT_CARD_FIELDS]
+      : [...CORE_FIELDS, ...BANK_FIELDS];
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [wipeConfirm, setWipeConfirm] = useState("");
@@ -120,6 +137,7 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
           amount: p.detected.amount,
           type: p.detected.type,
           vendor: p.detected.vendor,
+          account: p.detected.account,
         });
       } catch (err) {
         setError((err as Error).message);
@@ -270,7 +288,7 @@ export function ImportClient({ banks = [], onComplete, isAdmin = false }: Props 
           />
           <CardBody className="flex flex-col gap-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {FIELDS.map((f) => (
+              {fields.map((f) => (
                 <Field
                   key={f.key}
                   label={`${f.label}${f.required ? " *" : ""}`}

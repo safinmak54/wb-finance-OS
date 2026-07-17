@@ -74,6 +74,8 @@ const CC_PAYMENT_PATTERNS = [
   /\bbank of america credit card payment\b/i,
   /\bcredit card payment\b/i,
   /\bcc payment\b/i,
+  // Card-side payment receipt, e.g. Amex "ONLINE PAYMENT - THANK YOU".
+  /\bonline payment\b[\s-]*thank you\b/i,
 ];
 
 const TRANSFER_PATTERNS = [
