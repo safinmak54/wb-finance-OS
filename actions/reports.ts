@@ -5,6 +5,7 @@ import { createDataClient } from "@/lib/supabase/data";
 import {
   listTxnsForAccount,
   listTxnsForAccountSet,
+  listBalanceTxnsForAccountSet,
 } from "@/lib/queries/transactions";
 import { getCurrentProfile } from "@/lib/auth/profile";
 import { canViewPage } from "@/lib/auth/permissions";
@@ -57,6 +58,29 @@ export async function drillDownAccountSet(input: z.input<typeof SetSchema>) {
     accountIds: parsed.accountIds,
     range: { from: parsed.from, to: parsed.to },
     entityCodes: parsed.entityCodes,
+  });
+}
+
+const BalanceSetSchema = z.object({
+  accountIds: z.array(z.string().uuid()).min(1),
+  entity: z.string().optional(),
+});
+
+/** Balance-sheet drill-down: list every transaction making up a balance line
+ *  (cumulative, entity-scoped) — the accounts that compose the clicked row. */
+export async function drillDownBalanceAccountSet(
+  input: z.input<typeof BalanceSetSchema>,
+) {
+  const me = await getCurrentProfile();
+  if (!me || !canViewPage(me.role, "balance")) {
+    throw new Error("Forbidden");
+  }
+  const parsed = BalanceSetSchema.parse(input);
+
+  const supabase = createDataClient();
+  return listBalanceTxnsForAccountSet(supabase, {
+    accountIds: parsed.accountIds,
+    entity: (parsed.entity ?? "all") as EntityFilterValue,
   });
 }
 

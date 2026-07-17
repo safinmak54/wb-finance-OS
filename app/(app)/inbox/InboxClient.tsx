@@ -47,9 +47,12 @@ type Props = {
   /** Hide the kind/source/bank filter bar (irrelevant for the Cashbook
    *  inbox, where every row shares one source). Defaults to shown. */
   showSourceFilters?: boolean;
+  /** Whether the "internal transfer" concept applies. Credit-card rows
+   *  are only ever charges or payments, so the CC inbox hides both the
+   *  "Internal Transfer" filter chip and the "Mark as Transfer" bulk
+   *  action. Defaults to shown (bank inbox). */
+  showInternalTransfer?: boolean;
 };
-
-type KindFilter = "all" | TxnKind;
 
 export function InboxClient({
   rows,
@@ -61,6 +64,7 @@ export function InboxClient({
   entityFilter,
   categories,
   showSourceFilters = true,
+  showInternalTransfer = true,
 }: Props) {
   const toast = useToast();
   const router = useRouter();
@@ -84,18 +88,11 @@ export function InboxClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitting, setSplitting] = useState<Row | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
-  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [bankFilter, setBankFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const autoTagCount = autoTags ? Object.keys(autoTags).length : 0;
-
-  const kindCounts = useMemo(() => {
-    const counts: Record<TxnKind, number> = { transfer: 0, cc_payment: 0, other: 0 };
-    for (const r of rows) counts[r.kind] += 1;
-    return counts;
-  }, [rows]);
 
   const categoryCounts = useMemo(() => {
     if (!categories) return {} as Record<string, number>;
@@ -109,7 +106,6 @@ export function InboxClient({
 
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
-      if (kindFilter !== "all" && r.kind !== kindFilter) return false;
       if (sourceFilter !== "all" && r.source !== sourceFilter) return false;
       if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
       if (bankFilter !== "all") {
@@ -119,7 +115,7 @@ export function InboxClient({
       }
       return true;
     });
-  }, [rows, kindFilter, sourceFilter, bankFilter, categoryFilter]);
+  }, [rows, sourceFilter, bankFilter, categoryFilter]);
 
   function update(id: string, patch: { acct?: string; entity?: string }) {
     setPicks((p) => ({ ...p, [id]: { ...p[id], ...patch } }));
@@ -366,27 +362,11 @@ export function InboxClient({
         </div>
       ) : null}
 
-      {/* Kind + source filters */}
+      {/* Source + bank filters (transaction kind is now selected via the
+          page-level tabs, so the kind chips live there). */}
       {showSourceFilters ? (
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs">
-        <span className="text-muted">Filter:</span>
-        <KindChip label={`All (${rows.length})`} active={kindFilter === "all"} onClick={() => setKindFilter("all")} />
-        <KindChip
-          label={`Internal Transfer (${kindCounts.transfer})`}
-          active={kindFilter === "transfer"}
-          onClick={() => setKindFilter("transfer")}
-        />
-        <KindChip
-          label={`CC Payment (${kindCounts.cc_payment})`}
-          active={kindFilter === "cc_payment"}
-          onClick={() => setKindFilter("cc_payment")}
-        />
-        <KindChip
-          label={`Other (${kindCounts.other})`}
-          active={kindFilter === "other"}
-          onClick={() => setKindFilter("other")}
-        />
-        <span className="ml-3 text-muted">Source:</span>
+        <span className="text-muted">Source:</span>
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
@@ -431,9 +411,11 @@ export function InboxClient({
         {selected.size > 0 ? (
           <>
             <span className="text-[11px] text-muted">{selected.size} selected</span>
-            <Button size="sm" variant="outline" onClick={markSelectedTransfer} loading={isPending}>
-              Mark as Transfer
-            </Button>
+            {showInternalTransfer ? (
+              <Button size="sm" variant="outline" onClick={markSelectedTransfer} loading={isPending}>
+                Mark as Transfer
+              </Button>
+            ) : null}
             <Button size="sm" variant="outline" onClick={markSelectedCcPayment} loading={isPending}>
               Mark as CC Payment
             </Button>

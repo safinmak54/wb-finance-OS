@@ -108,3 +108,35 @@ export function detectEntityFromBankAccount(
   }
   return null;
 }
+
+/**
+ * Credit-card account-number → entity map. Card statement exports (e.g.
+ * Amex) do not carry a vendor/payee entity signal — every row is for the
+ * same card — so the entity is resolved from the card's account number
+ * instead. The value in the file may be masked or dash-prefixed
+ * (e.g. "-01001", "XXXX-XXXXXX-01001"); we strip non-digits and match on
+ * the trailing account suffix.
+ *
+ * Order longest suffix first so a shorter suffix can't shadow a longer
+ * one that shares the same tail.
+ */
+const CREDIT_CARD_ACCOUNT_ENTITY_MAP: Array<{
+  suffix: string;
+  code: EntityCode;
+}> = [
+  { suffix: "81001", code: "ONEOPS" },
+  { suffix: "01001", code: "LP" },
+  { suffix: "2009", code: "BP" },
+];
+
+export function detectEntityFromCardAccount(
+  accountNumber: string | null | undefined,
+): EntityCode | null {
+  if (!accountNumber) return null;
+  const digits = accountNumber.replace(/\D/g, "");
+  if (!digits) return null;
+  for (const entry of CREDIT_CARD_ACCOUNT_ENTITY_MAP) {
+    if (digits.endsWith(entry.suffix)) return entry.code;
+  }
+  return null;
+}
