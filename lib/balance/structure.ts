@@ -445,8 +445,8 @@ export function buildExactBalanceSheet(
     { kind: "line" as const, label: "2041 - AP-Google Ads Clearing", amount: v("2041"), codes: ["2041"] },
     { kind: "line" as const, label: "2042 - AP-Meta Ads Clearing", amount: v("2042"), codes: ["2042"] },
     { kind: "line" as const, label: "2043 - AP-Bing Ads Clearing", amount: v("2043"), codes: ["2043"] },
-    { kind: "line" as const, label: "2044 - AP-ASI Clearing", amount: v("2044"), codes: ["2044"] },
-    { kind: "line" as const, label: "2045 - AP-Sage Clearing", amount: v("2045"), codes: ["2045"] },
+    { kind: "line" as const, label: "2044 - AP-ASI/Sage Clearing", amount: v("2044"), codes: ["2044"] },
+    { kind: "line" as const, label: "2045 - AP-MNTN/Amazon Clearing", amount: v("2045"), codes: ["2045"] },
   ];
   const marketingCodes = ["2041", "2042", "2043", "2044", "2045"];
   const marketingTotal = sum(marketingLines);

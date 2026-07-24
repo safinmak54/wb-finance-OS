@@ -145,8 +145,8 @@ const IS_STRUCTURE: IsBlock[] = [
       { code: "5011", name: "Google Ads" },
       { code: "5012", name: "Meta Ads" },
       { code: "5013", name: "Bing Ads" },
-      { code: "5014", name: "ASI Ads" },
-      { code: "5015", name: "Sage Ads" },
+      { code: "5015", name: "ASI/Sage Ads" },
+      { code: "5016", name: "MTNT/Amazon Ads" },
       { code: "5017", name: "Ad Agency Fee" },
     ],
   },
@@ -167,6 +167,7 @@ const IS_STRUCTURE: IsBlock[] = [
       { code: "6001", name: "Wages — W2" },
       { code: "6002", name: "Contractor — 1099" },
       { code: "6003", name: "Payroll Tax Expense" },
+      { code: "6004", name: "Contractor- Other (Overseas)" },
     ],
   },
   {
