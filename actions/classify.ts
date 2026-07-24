@@ -12,7 +12,10 @@ import { entityCodeToId } from "@/lib/queries/entities";
 import { entityFilterFromSearchParams } from "@/lib/entity-filter";
 import { bulkClassifyTransactions } from "./transactions";
 
-const RULE_ROLES = ["admin"] as const;
+// Classification Rules is an Epic-1 "Reference" page: accounting users may
+// view AND edit it. Keep this in sync with `admin-rules` in
+// lib/auth/permissions.ts (the sidebar/route gate).
+const RULE_ROLES = ["bookkeeper", "cpa", "admin"] as const;
 const AUTO_TAG_ROLES = ["bookkeeper", "admin"] as const;
 
 const UpsertSchema = z.object({

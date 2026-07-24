@@ -26,8 +26,11 @@ export type PnlRow =
   | {
       kind: "account";
       sectionId: string;
-      accountId: string;
+      // null when the account is absent from the chart of accounts — the row
+      // renders "N/A" and drills to a notice instead of transactions.
+      accountId: string | null;
       accountCode: string;
+      missing?: boolean;
       manualEditable: boolean;
       label: string;
       values: Record<string, number>;
@@ -68,6 +71,9 @@ type DrillContext = {
   singleAccountId: string | null;
   entityCodes: string[];
   range: { from: string; to: string };
+  // When set, the modal shows this notice instead of fetching transactions
+  // (used for accounts that don't exist in the chart of accounts).
+  notice?: string;
 };
 
 const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
@@ -163,6 +169,7 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
     row: Extract<PnlRow, { kind: "account" }>,
     col: PnlValueColumn,
   ) {
+    if (!row.accountId) return;
     setDrill({
       title: `${row.label} · ${col.label}`,
       accountIds: [row.accountId],
@@ -182,6 +189,18 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
       singleAccountId: null,
       entityCodes: col.entityCodes,
       range: col.range,
+    });
+  }
+
+  function openMissingDrill(row: Extract<PnlRow, { kind: "account" }>) {
+    setDrill({
+      title: row.label,
+      accountIds: [],
+      singleAccountId: null,
+      entityCodes: [],
+      range: doc.range,
+      notice:
+        "This account doesn’t exist in the chart of accounts yet, so there are no transactions to show. It will populate once the account is created and activity is posted to it.",
     });
   }
 
@@ -312,9 +331,47 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
 
             if (row.kind === "account") {
               if (collapsed[row.sectionId]) return null;
+
+              // Account absent from the chart of accounts: render "N/A" in
+              // every value column; clicking opens a notice modal.
+              if (row.missing) {
+                return (
+                  <div
+                    key={`a-missing-${row.accountCode}`}
+                    className="grid items-center gap-x-1.5 border-t border-border px-3 py-0.5 text-xs hover:bg-surface-2/40"
+                    style={{ gridTemplateColumns: gridCols }}
+                  >
+                    <div
+                      className="pl-6 text-muted/60"
+                      title="This account doesn’t exist in the chart of accounts"
+                    >
+                      {row.label}
+                    </div>
+                    {doc.valueColumns.map((c) => (
+                      <Fragment key={c.key}>
+                        <button
+                          type="button"
+                          className="text-right font-mono text-muted/60 hover:text-muted hover:underline"
+                          onClick={() => openMissingDrill(row)}
+                          title="Account not in chart of accounts — click for details"
+                        >
+                          N/A
+                        </button>
+                        {showPct && (
+                          <div className="text-right font-mono text-[10px] text-muted/40">
+                            —
+                          </div>
+                        )}
+                      </Fragment>
+                    ))}
+                  </div>
+                );
+              }
+
+              const accountId = row.accountId as string;
               return (
                 <div
-                  key={`a-${row.accountId}`}
+                  key={`a-${accountId}`}
                   className="grid items-center gap-x-1.5 border-t border-border px-3 py-0.5 text-xs hover:bg-surface-2/40"
                   style={{ gridTemplateColumns: gridCols }}
                 >
@@ -344,7 +401,7 @@ export function PnlClient({ doc }: { doc: PnlDocument }) {
                         {editable ? (
                           <EditableValueCell
                             value={v}
-                            accountId={row.accountId}
+                            accountId={accountId}
                             entityCode={doc.entityCol as string}
                             month={c.key}
                             onSaved={() => router.refresh()}
@@ -687,6 +744,8 @@ function DrillModal({
     setError(null);
     setEdits({});
     const snapshot = ctx;
+    // Missing-account notice: nothing to fetch.
+    if (snapshot.notice) return;
     startTransition(async () => {
       try {
         // Drill from `transactions_pnl` (latest snapshot only). Use the
@@ -791,17 +850,23 @@ function DrillModal({
       title={ctx ? ctx.title : ""}
       size="lg"
     >
-      <div className="mb-2 flex items-center justify-end gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={downloadCsv}
-          disabled={!rows || rows.length === 0}
-        >
-          Download CSV
-        </Button>
-      </div>
-      {pending && !rows ? (
+      {!ctx?.notice && (
+        <div className="mb-2 flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={downloadCsv}
+            disabled={!rows || rows.length === 0}
+          >
+            Download CSV
+          </Button>
+        </div>
+      )}
+      {ctx?.notice ? (
+        <div className="px-2 py-8 text-center text-xs text-muted">
+          {ctx.notice}
+        </div>
+      ) : pending && !rows ? (
         <div className="px-2 py-6 text-center text-xs text-muted">Loading…</div>
       ) : error ? (
         <div className="text-[11px] text-danger">{error}</div>

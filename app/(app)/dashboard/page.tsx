@@ -275,7 +275,7 @@ export default async function DashboardPage({
   return (
     <PageShell
       page="dashboard"
-      title="Dashboard"
+      title="Key Metrics"
       subtitle={`KPIs · ${period.label}`}
       compact
     >

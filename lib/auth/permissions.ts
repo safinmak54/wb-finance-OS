@@ -29,6 +29,7 @@ export const PAGES = [
   "ap",
   "pnl",
   "balance",
+  "trial-balance",
   "cashflow",
   "forecast",
   "cash-balances",
@@ -59,6 +60,7 @@ export const PAGE_ACCESS: Record<PageId, readonly Role[]> = {
   ap:              ["coo", "cpa", "admin"],
   pnl:             ["coo", "cpa", "admin"],
   balance:         ["coo", "cpa", "admin"],
+  "trial-balance": ["coo", "cpa", "admin"],
   cashflow:        ["coo", "cpa", "admin"],
   forecast:        ["coo", "admin"],
   "cash-balances": ["coo", "bookkeeper", "cpa", "admin"],
@@ -71,7 +73,10 @@ export const PAGE_ACCESS: Record<PageId, readonly Role[]> = {
   banks:           ["coo", "admin"],
   import:          ["coo", "bookkeeper", "cpa", "admin"],
   "admin-users":   ["admin"],
-  "admin-rules":   ["admin"],
+  // Classification Rules is an Epic-1 "Reference" page: viewable + editable by
+  // accounting users, so it matches the Chart of Accounts (`coa`) access set
+  // rather than being admin-only.
+  "admin-rules":   ["bookkeeper", "cpa", "admin"],
 };
 
 /** Discrete capabilities (topbar buttons, dashboard cards, etc.). */
@@ -114,6 +119,7 @@ export const PAGE_PATHS: Record<PageId, string> = {
   ap: "/ap",
   pnl: "/pnl",
   balance: "/balance",
+  "trial-balance": "/trial-balance",
   cashflow: "/cashflow",
   forecast: "/forecast",
   "cash-balances": "/cash-balances",
@@ -131,18 +137,19 @@ export const PAGE_PATHS: Record<PageId, string> = {
 
 /** Pretty labels used in the sidebar. */
 export const PAGE_LABELS: Record<PageId, string> = {
-  dashboard: "Dashboard",
+  dashboard: "Key Metrics",
   inbox: "Bank Transactions",
-  "cc-inbox": "Credit Card Txns",
-  "cashbook-inbox": "Cashbook Txns",
+  "cc-inbox": "Credit Card Transactions",
+  "cashbook-inbox": "Cashbook Transactions",
   ledger: "Ledger",
-  journals: "Journal Entries",
-  reconcile: "Reconciliation",
+  journals: "Manual Journal Entries",
+  reconcile: "ACH/Checks/Wire Reconciliation",
   vendors: "Vendors",
   invoices: "Invoices",
   ap: "AP / Payables",
-  pnl: "Profit & Loss",
+  pnl: "Income Statement",
   balance: "Balance Sheet",
+  "trial-balance": "Trial Balance",
   cashflow: "Cash Flow",
   forecast: "Cash Forecast",
   "cash-balances": "Cash Balances",
@@ -158,21 +165,22 @@ export const PAGE_LABELS: Record<PageId, string> = {
   "admin-rules": "Classification Rules",
 };
 
-/** Sidebar groups (label + ordered page ids). */
+/**
+ * Sidebar groups (label + ordered page ids).
+ *
+ * These are the five Epic 1 sections and only those. Every other page is
+ * intentionally hidden from the sidebar for now — the routes still exist and
+ * stay reachable by URL (and role-gated via PAGE_ACCESS), they just don't
+ * render in the nav. Pages currently hidden: ledger, cashbook, cash-balances,
+ * vendors, invoices, ap, forecast, ratios, cfnotes, sales, productmix, banks,
+ * import, admin-users. Re-add any of them to a group below to surface it.
+ */
 export const SIDEBAR_GROUPS: Array<{ label: string; pages: readonly PageId[] }> = [
-  { label: "Overview", pages: ["dashboard"] },
-  {
-    label: "Accounting",
-    pages: ["inbox", "cc-inbox", "cashbook-inbox", "ledger", "journals", "reconcile", "coa", "admin-rules"],
-  },
-  { label: "Payables", pages: ["vendors", "invoices", "ap"] },
-  {
-    label: "Reports",
-    pages: ["pnl", "balance", "cashflow", "forecast", "cashbook", "cash-balances", "ratios", "cfnotes"],
-  },
-  { label: "Sales", pages: ["sales", "productmix"] },
-  { label: "Setup", pages: ["banks", "import"] },
-  { label: "Admin", pages: ["admin-users"] },
+  { label: "Dashboard", pages: ["dashboard"] },
+  { label: "Accounting", pages: ["reconcile", "journals"] },
+  { label: "Reports", pages: ["pnl", "balance", "trial-balance", "cashflow"] },
+  { label: "Banking", pages: ["inbox", "cc-inbox", "cashbook-inbox"] },
+  { label: "Reference", pages: ["admin-rules", "coa"] },
 ];
 
 // ---------- helpers ----------

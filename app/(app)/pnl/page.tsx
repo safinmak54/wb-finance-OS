@@ -24,63 +24,204 @@ import {
   type EntityCode,
 } from "@/lib/entities";
 import type { Account } from "@/lib/supabase/types";
-import {
-  type Subtype,
-  CODE_TO_SUBTYPE,
-  HIDDEN_ACCOUNT_CODES,
-  signFor,
-  subtypeFor,
-} from "@/lib/pnl/structure";
+import { CODE_TO_SUBTYPE, HIDDEN_ACCOUNT_CODES } from "@/lib/pnl/structure";
 import { PnlClient, type PnlDocument, type PnlRow } from "./PnlClient";
 
 export const dynamic = "force-dynamic";
 
-// P&L structure. Outer entries are "groups" (Column A label). Inner
-// entries are "sections" (Column B label, collapsible). Rendering
-// order is preserved here.
-const STRUCTURE: Array<{
-  key: string;
-  label: string;
-  sections: Array<{ key: string; label: string; subtype: Subtype }>;
-}> = [
+// ---------------------------------------------------------------------------
+// Income Statement structure — Chart of Accounts v2 (see migration
+// 0020_chart_of_accounts_v2.sql).
+//
+// Unlike the previous subtype-bucket approach, each line item is declared
+// EXPLICITLY by account code + name. This lets the statement render a row for
+// every account the spec expects even when that account does not yet exist in
+// the ledger: the value shows "N/A" and clicking it opens a modal explaining
+// the account is absent from the chart of accounts.
+//
+//   - `section` blocks list their expected accounts. `sign` converts a stored
+//     raw amount into a display-positive magnitude (revenue is credit-normal
+//     → +1; contra-revenue and every expense is debit-normal → -1).
+//   - `subtotal` blocks are computed rows: sum of `add` blocks minus `sub`
+//     blocks (both referencing section/subtotal keys defined earlier). Because
+//     every section already displays a positive magnitude, deductions live in
+//     `sub`.
+// ---------------------------------------------------------------------------
+type IsAccountSpec = { code: string; name: string };
+type IsBlock =
+  | {
+      kind: "section";
+      key: string;
+      label: string;
+      sign: 1 | -1;
+      accounts: IsAccountSpec[];
+    }
+  | {
+      kind: "subtotal";
+      key: string;
+      label: string;
+      emphasis?: "primary" | "highlight";
+      add: string[];
+      sub: string[];
+    };
+
+const IS_STRUCTURE: IsBlock[] = [
   {
+    kind: "section",
     key: "gross_revenue",
     label: "Gross Revenue",
-    sections: [
-      { key: "revenue", label: "Revenue", subtype: "gross_revenue" },
-      { key: "sales_return", label: "Sales Return", subtype: "sales_return" },
-      { key: "platform_fee", label: "Platform Fee", subtype: "platform_fee" },
+    sign: 1,
+    accounts: [
+      { code: "4001", name: "Gross Revenue - Stripe" },
+      { code: "4002", name: "Gross Revenue - PayPal" },
+      { code: "4003", name: "Gross Revenue - Direct" },
     ],
   },
   {
+    kind: "section",
+    key: "sales_return",
+    label: "Sales Return",
+    sign: -1,
+    accounts: [
+      { code: "4011", name: "Sales Return - Stripe" },
+      { code: "4012", name: "Sales Return - Paypal" },
+      { code: "4013", name: "Sales Return - Direct" },
+    ],
+  },
+  {
+    kind: "subtotal",
+    key: "gr_excl_ref",
+    label: "Gross Revenue excl. Ref",
+    add: ["gross_revenue"],
+    sub: ["sales_return"],
+  },
+  {
+    kind: "section",
+    key: "platform_fee",
+    label: "Platform Fee",
+    sign: -1,
+    accounts: [
+      { code: "4021", name: "Platform Fee - Stripe" },
+      { code: "4022", name: "Platform Fee - PayPal" },
+      { code: "4023", name: "Platform Fee - Other" },
+    ],
+  },
+  {
+    kind: "section",
+    key: "sales_tax",
+    label: "Sales Tax",
+    sign: -1,
+    accounts: [{ code: "4031", name: "Sales Tax" }],
+  },
+  {
+    kind: "subtotal",
+    key: "net_sales",
+    label: "Net Sales",
+    emphasis: "primary",
+    add: ["gr_excl_ref"],
+    sub: ["platform_fee", "sales_tax"],
+  },
+  {
+    kind: "section",
     key: "cogs",
     label: "Cost of Goods Sold",
-    sections: [
-      { key: "cogs", label: "COGS", subtype: "cogs" },
-      { key: "sales_tax", label: "Sales Tax", subtype: "sales_tax" },
-    ],
+    sign: -1,
+    accounts: [{ code: "5001", name: "COGS - WB+SP" }],
   },
   {
+    kind: "subtotal",
+    key: "gross_profit",
+    label: "Gross Profit",
+    emphasis: "primary",
+    add: ["net_sales"],
+    sub: ["cogs"],
+  },
+  {
+    kind: "section",
     key: "marketing",
     label: "Marketing",
-    sections: [
-      { key: "ad_spends", label: "Ad Spends & Agency", subtype: "marketing" },
+    sign: -1,
+    accounts: [
+      { code: "5011", name: "Google Ads" },
+      { code: "5012", name: "Meta Ads" },
+      { code: "5013", name: "Bing Ads" },
+      { code: "5015", name: "ASI/Sage Ads" },
+      { code: "5016", name: "MTNT/Amazon Ads" },
+      { code: "5017", name: "Ad Agency Fee" },
     ],
   },
   {
-    key: "opex",
-    label: "Operating Expenses",
-    sections: [
-      { key: "labour", label: "Labour Cost", subtype: "labour" },
-      { key: "other_opex", label: "Other Operating Expenses", subtype: "opex" },
+    kind: "subtotal",
+    key: "gp_incl_mktg",
+    label: "Gross Profit incl. Marketing Cost",
+    emphasis: "primary",
+    add: ["gross_profit"],
+    sub: ["marketing"],
+  },
+  {
+    kind: "section",
+    key: "compensation",
+    label: "Compensation",
+    sign: -1,
+    accounts: [
+      { code: "6001", name: "Wages — W2" },
+      { code: "6002", name: "Contractor — 1099" },
+      { code: "6003", name: "Payroll Tax Expense" },
+      { code: "6004", name: "Contractor- Other (Overseas)" },
     ],
   },
   {
-    key: "distribution",
-    label: "Distribution",
-    sections: [
-      { key: "distribution", label: "Distribution", subtype: "distribution" },
+    kind: "section",
+    key: "util_office",
+    label: "Utilities & Office Expenses",
+    sign: -1,
+    accounts: [
+      { code: "7001", name: "Rent expense" },
+      { code: "7002", name: "Utilities" },
+      { code: "7003", name: "Office supplies" },
+      { code: "7004", name: "Repairs and maintenance" },
+      { code: "7005", name: "Telephone and internet" },
+      { code: "7006", name: "Mis Exp" },
     ],
+  },
+  {
+    kind: "section",
+    key: "software_subs",
+    label: "Software, Dues & Subscriptions",
+    sign: -1,
+    accounts: [
+      { code: "7007", name: "Computers and Software" },
+      { code: "7008", name: "Subscriptions" },
+      { code: "7009", name: "Domain Fee" },
+      { code: "7010", name: "Contractor- Other (Upwork)" },
+    ],
+  },
+  {
+    kind: "section",
+    key: "other_fees",
+    label: "Other Fees",
+    sign: -1,
+    accounts: [
+      { code: "7011", name: "Professional Fee" },
+      { code: "7012", name: "Bank fees" },
+      { code: "7013", name: "Management Fee - One Ops" },
+    ],
+  },
+  {
+    kind: "subtotal",
+    key: "other_opex",
+    label: "Other Operating Expense",
+    emphasis: "primary",
+    add: ["compensation", "util_office", "software_subs", "other_fees"],
+    sub: [],
+  },
+  {
+    kind: "subtotal",
+    key: "net_profit",
+    label: "Net Profit",
+    emphasis: "highlight",
+    add: ["gp_incl_mktg"],
+    sub: ["other_opex"],
   },
 ];
 
@@ -152,16 +293,10 @@ export default async function PnlPage({
     CODE_TO_SUBTYPE,
   );
 
-  const accountsBySubtype = new Map<Subtype, Account[]>();
-  for (const a of accounts) {
-    const k = subtypeFor(a);
-    if (!k) continue;
-    if (!accountsBySubtype.has(k)) accountsBySubtype.set(k, []);
-    accountsBySubtype.get(k)!.push(a);
-  }
-  for (const arr of accountsBySubtype.values()) {
-    arr.sort((a, b) => a.account_code.localeCompare(b.account_code));
-  }
+  // Look up the ledger account backing each spec line by its code. A code
+  // absent here renders as an "N/A" (missing) row.
+  const accountsByCode = new Map<string, Account>();
+  for (const a of accounts) accountsByCode.set(a.account_code, a);
 
   // ---- Value columns -----------------------------------------------------
   // A column carries enough context to (a) compute its value from the
@@ -199,11 +334,8 @@ export default async function PnlPage({
     }));
   }
 
-  function valueFor(
-    agg: AccountAggregate | undefined,
-    account: Account,
-    col: Column,
-  ): number {
+  // Raw (unsigned) aggregate value for one account in one column.
+  function rawFor(agg: AccountAggregate | undefined, col: Column): number {
     if (!agg) return 0;
     let raw = 0;
     if (col.monthKey) {
@@ -216,7 +348,7 @@ export default async function PnlPage({
         raw += agg.byEntity.get(code) ?? 0;
       }
     }
-    return raw * signFor(account);
+    return raw;
   }
 
   function emptyRecord(): Record<string, number> {
@@ -225,184 +357,98 @@ export default async function PnlPage({
     return r;
   }
 
-  function valuesForAccount(a: Account): Record<string, number> {
-    const agg = aggregates.get(a.id);
-    const r = emptyRecord();
-    for (const c of valueColumns) r[c.key] = valueFor(agg, a, c);
-    return r;
-  }
+  // Per-block per-column totals and the (existing) account ids each block
+  // covers, for drill-down. Both sections and subtotals are recorded so a
+  // subtotal can union the ids of the blocks it references.
+  const blockValues = new Map<string, Record<string, number>>();
+  const blockAccountIds = new Map<string, string[]>();
 
-  // Section totals + their underlying accountIds for drill-down.
-  const sectionTotals = new Map<string, Record<string, number>>();
-  const sectionAccountRows = new Map<
-    string,
-    Array<{
-      accountId: string;
-      accountCode: string;
-      manualEditable: boolean;
-      label: string;
-      values: Record<string, number>;
-    }>
-  >();
-  const sectionAccountIds = new Map<string, string[]>();
-
-  for (const grp of STRUCTURE) {
-    for (const sec of grp.sections) {
-      const accountsForSection = accountsBySubtype.get(sec.subtype) ?? [];
-      const rows = accountsForSection.map((a) => ({
-        accountId: a.id,
-        accountCode: a.account_code,
-        manualEditable: !API_SOURCED_ACCOUNT_CODES.has(a.account_code),
-        label: `${a.account_code} · ${a.account_name}`,
-        values: valuesForAccount(a),
-      }));
-      const total = emptyRecord();
-      for (const c of valueColumns) {
-        total[c.key] = rows.reduce((s, r) => s + r.values[c.key], 0);
-      }
-      const sectionId = `${grp.key}/${sec.key}`;
-      sectionTotals.set(sectionId, total);
-      sectionAccountRows.set(sectionId, rows);
-      sectionAccountIds.set(
-        sectionId,
-        accountsForSection.map((a) => a.id),
-      );
-    }
-  }
-
-  function st(grpKey: string, secKey: string, colKey: string): number {
-    return sectionTotals.get(`${grpKey}/${secKey}`)?.[colKey] ?? 0;
-  }
-
-  function ids(...sectionIds: string[]): string[] {
-    const out: string[] = [];
-    for (const id of sectionIds) {
-      for (const a of sectionAccountIds.get(id) ?? []) out.push(a);
-    }
-    return out;
-  }
-
-  function computeRow(fn: (colKey: string) => number): Record<string, number> {
-    const r = emptyRecord();
-    for (const c of valueColumns) r[c.key] = fn(c.key);
-    return r;
-  }
-
-  const totalRevenue = computeRow(
-    (k) =>
-      st("gross_revenue", "revenue", k) -
-      st("gross_revenue", "sales_return", k) -
-      st("gross_revenue", "platform_fee", k),
-  );
-  const grossProfit = computeRow(
-    (k) => totalRevenue[k] - st("cogs", "cogs", k) - st("cogs", "sales_tax", k),
-  );
-  const netProfit = computeRow(
-    (k) =>
-      grossProfit[k] -
-      st("marketing", "ad_spends", k) -
-      st("opex", "labour", k) -
-      st("opex", "other_opex", k),
-  );
-  const balance = computeRow(
-    (k) => netProfit[k] - st("distribution", "distribution", k),
-  );
-
-  // Per-column denominator for % display. "Gross Revenue" = the Revenue
-  // section (accounts 4040-4080) — i.e. top-line sales before returns/fees.
-  const denomByCol: Record<string, number> = {};
-  for (const c of valueColumns) {
-    denomByCol[c.key] = st("gross_revenue", "revenue", c.key);
-  }
-
-  // Emit a flat list of rows in render order.
   const rows: PnlRow[] = [];
-  for (const grp of STRUCTURE) {
-    rows.push({ kind: "group", label: grp.label });
-    for (const sec of grp.sections) {
-      const sectionId = `${grp.key}/${sec.key}`;
-      const secIds = sectionAccountIds.get(sectionId) ?? [];
+
+  for (const block of IS_STRUCTURE) {
+    if (block.kind === "section") {
+      const total = emptyRecord();
+      const existingIds: string[] = [];
+
+      // Section label + subtotal row on top. `total`/`existingIds` are held
+      // by reference and populated by the account loop below.
       rows.push({
         kind: "section",
-        sectionId,
-        label: sec.label,
-        total: sectionTotals.get(sectionId) ?? emptyRecord(),
-        accountIds: secIds,
+        sectionId: block.key,
+        label: block.label,
+        total,
+        accountIds: existingIds,
       });
-      for (const r of sectionAccountRows.get(sectionId) ?? []) {
+
+      for (const spec of block.accounts) {
+        const acct = accountsByCode.get(spec.code);
+        const label = `${spec.code} · ${spec.name}`;
+        if (!acct) {
+          rows.push({
+            kind: "account",
+            sectionId: block.key,
+            accountId: null,
+            accountCode: spec.code,
+            missing: true,
+            manualEditable: false,
+            label,
+            values: emptyRecord(),
+          });
+          continue;
+        }
+        const agg = aggregates.get(acct.id);
+        const values = emptyRecord();
+        for (const c of valueColumns) {
+          const v = rawFor(agg, c) * block.sign;
+          values[c.key] = v;
+          total[c.key] += v;
+        }
+        existingIds.push(acct.id);
         rows.push({
           kind: "account",
-          sectionId,
-          accountId: r.accountId,
-          accountCode: r.accountCode,
-          manualEditable: r.manualEditable,
-          label: r.label,
-          values: r.values,
+          sectionId: block.key,
+          accountId: acct.id,
+          accountCode: spec.code,
+          missing: false,
+          manualEditable: !API_SOURCED_ACCOUNT_CODES.has(spec.code),
+          label,
+          values,
         });
       }
-    }
-    if (grp.key === "gross_revenue") {
+
+      blockValues.set(block.key, total);
+      blockAccountIds.set(block.key, existingIds);
+    } else {
+      // subtotal
+      const total = emptyRecord();
+      for (const c of valueColumns) {
+        let v = 0;
+        for (const k of block.add) v += blockValues.get(k)?.[c.key] ?? 0;
+        for (const k of block.sub) v -= blockValues.get(k)?.[c.key] ?? 0;
+        total[c.key] = v;
+      }
+      const memberIds = new Set<string>();
+      for (const k of [...block.add, ...block.sub]) {
+        for (const id of blockAccountIds.get(k) ?? []) memberIds.add(id);
+      }
+      blockValues.set(block.key, total);
+      blockAccountIds.set(block.key, [...memberIds]);
       rows.push({
         kind: "computed",
-        label: "Total Revenue",
-        values: totalRevenue,
-        emphasis: "primary",
-        accountIds: ids(
-          "gross_revenue/revenue",
-          "gross_revenue/sales_return",
-          "gross_revenue/platform_fee",
-        ),
-      });
-    } else if (grp.key === "cogs") {
-      rows.push({
-        kind: "computed",
-        label: "Gross Profit",
-        values: grossProfit,
-        emphasis: "primary",
-        accountIds: ids(
-          "gross_revenue/revenue",
-          "gross_revenue/sales_return",
-          "gross_revenue/platform_fee",
-          "cogs/cogs",
-          "cogs/sales_tax",
-        ),
-      });
-    } else if (grp.key === "opex") {
-      rows.push({
-        kind: "computed",
-        label: "Net Profit",
-        values: netProfit,
-        emphasis: "highlight",
-        accountIds: ids(
-          "gross_revenue/revenue",
-          "gross_revenue/sales_return",
-          "gross_revenue/platform_fee",
-          "cogs/cogs",
-          "cogs/sales_tax",
-          "marketing/ad_spends",
-          "opex/labour",
-          "opex/other_opex",
-        ),
-      });
-    } else if (grp.key === "distribution") {
-      rows.push({
-        kind: "computed",
-        label: "Balance",
-        values: balance,
-        emphasis: "highlight",
-        accountIds: ids(
-          "gross_revenue/revenue",
-          "gross_revenue/sales_return",
-          "gross_revenue/platform_fee",
-          "cogs/cogs",
-          "cogs/sales_tax",
-          "marketing/ad_spends",
-          "opex/labour",
-          "opex/other_opex",
-          "distribution/distribution",
-        ),
+        label: block.label,
+        values: total,
+        emphasis: block.emphasis,
+        accountIds: [...memberIds],
       });
     }
+  }
+
+  // Per-column denominator for % display: Gross Revenue (top-line sales
+  // before returns/fees).
+  const denomByCol: Record<string, number> = {};
+  const grossRevenueTotals = blockValues.get("gross_revenue");
+  for (const c of valueColumns) {
+    denomByCol[c.key] = grossRevenueTotals?.[c.key] ?? 0;
   }
 
   // Year-to-date range for the "Sync YTD from Admin API" button: Jan 1 of
@@ -445,7 +491,7 @@ export default async function PnlPage({
         : `${period.label} · All entity columns`;
 
   return (
-    <PageShell page="pnl" title="Profit & Loss" subtitle={subtitleSuffix}>
+    <PageShell page="pnl" title="Income Statement" subtitle={subtitleSuffix}>
       <PnlClient doc={document} />
     </PageShell>
   );

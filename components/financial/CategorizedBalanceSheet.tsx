@@ -99,26 +99,28 @@ export function CategorizedBalanceSheet({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel rows={sheet.left} flip onDrill={openDrill} codeToId={codeToId} />
-        <Panel
-          rows={sheet.right}
-          flip={false}
-          onDrill={openDrill}
-          codeToId={codeToId}
-          dynamic={dynamic}
-        />
+        <Panel rows={sheet.assets} flip onDrill={openDrill} codeToId={codeToId} />
+        <div className="flex flex-col gap-4">
+          <Panel
+            rows={sheet.liabilities}
+            flip={false}
+            onDrill={openDrill}
+            codeToId={codeToId}
+          />
+          <Panel
+            rows={sheet.equity}
+            flip={false}
+            onDrill={openDrill}
+            codeToId={codeToId}
+            dynamic={dynamic}
+          />
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-surface px-4 py-4 shadow-card">
         <div className="flex flex-col items-center gap-1 text-center">
           <div className="text-xs font-semibold uppercase tracking-wider text-foreground">
             TOTAL ASSET = LIABILITIES + OWNER&apos;S EQUITY
-          </div>
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
-            or
-          </div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-foreground">
-            TOTAL ASSET − TOTAL LIABILITIES = OWNER&apos;S EQUITY
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-[11px] text-muted">
@@ -243,7 +245,9 @@ function RowView({
           </td>
           <td className="px-4 py-1.5 text-right">
             {row.amount === null ? null : (
-              <Amount value={flip ? -row.amount : row.amount} />
+              <span {...clickProps} className={labelClass}>
+                <Amount value={flip ? -row.amount : row.amount} />
+              </span>
             )}
           </td>
         </tr>
@@ -289,7 +293,9 @@ function RowView({
             </span>
           </td>
           <td className="px-4 py-1 text-right">
-            <Amount value={flip ? -row.amount : row.amount} muted />
+            <span {...clickProps} className={labelClass}>
+              <Amount value={flip ? -row.amount : row.amount} muted />
+            </span>
           </td>
         </tr>
       );
@@ -304,10 +310,12 @@ function RowView({
             </span>
           </td>
           <td className="border-t-2 border-border bg-surface-2 px-4 py-2 text-right">
-            <Amount
-              value={flip ? -amount : amount}
-              className="text-sm font-bold"
-            />
+            <span {...clickProps} className={labelClass}>
+              <Amount
+                value={flip ? -amount : amount}
+                className="text-sm font-bold"
+              />
+            </span>
           </td>
         </tr>
       );
