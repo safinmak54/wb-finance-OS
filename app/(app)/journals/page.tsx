@@ -92,7 +92,7 @@ export default async function JournalsPage({
   return (
     <PageShell
       page="journals"
-      title="Journal Entries"
+      title="Manual Journal Entries"
       subtitle={`${period.label} · ${entity === "all" ? "All entities" : entity} · ${merged.length} entries`}
     >
       <JournalsClient

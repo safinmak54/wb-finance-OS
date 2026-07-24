@@ -345,8 +345,9 @@ export type ExactBSRow =
   | { kind: "spacer" };
 
 export type ExactBalanceSheet = {
-  left: ExactBSRow[];
-  right: ExactBSRow[];
+  assets: ExactBSRow[];
+  liabilities: ExactBSRow[];
+  equity: ExactBSRow[];
   totalAssets: number;
   totalLiabilities: number;
   totalEquity: number;
@@ -372,105 +373,103 @@ export function buildExactBalanceSheet(
     lines.reduce((s, l) => s + l.amount, 0);
 
   // ---- Assets ----
+  // Rebuilt on the v2 chart of accounts (0020_chart_of_accounts_v2.sql), the
+  // same UI-first migration the P&L already went through: live transactions
+  // are still on the old numbering, so each v2-coded line reads $0 until the
+  // data is reclassified / 0020 is applied. Labels carry the account-code
+  // prefix ("1001 - …"); the account list is exactly the one finance
+  // specified (v2 also defines 1007 WB Brands checking and 1014 AR- Pay Later,
+  // deliberately omitted here).
   const cashLines = [
-    { kind: "line" as const, label: "Cash — LP checking", amount: v("1010"), codes: ["1010"] },
-    { kind: "line" as const, label: "Cash — KP checking", amount: v("1020"), codes: ["1020"] },
-    { kind: "line" as const, label: "Cash — BP checking", amount: v("1030"), codes: ["1030"] },
-    { kind: "line" as const, label: "Cash — WBP checking", amount: v("1040"), codes: ["1040"] },
-    {
-      kind: "line" as const,
-      label: "Cash — One Ops checking",
-      amount: v("1050"),
-      codes: ["1050"],
-    },
+    { kind: "line" as const, label: "1001 - Cash — LP checking", amount: v("1001"), codes: ["1001"] },
+    { kind: "line" as const, label: "1002 - Cash — KP checking", amount: v("1002"), codes: ["1002"] },
+    { kind: "line" as const, label: "1003 - Cash — BP checking", amount: v("1003"), codes: ["1003"] },
+    { kind: "line" as const, label: "1004 - Cash — WBP checking", amount: v("1004"), codes: ["1004"] },
+    { kind: "line" as const, label: "1005 - Cash — SP checking", amount: v("1005"), codes: ["1005"] },
+    { kind: "line" as const, label: "1006 - Cash — One Ops checking", amount: v("1006"), codes: ["1006"] },
   ];
+  const cashCodes = ["1001", "1002", "1003", "1004", "1005", "1006"];
   const cashTotal = sum(cashLines);
-  const cashCodes = ["1010", "1020", "1030", "1040", "1050"];
 
-  // The GL has a single "Accounts receivable" (1100); it's shown on the
-  // Wires/Checks line so the balance isn't dropped. Stripe/PayPal clearing
-  // accounts don't exist yet → static $0.
   const arLines = [
-    { kind: "line" as const, label: "AR-Stripe Clearing", amount: 0 },
-    { kind: "line" as const, label: "AR-Paypal Clearing", amount: 0 },
-    {
-      kind: "line" as const,
-      label: "AR-Wires/Checks Clearing",
-      amount: v("1100"),
-      codes: ["1100"],
-    },
+    { kind: "line" as const, label: "1011 - AR-Stripe Clearing", amount: v("1011"), codes: ["1011"] },
+    { kind: "line" as const, label: "1012 - AR-Paypal Clearing", amount: v("1012"), codes: ["1012"] },
+    { kind: "line" as const, label: "1013 - AR-Wires/Checks Clearing", amount: v("1013"), codes: ["1013"] },
   ];
+  const arCodes = ["1011", "1012", "1013"];
   const arTotal = sum(arLines);
 
-  const inventory = v("1200");
-  const prepaid = v("1300");
-  const totalAssets = cashTotal + arTotal + inventory + prepaid;
+  const arIntercompany = v("1021");
+  const inventory = v("1031");
+  const prepaid = v("1041");
+  const totalAssets = cashTotal + arTotal + arIntercompany + inventory + prepaid;
 
-  const left: ExactBSRow[] = [
+  const assets: ExactBSRow[] = [
     { kind: "section", label: "Assets" },
     { kind: "category", label: "Cash", amount: cashTotal, codes: cashCodes },
     ...cashLines,
-    { kind: "category", label: "Account Receivable", amount: arTotal, codes: ["1100"] },
+    { kind: "category", label: "Account Receivable", amount: arTotal, codes: arCodes },
     ...arLines,
-    { kind: "category", label: "Account Receivable - I/C", amount: null },
-    { kind: "category", label: "Inventory", amount: inventory, codes: ["1200"] },
-    { kind: "category", label: "Prepaid expenses", amount: prepaid, codes: ["1300"] },
+    {
+      kind: "category",
+      label: "1021 - Account Receivable - I/C",
+      amount: arIntercompany,
+      codes: ["1021"],
+    },
+    { kind: "category", label: "1031 - Inventory", amount: inventory, codes: ["1031"] },
+    { kind: "category", label: "1041 - Prepaid expenses", amount: prepaid, codes: ["1041"] },
     {
       kind: "total",
       label: "Total Assets",
       amount: totalAssets,
-      codes: [...cashCodes, "1100", "1200", "1300"],
+      codes: [...cashCodes, ...arCodes, "1021", "1031", "1041"],
     },
   ];
 
   // ---- Liabilities ----
+  // Rebuilt on the v2 chart of accounts (0020), same UI-first migration as the
+  // asset side: live transactions are still on the old numbering, so each
+  // v2-coded line reads $0 until the data is reclassified / 0020 is applied.
+  // Labels carry the account-code prefix; the account list is exactly the one
+  // finance specified (v2 also defines 2024 "Credit card payable — One Ops",
+  // deliberately omitted here).
   const cogsLines = [
-    { kind: "line" as const, label: "AP COGS Clearing", amount: v("2010"), codes: ["2010"] },
-    { kind: "line" as const, label: "AP-Shipping Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-Tariff Clearing", amount: 0 },
+    { kind: "line" as const, label: "2031 - AP-COGS Clearing", amount: v("2031"), codes: ["2031"] },
+    { kind: "line" as const, label: "2032 - AP- Shipping Clearing", amount: v("2032"), codes: ["2032"] },
+    { kind: "line" as const, label: "2033 - AP-Tariff Clearing", amount: v("2033"), codes: ["2033"] },
   ];
+  const cogsCodes = ["2031", "2032", "2033"];
   const cogsTotal = sum(cogsLines);
 
   const marketingLines = [
-    { kind: "line" as const, label: "AP-Google Ads Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-Meta Ads Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-Bing Ads Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-ASI Clearing", amount: 0 },
+    { kind: "line" as const, label: "2041 - AP-Google Ads Clearing", amount: v("2041"), codes: ["2041"] },
+    { kind: "line" as const, label: "2042 - AP-Meta Ads Clearing", amount: v("2042"), codes: ["2042"] },
+    { kind: "line" as const, label: "2043 - AP-Bing Ads Clearing", amount: v("2043"), codes: ["2043"] },
+    { kind: "line" as const, label: "2044 - AP-ASI Clearing", amount: v("2044"), codes: ["2044"] },
+    { kind: "line" as const, label: "2045 - AP-Sage Clearing", amount: v("2045"), codes: ["2045"] },
   ];
+  const marketingCodes = ["2041", "2042", "2043", "2044", "2045"];
   const marketingTotal = sum(marketingLines);
 
   const salariesLines = [
-    { kind: "line" as const, label: "AP Salaries Clearing", amount: v("2100"), codes: ["2100"] },
-    { kind: "line" as const, label: "Tax Withholding - Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-Medicare & SS Clearing", amount: 0 },
-    { kind: "line" as const, label: "AP-SUTA & FUTA Clearing", amount: 0 },
+    { kind: "line" as const, label: "2001 - AP Salaries Clearing", amount: v("2001"), codes: ["2001"] },
+    { kind: "line" as const, label: "2002 - AP-Tax Withholding - Clearing", amount: v("2002"), codes: ["2002"] },
+    { kind: "line" as const, label: "2003 - AP-Medicare & SS Clearing", amount: v("2003"), codes: ["2003"] },
+    { kind: "line" as const, label: "2004 - AP-SUTA & FUTA Clearing", amount: v("2004"), codes: ["2004"] },
   ];
+  const salariesCodes = ["2001", "2002", "2003", "2004"];
   const salariesTotal = sum(salariesLines);
 
   const othersLines = [
-    {
-      kind: "line" as const,
-      label: "Credit card payable — LP",
-      amount: v("2400"),
-      codes: ["2400"],
-    },
-    {
-      kind: "line" as const,
-      label: "Credit card payable — KP",
-      amount: v("2410"),
-      codes: ["2410"],
-    },
-    {
-      kind: "line" as const,
-      label: "Credit card payable — BP",
-      amount: v("2420"),
-      codes: ["2420"],
-    },
+    { kind: "line" as const, label: "2021 - Credit card payable — LP", amount: v("2021"), codes: ["2021"] },
+    { kind: "line" as const, label: "2022 - Credit card payable — KP", amount: v("2022"), codes: ["2022"] },
+    { kind: "line" as const, label: "2023 - Credit card payable — BP", amount: v("2023"), codes: ["2023"] },
   ];
+  const othersCodes = ["2021", "2022", "2023"];
   const othersTotal = sum(othersLines);
 
-  const salesTax = 0; // no GL account yet
-  const apIC = v("2300"); // Intercompany payable
+  const salesTax = v("2046"); // Accounts Payable - Sales Tax
+  const apIC = v("2011"); // Intercompany payable
 
   const totalLiabilities =
     cogsTotal +
@@ -479,44 +478,65 @@ export function buildExactBalanceSheet(
     othersTotal +
     salesTax +
     apIC;
-  const liabilityCodes = ["2010", "2100", "2400", "2410", "2420", "2300"];
+  const liabilityCodes = [
+    ...cogsCodes,
+    ...marketingCodes,
+    ...salariesCodes,
+    ...othersCodes,
+    "2046",
+    "2011",
+  ];
 
   // ---- Owner's Equity ----
   // Three peer line items (Retained Earnings, Net Income, Owner's Distribution)
-  // under the section header — none is a sub-header. Net Income comes from the
-  // P&L (passed in). Owner's Distribution is entered manually on the sheet
-  // (positive magnitude), reduces equity, and is no longer read from GL
-  // accounts 3030/3100.
-  const retained = v("3020");
+  // under the section header — none is a sub-header. Labelled with v2 chart-of-
+  // accounts codes (0020: 3001/3002/3003), but only Retained Earnings is GL-
+  // sourced: it reads v2 account 3001 (was 3020) and is $0 until data is
+  // reclassified. Net Income is the current-period figure from the P&L (NOT GL
+  // account 3002), and Owner's Distribution stays the manually entered figure
+  // that reduces equity (NOT GL account 3003) — so neither of those is
+  // drillable, since their displayed value doesn't come from a ledger account.
+  const retained = v("3001");
   const distributionImpact = -ownerDistribution;
   const totalEquity = retained + netIncome + distributionImpact;
 
-  const right: ExactBSRow[] = [
+  const liabilities: ExactBSRow[] = [
     { kind: "section", label: "Liabilities" },
-    { kind: "category", label: "Accounts Payable - COGS", amount: cogsTotal, codes: ["2010"] },
+    { kind: "category", label: "Accounts Payable - COGS", amount: cogsTotal, codes: cogsCodes },
     ...cogsLines,
     {
       kind: "category",
       label: "Accounts Payable - Marketing",
       amount: marketingTotal,
+      codes: marketingCodes,
     },
     ...marketingLines,
     {
       kind: "category",
       label: "Accounts Payable - Salaries",
       amount: salariesTotal,
-      codes: ["2100"],
+      codes: salariesCodes,
     },
     ...salariesLines,
     {
       kind: "category",
       label: "Accounts Payable - Others",
       amount: othersTotal,
-      codes: ["2400", "2410", "2420"],
+      codes: othersCodes,
     },
     ...othersLines,
-    { kind: "category", label: "Accounts Payable - Sales Tax", amount: salesTax },
-    { kind: "category", label: "Accounts Payable - I/C", amount: apIC, codes: ["2300"] },
+    {
+      kind: "category",
+      label: "2046 - Accounts Payable - Sales Tax",
+      amount: salesTax,
+      codes: ["2046"],
+    },
+    {
+      kind: "category",
+      label: "2011 - Accounts Payable - I/C",
+      amount: apIC,
+      codes: ["2011"],
+    },
     { kind: "spacer" },
     {
       kind: "total",
@@ -524,13 +544,15 @@ export function buildExactBalanceSheet(
       amount: totalLiabilities,
       codes: liabilityCodes,
     },
-    { kind: "spacer" },
+  ];
+
+  const equity: ExactBSRow[] = [
     { kind: "section", label: "Owner's Equity" },
-    { kind: "line", label: "Retained Earnings", amount: retained, codes: ["3020"] },
-    { kind: "line", label: "Net Income", amount: netIncome },
+    { kind: "line", label: "3001 - Retained earnings", amount: retained, codes: ["3001"] },
+    { kind: "line", label: "3002 - Net Income", amount: netIncome },
     {
       kind: "line",
-      label: "Owner's Distribution",
+      label: "3003 - Owners Distribution",
       amount: distributionImpact,
       role: "ownerDistribution",
     },
@@ -539,10 +561,17 @@ export function buildExactBalanceSheet(
       kind: "total",
       label: "Total Owner's Equity",
       amount: totalEquity,
-      codes: ["3020"],
+      codes: ["3001"],
       role: "equityTotal",
     },
   ];
 
-  return { left, right, totalAssets, totalLiabilities, totalEquity };
+  return {
+    assets,
+    liabilities,
+    equity,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+  };
 }

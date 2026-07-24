@@ -42,7 +42,7 @@ export default async function ReconcilePage({
   return (
     <PageShell
       page="reconcile"
-      title="Reconciliation"
+      title="ACH/Checks/Wire Reconciliation"
       subtitle={`${period.label} · ${entity === "all" ? "All entities" : entity}`}
     >
       <ReconcileClient

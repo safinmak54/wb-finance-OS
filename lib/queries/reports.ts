@@ -191,12 +191,13 @@ export async function fetchPnlReportData(
 
 /**
  * Mirrors `app.fetchBalanceSheetData()` from legacy/app.js (~line 1360).
- * No date filter — balance sheet uses cumulative balances across all
- * history.
+ * The balance sheet is a point-in-time snapshot, so balances are the
+ * cumulative sum of every transaction dated on/before the as-of date
+ * (`args.to`). Omit `to` for the all-history cumulative total.
  */
 export async function fetchBalanceSheetData(
   supabase: Sb,
-  args: { entity: EntityFilterValue },
+  args: { entity: EntityFilterValue; to?: string },
 ): Promise<BalanceSheetTxn[]> {
   let q = supabase
     .from("transactions")
@@ -206,6 +207,13 @@ export async function fetchBalanceSheetData(
 
   if (args.entity && args.entity !== "all") {
     q = applyEntityCodeFilter(q, "entity", args.entity);
+  }
+
+  // As-of filter: everything dated on/before the end date, plus undated rows
+  // (matching the null-date convention in `monthlyBalanceSnapshots`, which
+  // folds a null `acc_date` into every month bucket).
+  if (args.to) {
+    q = q.or(`acc_date.lte.${args.to},acc_date.is.null`);
   }
 
   const { data, error } = await q.returns<BalanceSheetTxn[]>();
