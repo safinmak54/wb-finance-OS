@@ -148,23 +148,30 @@ export function listUnclassifiedCC(
   return listRawBySide(supabase, "cc", false, opts);
 }
 
-/** Count of still-pending rows for one side (ignores any date window) — drives
- *  the "To classify (N)" tab label so it stays accurate while viewing the
- *  Finalized tab or a narrowed month. */
-export async function countUnclassifiedSide(
+/** Count of raw rows on one side, either pending (`classified=false`) or
+ *  finalized. Honours the same entity + month window as {@link listRawBySide}
+ *  so the funnel cards always agree with the table underneath them. */
+export async function countRawBySide(
   supabase: Sb,
   side: TxnSide,
-  opts: { entity?: EntityFilterValue; codeToId?: Record<string, string> } = {},
+  classified: boolean,
+  opts: RawListOpts = {},
 ): Promise<number> {
   let q = supabase
     .from("raw_transactions")
     .select("id", { count: "exact", head: true })
-    .eq("classified", false);
+    .eq("classified", classified);
 
   if (opts.entity && opts.codeToId) {
     q = applyEntityIdFilter(q, "entity_id", opts.entity, opts.codeToId);
   }
   q = applySideFilter(q, side);
+
+  if (opts.range) {
+    q = q
+      .gte("accounting_date", opts.range.from)
+      .lte("accounting_date", opts.range.to);
+  }
 
   const { count, error } = await q;
   if (error) throw error;
